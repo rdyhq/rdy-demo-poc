@@ -108,7 +108,7 @@ function slot(value: any, i: number, old: HomeContent, now: number, preview: boo
 export function normalize(value: any, old=emptyHome, now=Date.now(), preview=false): HomeContent {
   if (!value || typeof value!=='object') throw invalid('content','Enter home content.');
   if (value.schemaVersion!==undefined&&value.schemaVersion!==1) throw invalid('content','This home content version is not supported.');
-  if (!themeNames.includes(value.theme)) throw invalid('theme','Choose a Lobby theme.');
+  if (!themeNames.includes(value.theme)) throw invalid('theme','Choose a LINB theme.');
   const sessions=list(value.sessions,'sessions',7).map((entry,i)=>slot(entry,i,old,now,preview));
   const updates=list(value.updates,'updates',3).map((entry,i)=>({
     id:id(entry?.id,'updates.'+i),text:text(entry?.text,'updates.'+i,280,true),
@@ -129,21 +129,4 @@ export function normalize(value: any, old=emptyHome, now=Date.now(), preview=fal
 export function nextSession(content: HomeContent, now: number) {
   return content.sessions.filter(s=>Date.parse(s.instant)>now)
     .sort((a,b)=>Date.parse(a.instant)-Date.parse(b.instant)||a.id.localeCompare(b.id))[0];
-}
-
-export function calendar(slot: SessionSlot, home: string, committed: Date, url: string) {
-  const utc=(date: Date)=>date.toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
-  const escape=(value: string)=>value.replace(/\\/g,'\\\\').replace(/\r\n|\n|\r/g,'\\n').replace(/[,;]/g, '\\$&');
-  const fold=(line: string)=>{
-    let result='', size=0;
-    for (const char of line) {
-      const n=Buffer.byteLength(char);
-      if(size+n>75){result+='\r\n ';size=1;}
-      result+=char;size+=n;
-    }
-    return result;
-  };
-  return ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Lobby//Session snapshot//EN','CALSCALE:GREGORIAN','BEGIN:VEVENT',
-    'UID:'+home+'/'+slot.id+'@'+new URL(url).hostname,'DTSTAMP:'+utc(committed),'DTSTART:'+utc(new Date(slot.instant)),
-    'SUMMARY:'+escape(slot.title),'URL:'+url,'END:VEVENT','END:VCALENDAR',''].map(fold).join('\r\n');
 }

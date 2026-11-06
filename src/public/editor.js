@@ -177,7 +177,7 @@ async function request(path,options={}) {
   const response=await fetch(path,{...options,signal:AbortSignal.timeout(15000)});
   const data=await response.json().catch(()=>({}));
   if (!response.ok) {
-    const error=new Error(data.message||'Lobby could not complete this request.');
+    const error=new Error(data.message||'LINB could not complete this request.');
     error.status=response.status;
     error.fields=data.fields;
     error.requestId=data.requestId;
@@ -226,7 +226,7 @@ async function mutate(action,value) {
       // The mutation returned a receipt. Retrying the original attempt also rechecks the current state.
       retry={action,value};
       by('retry').hidden=false;
-      show('Lobby recorded the attempt but could not load the current state. Retry the original attempt to refresh.',true);
+      show('LINB recorded the attempt but could not load the current state. Retry the original attempt to refresh.',true);
     }
   } catch (error) {
     if (error.status===401) {
@@ -362,7 +362,7 @@ by('preview').addEventListener('click',()=>{
   preview.action='/editor/preview';
   const target=window.open('about:blank','lobby-private-preview');
   if(!target) {
-    show('Allow pop-ups for Lobby to open the private preview.');
+    show('Allow pop-ups for LINB to open the private preview.');
     return;
   }
   preview.target='lobby-private-preview';

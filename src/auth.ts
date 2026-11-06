@@ -53,13 +53,13 @@ export class Auth {
       if (!rows[0]) return null;
       return newProof(client,kind,email,kind==='login'?rows[0].id:null,null);
     });
-    if (token) this.deliver(email,kind==='operator'?'Confirm Lobby operator access':'Confirm your Lobby sign-in',token);
+    if (token) this.deliver(email,kind==='operator'?'Confirm LINB operator access':'Confirm your LINB sign-in',token);
   }
 
   deliver(email: string,subject: string,token: string) {
     const message='Open this link, then select Confirm access. The link expires in 15 minutes.\n\n'+
       this.origin+'/verify#token='+token+'\n\nIf you did not request access, ignore this email.';
-    void this.send(email,subject,message).catch(()=>console.error('Lobby email delivery failed.'));
+    void this.send(email,subject,message).catch(()=>console.error('LINB email delivery failed.'));
   }
 
   async principal(raw: string|undefined,kind: 'creator'|'operator') {
@@ -137,8 +137,8 @@ export class Auth {
       return {current,old:await newProof(client,'mailbox-old',current,creator,change),
         next:await newProof(client,'mailbox-new',next,creator,change)};
     });
-    this.deliver(result.current,'Confirm your current Lobby mailbox',result.old);
-    this.deliver(next,'Confirm your new Lobby mailbox',result.next);
+    this.deliver(result.current,'Confirm your current LINB mailbox',result.old);
+    this.deliver(next,'Confirm your new LINB mailbox',result.next);
   }
 
   async proveChange(client: pg.PoolClient,key: string,proof: any) {

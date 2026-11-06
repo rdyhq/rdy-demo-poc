@@ -19,7 +19,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
   let now=Date.parse('2027-07-16T17:00:00Z');
   const mail:{to:string;text:string}[]=[];
   const images=new Map<string,Buffer>();
-  const app=createApp({pool,origin,clock:()=>now,mail:async(to,_subject,text)=>{mail.push({to,text});},
+  const app=createApp({pool,origin,redirectOrigins:['https://l1nb.io'],clock:()=>now,mail:async(to,_subject,text)=>{mail.push({to,text});},
     objects:{async write(key,bytes){images.set(key,bytes);},async read(key){return images.get(key)!;}}});
   const get=(path:string,cookie='')=>app.request(origin+path,{headers:cookie?{Cookie:cookie}:{}});
   const post=(path:string,value:Record<string,string>,cookie='',authOrigin=origin)=>app.request(origin+path,{
@@ -82,7 +82,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal((await get('/h/'+id)).status,404);
       assert.equal((await get('/api/editor')).status,401);
     });
-    await t.test('preview, image derivative, revisions, replay, and calendar expiry',async()=>{
+    await t.test('preview, image derivative, revisions, replay, and retired calendar compatibility',async()=>{
       const tiny=await sharp({create:{width:30,height:30,channels:3,background:'#324384'}}).png().toBuffer();
       const form=new FormData();
       form.set('image',new File([Uint8Array.from(tiny)],'avatar.png',{type:'image/png'}));
@@ -110,21 +110,28 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal((await change('publish',{...request,revision:revision+1},creatorCookie)).status,409);
       assert.equal((await pool.query('SELECT count(*)::int n FROM publications')).rows[0].n,1);
       const home=await get('/h/'+id);
-      assert.match(await home.text(),/Mira Vale.*Surface route practice.*Add to calendar/s);
+      const publicPage=await home.text();
+      assert.match(publicPage,/Mira Vale.*Surface route practice/s);
+      assert.doesNotMatch(publicPage,/Add to calendar/);
       const image=await get(imagePath);
       assert.equal(image.status,200);
       assert.equal(image.headers.get('content-type'),'image/webp');
       calendarPath='/h/'+id+'/calendar/'+slot+'/'+publication+'.ics';
       const file=await get(calendarPath);
-      assert.match(file.headers.get('content-type')!,/^text\/calendar/);
-      const ics=await file.text();
-      assert.match(ics,/DTSTART:20270717T190000Z/);
-      assert.doesNotMatch(ics,/VALARM|DURATION|RRULE/);
+      assert.equal(file.status,410);
+      assert.match(file.headers.get('content-type')!,/^text\/html/);
+      assert.match(await file.text(),/Calendar downloads have ended.*Open creator page/s);
+      for(const publicPath of ['/h/'+id,imagePath,calendarPath]) {
+        const forwarded=await app.request('https://l1nb.io'+publicPath+'?token=drop');
+        assert.equal(forwarded.status,308);
+        assert.equal(forwarded.headers.get('location'),origin+publicPath+'#');
+      }
+      assert.equal((await get(calendarPath.replace(id,'00000000-0000-4000-8000-000000000000'))).status,404);
       now=Date.parse('2027-07-17T19:00:00Z');
       assert.equal((await get(calendarPath)).status,410);
       assert.equal((await get(imagePath)).status,200);
       const quiet=await (await get('/h/'+id)).text();
-      assert.match(quiet,/Next stream is not scheduled/);
+      assert.doesNotMatch(quiet,/NEXT SESSION/);
       assert.doesNotMatch(quiet,/Add to calendar/);
     });
     await t.test('hold authorization, stale review, and unpublish cannot expose the home',async()=>{
@@ -136,7 +143,10 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
         csrf:csrf(cookie),operationId:randomUUID(),publicationId:pub,reason,
       },cookie);
       assert.equal((await act('hold',operator)).status,303);
-      for(const publicPath of ['/h/'+id,imagePath,calendarPath]) assert.equal((await get(publicPath)).status,404);
+      for(const publicPath of ['/h/'+id,imagePath,calendarPath]) {
+        assert.equal((await get(publicPath)).status,404);
+        assert.equal((await app.request('https://l1nb.io'+publicPath)).status,404);
+      }
       assert.equal((await get(path+'/publication',operator)).status,404);
       assert.equal((await get(path+'/publication',second)).status,200);
       assert.equal((await act('review',second,publication)).status,303);
@@ -158,7 +168,10 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal((await get(path+'/publication',second)).status,200);
       assert.equal((await act('review',second)).status,303);
       assert.equal((await act('release',second,'','No current publication')).status,303);
-      for(const publicPath of ['/h/'+id,imagePath,calendarPath]) assert.equal((await get(publicPath)).status,404);
+      for(const publicPath of ['/h/'+id,imagePath,calendarPath]) {
+        assert.equal((await get(publicPath)).status,404);
+        assert.equal((await app.request('https://l1nb.io'+publicPath)).status,404);
+      }
       const state=await (await get('/api/editor',creatorCookie)).json();
       assert.equal(state.held,false);
       assert.equal(state.publication_id,null);

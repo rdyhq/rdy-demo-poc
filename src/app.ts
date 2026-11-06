@@ -6,19 +6,20 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type pg from 'pg';
 import { assetBytes, maxUpload, upload, type Objects } from './assets.ts';
 import { Auth, type SendMail } from './auth.ts';
-import { AppError, calendar, digest, emptyHome, equalSecret, invalid, mailbox, nextSession, normalize, unavailable, uuidPattern } from './domain.ts';
+import { AppError, digest, emptyHome, equalSecret, invalid, mailbox, normalize, unavailable, uuidPattern } from './domain.ts';
 import { invite, inviteList, revokeInvite } from './enrollment.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
-import { accountPage, confirmation, editorPage, invitesPage, landing, message, opsCase, opsPage, renderHome, signIn } from './views.ts';
+import { accountPage, confirmation, editorPage, invitesPage, landing, message, opsCase, opsPage, renderHome, retiredCalendar, signIn } from './views.ts';
 
 const stylesheet=readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8');
+const brandIcon=readFileSync(new URL('./public/linb.svg',import.meta.url),'utf8');
 const editorScript=readFileSync(new URL('./public/editor.js',import.meta.url),'utf8');
 const previewScript=readFileSync(new URL('./public/preview.js',import.meta.url),'utf8');
 const verifyScript=readFileSync(new URL('./public/verify.js',import.meta.url),'utf8');
 
 type Configuration={
-  pool?:pg.Pool; origin?:string; mail?:SendMail; objects?:Objects|null;
+  pool?:pg.Pool; origin?:string; redirectOrigins?:string[]; mail?:SendMail; objects?:Objects|null;
   reportContact?:string; clock?:()=>number; demo?:boolean;
   clientAddress?:(context:Context)=>string;
 };
@@ -39,6 +40,8 @@ export function createApp(config:Configuration={}) {
   const app=new Hono();
   const clock=config.clock??Date.now;
   const origin=config.origin?new URL(config.origin).origin:null;
+  const originHost=origin?new URL(origin).host:null;
+  const redirectHosts=new Set(config.redirectOrigins?.map(value=>new URL(value).host));
   const secure=origin?.startsWith('https:')??false;
   const contact=mailbox(config.reportContact)??undefined;
   const pool=config.pool;
@@ -48,7 +51,7 @@ export function createApp(config:Configuration={}) {
   const name=secure?'__Host-lobby':'lobby';
   const cookie=(c:Context)=>getCookie(c,name);
   const requirePool=()=>{
-    if (!pool) throw new AppError(503,'unavailable','Lobby is temporarily unavailable.');
+    if (!pool) throw new AppError(503,'unavailable','LINB is temporarily unavailable.');
     return pool;
   };
   const requireAuth=()=>{
@@ -76,6 +79,27 @@ export function createApp(config:Configuration={}) {
       c.header('X-Frame-Options','DENY');
       c.header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
     }
+    if(redirectHosts.size&&origin&&c.req.path!=='/healthz') {
+      // The Node adapter builds this URL from the request authority, not X-Forwarded-Host.
+      const url=new URL(c.req.url);
+      if(url.host!==originHost) {
+        if(!redirectHosts.has(url.host)||!['GET','HEAD'].includes(c.req.method)) return c.notFound();
+        const parts=url.pathname.split('/');
+        if(url.pathname!=='/') {
+          const [,root,id,kind,item,file]=parts;
+          const isImage=parts.length===5&&kind==='images'&&uuidPattern.test(item);
+          const isCalendar=parts.length===6&&kind==='calendar'&&uuidPattern.test(item)&&
+            file.endsWith('.ics')&&uuidPattern.test(file.slice(0,-4));
+          if(root!=='h'||!uuidPattern.test(id??'')||!(parts.length===3||isImage||isCalendar)) return c.notFound();
+          const home=await publicHome(requirePool(),id);
+          if(isImage&&!refers(home.content,item)) return c.notFound();
+        }
+        const target=new URL(origin);
+        target.pathname=url.pathname;
+        // None of the current public routes use query parameters. Never forward proofs or tracking.
+        return c.redirect(target.href+'#',308);
+      }
+    }
     if(['POST','PUT','PATCH'].includes(c.req.method)) {
       await (c.req.path==='/api/editor/assets'?fileLimit:limit)(c,next);
     } else await next();
@@ -84,22 +108,23 @@ export function createApp(config:Configuration={}) {
   app.onError((error,c)=>{
     const known=error instanceof AppError;
     const status=known?error.status:503;
-    const text=known?error.message:'Lobby could not complete this request. Please try again.';
+    const text=known?error.message:'LINB could not complete this request. Please try again.';
     const requestId=randomUUID();
-    if(!known) console.error('Lobby request failed',requestId);
+    if(!known) console.error('LINB request failed',requestId);
     if(c.req.path.startsWith('/api/')) return c.json({code:known?error.code:'temporarily_unavailable',message:text,
       requestId,...(known&&error.fields?{fields:error.fields}:{})},status as 401);
-    return c.html(message(status===404?'This home is not available':status===401?'Sign in again':'Lobby could not complete this request',
+    return c.html(message(status===404?'This home is not available':status===401?'Sign in again':'LINB could not complete this request',
       status===503?text+' Request ID: '+requestId:text,status===401?(c.req.path.startsWith('/ops')?'/ops/sign-in':'/sign-in'):'/',
-      status===401?'Request a sign-in link':'Back to Lobby'),status as 401);
+      status===401?'Request a sign-in link':'Back to LINB'),status as 401);
   });
 
   app.get('/healthz',c=>{c.header('Cache-Control','no-store');return c.json({status:'ok'});});
+  app.get('/assets/linb.svg',c=>c.text(brandIcon,200,{'Content-Type':'image/svg+xml','Cache-Control':'public, max-age=300'}));
   app.get('/assets/lobby.css',c=>c.text(stylesheet,200,{'Content-Type':'text/css; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/editor.js',c=>c.text(editorScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/preview.js',c=>c.text(previewScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/verify.js',c=>c.text(verifyScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
-  app.get('/',c=>c.html(landing(Boolean(auth),Boolean(config.demo))));
+  app.get('/',c=>c.html(landing(Boolean(auth),Boolean(config.demo),origin?origin+'/':undefined)));
   app.get('/sign-in',c=>c.html(signIn(false,c.req.query('sent')==='1')));
   app.get('/ops/sign-in',c=>c.html(signIn(true,c.req.query('sent')==='1')));
   for(const [path,kind] of [['/sign-in','login'],['/ops/sign-in','operator']] as const) {
@@ -189,22 +214,10 @@ export function createApp(config:Configuration={}) {
   app.get('/editor/assets/:id',async c=>sendImage(await assetBytes(requirePool(),objects,await principal(c,'creator'),c.req.param('id'))));
 
   app.get('/h/:homeId/calendar/:sessionId/:file',async c=>{
-    const id=c.req.param('homeId'), home=await publicHome(requirePool(),id);
     const file=c.req.param('file');
-    const publication=file.endsWith('.ics')?file.slice(0,-4):'';
-    const sessionId=c.req.param('sessionId');
-    if(!uuidPattern.test(publication)||!uuidPattern.test(sessionId)) throw unavailable();
-    const path='/h/'+id;
-    if(publication!==home.publication_id) return c.html(message('This session changed','Open the home for the current schedule.',path,'Open home'),409);
-    const slot=home.content.sessions.find(item=>item.id===sessionId);
-    const now=clock();
-    if(slot&&Date.parse(slot.instant)<=now) return c.html(message('This session has passed','Open the home for the current schedule.',path,'Open home'),410);
-    if(!slot||nextSession(home.content,now)?.id!==slot.id) {
-      return c.html(message('This session changed','Open the home for the current schedule.',path,'Open home'),409);
-    }
-    return c.text(calendar(slot,id,home.committed_at,(origin??new URL(c.req.url).origin)+path),200,{
-      'Content-Type':'text/calendar; charset=utf-8','Content-Disposition':'attachment; filename="lobby-session.ics"',
-    });
+    if(!file.endsWith('.ics')||!uuidPattern.test(file.slice(0,-4))||!uuidPattern.test(c.req.param('sessionId'))) throw unavailable();
+    const home=await publicHome(requirePool(),c.req.param('homeId'));
+    return c.html(retiredCalendar(home.id),410);
   });
   app.get('/h/:homeId/images/:id',async c=>{
     const db=requirePool(),home=await publicHome(db,c.req.param('homeId')),id=c.req.param('id');
@@ -216,7 +229,7 @@ export function createApp(config:Configuration={}) {
   app.get('/h/:homeId',async c=>{
     const home=await publicHome(requirePool(),c.req.param('homeId'));
     return c.html(renderHome(home.content,{now:clock(),report:contact,asset:id=>'/h/'+home.id+'/images/'+id,
-      calendar:id=>'/h/'+home.id+'/calendar/'+id+'/'+home.publication_id+'.ics'}));
+      canonical:origin?origin+'/h/'+home.id:undefined}));
   });
 
   app.get('/ops',async c=>{
@@ -272,8 +285,8 @@ export function createApp(config:Configuration={}) {
       checkCsrf(c,fields.csrf);
       const notify=await caseAction(requirePool(),actor,id,action,{...fields,publicationId:fields.publicationId||null});
       if(notify&&config.mail) {
-        void config.mail(notify,action==='hold'?'Public access to your Lobby home is held':'Your Lobby visibility hold was released',
-          'Sign in to the Lobby editor for the current status and review contact.').catch(()=>console.error('Lobby status notification failed.'));
+        void config.mail(notify,action==='hold'?'Public access to your LINB home is held':'Your LINB visibility hold was released',
+          'Sign in to the LINB editor for the current status and review contact.').catch(()=>console.error('LINB status notification failed.'));
       }
       return c.redirect('/ops/cases/'+id,303);
     });

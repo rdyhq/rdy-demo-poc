@@ -15,12 +15,19 @@ const host=dev?'127.0.0.1':'0.0.0.0';
 const origin=new URL(process.env.PUBLIC_ORIGIN??process.env.RENDER_EXTERNAL_URL??('http://127.0.0.1:'+port));
 if(origin.pathname!=='/'||origin.search||origin.hash||origin.username||origin.password) throw new Error('PUBLIC_ORIGIN must contain only scheme and host');
 if(origin.protocol!=='https:'&&!(dev&&['127.0.0.1','localhost'].includes(origin.hostname)&&origin.protocol==='http:')&&process.env.DATABASE_URL) {
-  throw new Error('Lobby requires an HTTPS origin outside local development');
+  throw new Error('LINB requires an HTTPS origin outside local development');
 }
 if(dev&&(!['127.0.0.1','localhost'].includes(origin.hostname)||process.env.RENDER_EXTERNAL_URL)) throw new Error('Local mail and object fixtures require loopback');
 
+const redirectOrigins=process.env.PUBLIC_REDIRECT_ORIGINS?.split(',').map(value=>{
+  const alias=new URL(value.trim());
+  if(origin.protocol!=='https:'||alias.protocol!=='https:'||alias.pathname!=='/'||alias.search||alias.hash||
+    alias.username||alias.password||alias.host===origin.host) throw new Error('PUBLIC_REDIRECT_ORIGINS requires distinct HTTPS origins');
+  return alias.origin;
+});
+
 const pool=process.env.DATABASE_URL?connect(process.env.DATABASE_URL):undefined;
-pool?.on('error',()=>console.error('Lobby database connection failed.'));
+pool?.on('error',()=>console.error('LINB database connection failed.'));
 const {POSTMARK_TOKEN,POSTMARK_FROM,R2_ENDPOINT,R2_BUCKET,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY}=process.env;
 const mail=dev
   ?async (to:string,subject:string,text:string)=>{
@@ -32,7 +39,7 @@ const mail=dev
 const objects=dev?localObjects(resolve(dev,'objects')):
   R2_ENDPOINT&&R2_BUCKET&&R2_ACCESS_KEY_ID&&R2_SECRET_ACCESS_KEY?r2Objects(R2_ENDPOINT,R2_BUCKET,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY):null;
 
-const app=createApp({pool,origin:origin.origin,mail,objects,reportContact:process.env.REPORT_CONTACT,
+const app=createApp({pool,origin:origin.origin,redirectOrigins,mail,objects,reportContact:process.env.REPORT_CONTACT,
   demo:Boolean(dev&&process.env.LOBBY_DEMO==='1'),
   clientAddress:context=>{
     const address=getConnInfo(context).remote.address??'unknown';
