@@ -152,7 +152,7 @@ export function createApp(config:Configuration={}) {
   app.get('/api/editor',async c=>{
     const state=await editor(requirePool(),await principal(c,'creator'));
     const {owner_id,...safe}=state;
-    return c.json(safe);
+    return c.json({...safe,csrf:csrf(cookie(c)!)});
   });
   app.post('/editor/preview',async c=>{
     const owner=await principal(c,'creator');

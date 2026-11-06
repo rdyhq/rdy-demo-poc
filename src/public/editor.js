@@ -5,12 +5,13 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 const fields = ['displayName','intro','game','streamUrl'];
 const capacities = {sessions:7,updates:3,links:5};
 const labels = {sessions:'Session',updates:'Update',links:'Link'};
+const fieldNames = {displayName:'Display name',intro:'Intro',game:'Current game',streamUrl:'Stream destination',theme:'Theme',avatarId:'Avatar',coverId:'Cover image'};
 const layouts = {
   sessions:[['title','Session title','text',80],['local','Local date and time','datetime-local'],['zone','IANA time zone','text',90],['offset','UTC offset if the local time repeats','text',6]],
   updates:[['text','Update text','textarea',280]],
   links:[['label','Link label','text',32],['url','HTTPS address','url',2048]],
 };
-const csrf = root.dataset.csrf;
+let csrf = root.dataset.csrf;
 let saved = JSON.parse(root.dataset.content);
 let content = clone(saved);
 let revision = Number(root.dataset.revision);
@@ -22,19 +23,26 @@ let dirty = false;
 let conflicted = false;
 let retry = null;
 let other = null;
+let needsSignIn = false;
 
 function updateControls() {
   const blocked=busy||uploading>0;
-  by('save').disabled=blocked||conflicted;
-  by('preview').disabled=blocked;
-  by('publish').disabled=blocked||conflicted||dirty||revision===0;
-  by('unpublish').disabled=blocked||conflicted;
+  const writesBlocked=blocked||needsSignIn;
+  by('reconnect').hidden=!needsSignIn;
+  by('reconnect').querySelector('button').disabled=blocked;
+  by('save').disabled=writesBlocked||conflicted;
+  by('preview').disabled=writesBlocked;
+  by('publish').disabled=writesBlocked||conflicted||dirty||revision===0||retry?.action==='save';
+  for(const input of form.querySelectorAll('input, textarea, button[data-remove-image], .editor-entry button')) input.disabled=blocked;
+  by('unpublish').disabled=writesBlocked||conflicted;
   by('unpublish').hidden=!publication;
   by('public-link').hidden=!publication||held;
   by('availability').textContent=held?'Home held':publication?'Home available':'Private draft';
   by('hold-note').hidden=!held;
   by('revision-label').textContent='Draft revision '+revision;
   by('publish-help').textContent=conflicted?'Compare the current draft first.':dirty||!revision?'Save changes before you publish.':'The saved revision is ready to publish.';
+  for(const input of form.querySelectorAll('input[type=file]')) input.disabled=writesBlocked;
+  by('retry').disabled=writesBlocked;
   for(const button of form.querySelectorAll('[data-add]')) button.disabled=blocked||content[button.dataset.add].length>=capacities[button.dataset.add];
 }
 
@@ -126,6 +134,12 @@ function show(message,error=false) {
   el.classList.toggle('error',error);
 }
 
+function requireSignIn() {
+  needsSignIn=true;
+  updateControls();
+  show('Your session expired. Your changes are still here.',true);
+}
+
 function clearErrors() {
   const el=by('errors');
   el.hidden=true;
@@ -166,6 +180,7 @@ async function request(path,options={}) {
     const error=new Error(data.message||'Lobby could not complete this request.');
     error.status=response.status;
     error.fields=data.fields;
+    error.requestId=data.requestId;
     throw error;
   }
   return data;
@@ -215,7 +230,7 @@ async function mutate(action,value) {
     }
   } catch (error) {
     if (error.status===401) {
-      show('Your session expired. Sign in in another tab before continuing. Your values are still here.',true);
+      requireSignIn();
     } else if (error.status===409) {
       conflicted=true;
       by('compare').hidden=false;
@@ -226,7 +241,8 @@ async function mutate(action,value) {
     } else {
       retry={action,value};
       by('retry').hidden=false;
-      show(action==='publish'?'Publication could not be confirmed. Your values remain here.':'The attempt could not be confirmed. Your values remain here.',true);
+      const explanation=action==='publish'?'Publication could not be confirmed.':'The attempt could not be confirmed.';
+      show(explanation+' Your values remain here.'+(error.requestId?' Request ID: '+error.requestId:''),true);
     }
   } finally {
     busy=false;
@@ -249,21 +265,86 @@ form.addEventListener('submit',event=>{
   void newMutation('save');
 });
 by('publish').addEventListener('click',()=>{if(!dirty&&!conflicted) void newMutation('publish');});
-by('unpublish').addEventListener('click',()=>by('unpublish-dialog').showModal());
+by('unpublish').addEventListener('click',()=>{
+  const dialog=by('unpublish-dialog');
+  dialog.returnValue='';
+  dialog.showModal();
+});
 by('unpublish-dialog').addEventListener('close',event=>{
   if(event.target.returnValue==='unpublish') void newMutation('unpublish');
 });
 by('retry').addEventListener('click',()=>{if(retry) void mutate(retry.action,retry.value);});
+by('reconnect').querySelector('button').addEventListener('click',async()=>{
+  try {
+    const fresh=await request('/api/editor');
+    if(fresh.id!==root.dataset.home) {
+      show('Sign in with the mailbox for this home. Your changes are still here.',true);
+      return;
+    }
+    csrf=fresh.csrf;
+    needsSignIn=false;
+    refreshBadge(fresh);
+    if(fresh.draft_revision!==revision) {
+      conflicted=true;
+      by('compare').hidden=false;
+    }
+    updateControls();
+    show('Editor reconnected. Review your changes before continuing.');
+  } catch {show('Sign in again, then reconnect this editor.',true);}
+});
+function summarize(key,value) {
+  if(key==='avatarId'||key==='coverId') return value?'An image is selected':'No image selected';
+  if(!Array.isArray(value)) return value||'Not set';
+  if(!value.length) return 'None';
+  return value.map((entry,index)=>{
+    const details=layouts[key].map(([field])=>entry[field]).filter(Boolean).join(' · ');
+    return labels[key]+' '+(index+1)+': '+details;
+  }).join('\n');
+}
+
 by('compare').addEventListener('click',async()=>{
   try {
     other=await request('/api/editor');
-    by('local-values').textContent=JSON.stringify(content,null,2);
-    by('server-values').textContent=JSON.stringify(other.content,null,2);
-    by('compare-dialog').showModal();
+    const comparison=by('comparison');
+    comparison.replaceChildren();
+    for(const key of [...Object.keys(fieldNames),...Object.keys(layouts)]) {
+      if(JSON.stringify(content[key])===JSON.stringify(other.content[key])) continue;
+      const group=document.createElement('fieldset');
+      const title=document.createElement('legend');
+      title.textContent=fieldNames[key]??{sessions:'Schedule',updates:'Updates',links:'Key links'}[key];
+      const pair=document.createElement('div');
+      pair.className='comparison-pair';
+      for(const [label,value] of [['Your values',content[key]],['Current saved values',other.content[key]]]) {
+        const cell=document.createElement('div');
+        const heading=document.createElement('strong');
+        heading.textContent=label;
+        const description=document.createElement('p');
+        description.textContent=summarize(key,value);
+        cell.append(heading,description);
+        pair.append(cell);
+      }
+      const choice=document.createElement('label');
+      choice.className='check';
+      const keep=document.createElement('input');
+      keep.type='checkbox';
+      keep.name=key;
+      keep.checked=true;
+      choice.append(keep,' Keep my values for '+title.textContent.toLowerCase());
+      group.append(title,pair,choice);
+      comparison.append(group);
+    }
+    if(!comparison.childElementCount) comparison.textContent='Your values match the current saved draft.';
+    const dialog=by('compare-dialog');
+    dialog.returnValue='';
+    dialog.showModal();
   } catch(error) {show(error.message,true);}
 });
 by('compare-dialog').addEventListener('close',event=>{
   if(event.target.returnValue!=='reapply'||!other) return;
+  const merged=clone(other.content);
+  for(const selection of by('comparison').querySelectorAll('input:checked')) {
+    merged[selection.name]=content[selection.name];
+  }
   revision=other.draft_revision;
   refreshBadge(other);
   saved=clone(other.content);
@@ -271,8 +352,8 @@ by('compare-dialog').addEventListener('close',event=>{
   retry=null;
   by('compare').hidden=true;
   by('retry').hidden=true;
-  changed();
-  show('Your values remain in the editor. Save them against the current revision.');
+  loadValues(merged);
+  show('Comparison applied to the editor. Save your changes against the current revision.');
 });
 by('preview').addEventListener('click',()=>{
   updatePreview();
@@ -321,6 +402,7 @@ for(const key of ['avatarId','coverId']) {
       content[key]=result.id;
       status.textContent='Image ready.';
     } catch(error) {
+      if(error.status===401) requireSignIn();
       status.textContent=error.message+' Choose the image again to retry.';
     } finally {
       input.value='';

@@ -111,7 +111,7 @@ export function renderHome(content:HomeContent,options:{now:number;asset:(id:str
 
 export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean) {
   return frame('Edit your home',html`<div class="workspace" id="workspace" data-content="${JSON.stringify(state.content)}"
-    data-csrf="${csrf}" data-revision="${state.draft_revision}" data-publication="${state.publication_id??''}" data-held="${state.held}">
+    data-home="${state.id}" data-csrf="${csrf}" data-revision="${state.draft_revision}" data-publication="${state.publication_id??''}" data-held="${state.held}">
     <header class="workspace-head"><div><p class="eyebrow">LOBBY / WORKSPACE</p><h1>Edit your home</h1><p>Set up the page your fans will come back to.</p></div>
       <span id="availability" class="badge">${state.held?'Home held':state.publication_id?'Home available':'Private draft'}</span></header>
     <aside id="hold-note" class="status-note" ${state.held?'':raw('hidden')}>Home held—unavailable to the public. Publishing changes will not release the hold.
@@ -143,10 +143,12 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean) {
        <button type="button" id="unpublish" class="secondary" ${state.publication_id?'':raw('hidden')}>Unpublish</button>
        <div class="notice" id="editor-status" role="status" hidden></div><button id="retry" type="button" class="secondary" hidden>Retry original attempt</button>
        <button id="compare" type="button" class="secondary" hidden>Compare with saved draft</button>
+       <div id="reconnect" class="form-actions" hidden><a href="/sign-in" target="_blank" rel="noopener">Sign in in a new tab</a>
+         <button type="button" class="secondary">Reconnect editor</button></div>
       </section><section class="panel"><p class="micro">PRIVATE PREVIEW</p><h2 id="mini-name">${state.content.displayName||'Your creator name'}</h2>
       <p id="mini-intro">${state.content.intro||'Your intro appears here.'}</p><p class="dim">The preview uses local changes. Your public home changes after Publish.</p></section></aside></div>
-    <dialog id="compare-dialog"><h2>Compare drafts</h2><p>Your changes are still in the editor.</p><div class="comparison"><div><h3>Your values</h3><pre id="local-values"></pre></div><div><h3>Current saved values</h3><pre id="server-values"></pre></div></div>
-      <form method="dialog"><button value="cancel" class="secondary">Cancel</button><button value="reapply">Keep my values against current draft</button></form></dialog>
+    <dialog id="compare-dialog"><h2>Compare drafts</h2><p>Choose which changes to keep in the editor. Uncheck a field to use its saved value.</p><div id="comparison"></div>
+      <form method="dialog"><button value="cancel" class="secondary">Cancel</button><button value="reapply">Apply selected changes</button></form></dialog>
     <dialog id="unpublish-dialog"><h2>Unpublish your home?</h2><p>The home, image and calendar URLs become unavailable. Your private draft stays in the editor.</p>
       <form method="dialog"><button class="secondary" value="cancel">Cancel</button><button value="unpublish">Unpublish</button></form></dialog>
     </div>`,{theme:state.content.theme,wide:true,privatePage:true,script:true});
