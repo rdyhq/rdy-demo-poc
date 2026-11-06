@@ -121,10 +121,10 @@ export function renderHome(content:HomeContent,options:{now:number;asset:(id:str
       <div class="creator-body"><div class="identity">${content.avatarId?html`<img class="avatar" src="${options.asset(content.avatarId)}" alt="">`:
         html`<div class="avatar initials" aria-hidden="true">${initials}</div>`}
         <div><span class="micro dim">CREATOR HOME</span><h1>${name}</h1>${content.intro?html`<p>${content.intro}</p>`:''}</div></div>
-      ${content.game?html`<div class="game"><span class="micro">CURRENT GAME</span><strong>${content.game}</strong></div>`:''}
       ${content.streamUrl?html`<a class="button secondary stream" href="${content.streamUrl}">${streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a>`:
         html`<p class="dim compact">Stream link is not available.</p>`}
       ${content.links.length?html`<section class="links"><h2>Key links</h2><ul>${content.links.map(item=>html`<li><a href="${item.url}">${item.label} <span aria-hidden="true">↗</span></a></li>`)}</ul></section>`:''}
+      ${content.game?html`<div class="game"><span class="micro">CURRENT GAME</span><strong>${content.game}</strong></div>`:''}
       ${slot?html`<section class="next"><p class="micro">NEXT SESSION</p><h2>${slot.title}</h2><dl>
         <div><dt>Date</dt><dd>${slot.local.slice(0,10)}</dd></div><div><dt>Time</dt><dd>${slot.local.slice(11)}</dd></div>
         <div><dt>Time zone</dt><dd>${slot.zone} (${slot.offset})</dd></div></dl></section>`:''}

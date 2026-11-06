@@ -111,7 +111,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal((await pool.query('SELECT count(*)::int n FROM publications')).rows[0].n,1);
       const home=await get('/h/'+id);
       const publicPage=await home.text();
-      assert.match(publicPage,/Mira Vale.*Surface route practice/s);
+      assert.match(publicPage,/Mira Vale.*Open stream on Twitch.*CURRENT GAME.*Surface route practice/s);
       assert.doesNotMatch(publicPage,/Add to calendar/);
       const image=await get(imagePath);
       assert.equal(image.status,200);
