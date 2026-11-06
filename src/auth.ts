@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
+import { consumePendingTwitch } from './twitch.ts';
 import { transaction } from './db.ts';
 import { AppError, conflict, digest, emptyHome, invalid, mailbox, secret, tokenPattern } from './domain.ts';
 
@@ -25,8 +26,8 @@ async function newProof(client: pg.PoolClient,purpose: Purpose,email: string,cre
 
 async function session(client: pg.PoolClient,creator: string|null,operator: string|null) {
   const sid=secret();
-  await client.query(`INSERT INTO sessions(digest,creator_id,operator_id,expires_at)
-    VALUES ($1,$2,$3,now()+interval '7 days')`,[digest(sid),creator,operator]);
+  await client.query(`INSERT INTO sessions(digest,creator_id,operator_id,expires_at,mailbox_proved_at)
+    VALUES ($1,$2,$3,now()+interval '7 days',now())`,[digest(sid),creator,operator]);
   return sid;
 }
 
@@ -34,10 +35,12 @@ export class Auth {
   pool: pg.Pool;
   send: SendMail;
   origin: string;
-  constructor(pool: pg.Pool,send: SendMail,origin: string) {
+  twitchEnabled: boolean;
+  constructor(pool: pg.Pool,send: SendMail,origin: string,twitchEnabled=false) {
     this.pool=pool;
     this.send=send;
     this.origin=origin;
+    this.twitchEnabled=twitchEnabled;
   }
 
   async requestLink(raw: unknown,ip: string,kind: 'login'|'operator') {
@@ -67,13 +70,14 @@ export class Auth {
     const {rows}=await this.pool.query<Principal>(`SELECT s.creator_id,s.operator_id FROM sessions s
       LEFT JOIN operators o ON o.id=s.operator_id
       WHERE s.digest=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
-      AND (s.operator_id IS NULL OR o.active)`,[digest(raw)]);
+      AND (s.operator_id IS NULL OR o.active)
+      AND ($2::boolean OR NOT EXISTS(SELECT 1 FROM twitch_sessions t WHERE t.session_hash=s.digest))`,[digest(raw),this.twitchEnabled]);
     const id=kind==='creator'?rows[0]?.creator_id:rows[0]?.operator_id;
     if (!id) throw notSignedIn();
     return id;
   }
 
-  async redeem(raw: unknown) {
+  async redeem(raw: unknown,pendingTwitch?:string) {
     if (typeof raw!=='string' || !tokenPattern.test(raw)) throw badProof();
     return transaction(this.pool,async client=>{
       const key=digest(raw);
@@ -105,6 +109,7 @@ export class Auth {
         await client.query('INSERT INTO drafts VALUES ($1,0,$2)',[home,emptyHome]);
       }
       await client.query('UPDATE sessions SET revoked_at=now() WHERE creator_id=$1 AND revoked_at IS NULL',[creator]);
+      if(pendingTwitch) await consumePendingTwitch(client,pendingTwitch,creator);
       return {sid:await session(client,creator,null),destination:'/editor'};
     });
   }

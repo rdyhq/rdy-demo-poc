@@ -39,7 +39,17 @@ const mail=dev
 const objects=dev?localObjects(resolve(dev,'objects')):
   R2_ENDPOINT&&R2_BUCKET&&R2_ACCESS_KEY_ID&&R2_SECRET_ACCESS_KEY?r2Objects(R2_ENDPOINT,R2_BUCKET,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY):null;
 
-const app=createApp({pool,origin:origin.origin,redirectOrigins,mail,objects,reportContact:process.env.REPORT_CONTACT,
+const {TWITCH_CLIENT_ID,TWITCH_CLIENT_SECRET,TWITCH_SESSION_KEY,LINB_TWITCH}=process.env;
+if(LINB_TWITCH==='1'&&(!TWITCH_CLIENT_ID||!TWITCH_CLIENT_SECRET||!TWITCH_SESSION_KEY?.match(/^[0-9a-f]{64}$/i))) {
+  throw new Error('Twitch requires client ID, secret and a 32-byte hex session key');
+}
+const twitch=LINB_TWITCH==='1'?{clientId:TWITCH_CLIENT_ID!,clientSecret:TWITCH_CLIENT_SECRET!,key:Buffer.from(TWITCH_SESSION_KEY!,'hex')}:undefined;
+const {LINB_STRIPE_TEST,STRIPE_TEST_SECRET,STRIPE_TEST_PRICE,STRIPE_TEST_WEBHOOK_SECRET}=process.env;
+if(LINB_STRIPE_TEST==='1'&&(!STRIPE_TEST_SECRET||!STRIPE_TEST_PRICE||!STRIPE_TEST_WEBHOOK_SECRET)) {
+  throw new Error('Stripe test mode requires its secret, price and webhook secret');
+}
+const billing=LINB_STRIPE_TEST==='1'?{secret:STRIPE_TEST_SECRET!,price:STRIPE_TEST_PRICE!,webhookSecret:STRIPE_TEST_WEBHOOK_SECRET!}:undefined;
+const app=createApp({pool,origin:origin.origin,redirectOrigins,twitch,billing,pro:process.env.LINB_PRO_SYNTHETIC==='1'?{multipage:process.env.LINB_MULTIPAGE_SYNTHETIC==='1'}:undefined,mail,objects,reportContact:process.env.REPORT_CONTACT,
   demo:Boolean(dev&&process.env.LOBBY_DEMO==='1'),
   clientAddress:context=>{
     const address=getConnInfo(context).remote.address??'unknown';

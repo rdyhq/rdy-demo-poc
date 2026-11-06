@@ -35,6 +35,15 @@ The Render Blueprint describes an Oregon web service and private PostgreSQL 17 d
 - Rehearse restoration in an isolated database with outbound mail and public traffic disabled. Run migrations, revoke restored sessions and access proofs with `npm run manage -- revoke-restored-access`, and inspect draft/snapshot JSON versions, current pointers, ownership, first-publication dates, holds, and referenced R2 objects before considering a cutover.
 - `npm run manage -- prune-evidence` deletes expired report evidence while retaining its audit history. A reviewed retention extension uses `npm run manage -- retain-evidence CASE_ID DAYS REASON APPROVER`.
 
+## Product testing
+
+Use a disposable PostgreSQL database and apply the migrations before running the app. The Free flow includes a shorter first publish, account-free sharing and reports, opt-in Open Graph metadata, and browser-local schedule time. Operators must have staffed access to the report inbox before admitting real creators. Schedule `npm run manage -- prune-evidence` to remove expired report details.
+
+- **Twitch:** Disabled by default. For an approved synthetic deployment, configure `LINB_TWITCH=1`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` and a random 32-byte hex `TWITCH_SESSION_KEY`. Register only the exact canonical `/auth/twitch/callback` URL. Keep mailbox admission and recovery active. Review callback log redaction and provider disconnect behavior during the hosted test. [Twitch OIDC](https://dev.twitch.tv/docs/authentication/getting-tokens-oidc/)
+- **Stripe:** Disabled by default. For synthetic accounts only, configure `LINB_STRIPE_TEST=1`, `STRIPE_TEST_SECRET`, `STRIPE_TEST_PRICE` and `STRIPE_TEST_WEBHOOK_SECRET`. Only test keys are accepted. Register `/webhooks/stripe` in the Stripe sandbox, use the hosted customer portal, and monitor failed or unmatched events. The app ignores return redirects as entitlement evidence. [Stripe webhook verification](https://docs.stripe.com/webhooks/signature)
+- **Pro:** For separately approved synthetic review, enable `LINB_PRO_SYNTHETIC=1` alongside test billing. `LINB_MULTIPAGE_SYNTHETIC=1` additionally opens the two optional pages. Public Free content remains the fallback. Test cancellation, expiry, recovery, disclosure copy, and a real device’s opt-in YouTube playback before an external cohort. No live paid offer is exposed.
+- **Discovery:** The loopback-only demo at `/demo/leaderboard` shows ranked and low-volume fixture states. The public app does not collect leaderboard views or publish rankings. Real collection requires a separate decision.
+
 ## Custom domains
 
 Keep the staging origin until a cutover has been approved. Confirm the DNS zone owner, existing records, and the Render service’s custom domain allowance. Add only the approved domains and use the exact DNS targets and verification steps shown in Render. Verify valid HTTPS and certificate renewal ownership before switching the application origin. [Render custom domains](https://render.com/docs/custom-domains)

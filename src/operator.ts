@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
+import type { ProContent } from './pro.ts';
 import { transaction } from './db.ts';
 import { conflict, invalid, mailbox, unavailable, uuidPattern, type HomeContent } from './domain.ts';
 
@@ -62,14 +63,15 @@ export async function inspectPublication(pool:pg.Pool,actor:string,id:string,ass
   return transaction(pool,async client=>{
     const row=await lockCase(client,actor,id);
     if (row.reviewer_id!==actor || !row.applied_at || row.released_at || (expected && expected!==row.publication_id)) throw unavailable();
-    let content:HomeContent|null=null;
+    let content:HomeContent|null=null,pro:ProContent|null=null;
     if (row.publication_id) {
-      const result=await client.query('SELECT content FROM publications WHERE home_id=$1 AND id=$2',[row.home_id,row.publication_id]);
+      const result=await client.query('SELECT content,pro_content FROM publications WHERE home_id=$1 AND id=$2',[row.home_id,row.publication_id]);
       content=result.rows[0]?.content??null;
+      pro=result.rows[0]?.pro_content??null;
     }
     if (asset && (!content || ![content.avatarId,content.coverId].includes(asset))) throw unavailable();
     if (record) await audit(client,row,actor,asset?'asset_inspected':'publication_inspected',asset??null,null,row.publication_id);
-    return {id:row.home_id,owner:row.owner_id,publicationId:row.publication_id,content};
+    return {id:row.home_id,owner:row.owner_id,publicationId:row.publication_id,content,pro};
   });
 }
 

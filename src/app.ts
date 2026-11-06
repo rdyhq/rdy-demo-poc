@@ -1,25 +1,33 @@
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type pg from 'pg';
+import { normalizePro, proDraft, publicPro } from './pro.ts';
+import { Billing, type BillingConfig } from './billing.ts';
+import { Twitch, twitchCallback, type TwitchConfig } from './twitch.ts';
+import { transaction } from './db.ts';
+import { acceptReport, reportInbox, reportReasons } from './reports.ts';
 import { assetBytes, maxUpload, upload, type Objects } from './assets.ts';
 import { Auth, type SendMail } from './auth.ts';
 import { AppError, digest, emptyHome, equalSecret, invalid, mailbox, normalize, unavailable, uuidPattern } from './domain.ts';
 import { invite, inviteList, revokeInvite } from './enrollment.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
+import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
-import { accountPage, confirmation, editorPage, invitesPage, landing, message, opsCase, opsPage, renderHome, retiredCalendar, signIn } from './views.ts';
+import { accountPage, billingPage, confirmation, editorPage, editorShare, invitesPage, landing, leaderboardDemo, message, proEditor, opsCase, opsPage, renderHome, reportPage, retiredCalendar, signIn } from './views.ts';
 
 const stylesheet=readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8');
 const brandIcon=readFileSync(new URL('./public/linb.svg',import.meta.url),'utf8');
+const playerScript=readFileSync(new URL('./public/player.js',import.meta.url),'utf8');
+const shareScript=readFileSync(new URL('./public/share.js',import.meta.url),'utf8');
 const editorScript=readFileSync(new URL('./public/editor.js',import.meta.url),'utf8');
 const previewScript=readFileSync(new URL('./public/preview.js',import.meta.url),'utf8');
 const verifyScript=readFileSync(new URL('./public/verify.js',import.meta.url),'utf8');
 
 type Configuration={
-  pool?:pg.Pool; origin?:string; redirectOrigins?:string[]; mail?:SendMail; objects?:Objects|null;
+  pool?:pg.Pool; origin?:string; twitch?:TwitchConfig; billing?:BillingConfig; pro?:{multipage:boolean}; redirectOrigins?:string[]; mail?:SendMail; objects?:Objects|null;
   reportContact?:string; clock?:()=>number; demo?:boolean;
   clientAddress?:(context:Context)=>string;
 };
@@ -46,7 +54,13 @@ export function createApp(config:Configuration={}) {
   const contact=mailbox(config.reportContact)??undefined;
   const pool=config.pool;
   const objects=config.objects??null;
-  const auth=pool&&config.mail&&origin?new Auth(pool,config.mail,origin):null;
+  const auth=pool&&config.mail&&origin?new Auth(pool,config.mail,origin,Boolean(config.twitch)):null;
+  const twitch=pool&&auth&&origin&&config.twitch?new Twitch(pool,config.twitch,origin):null;
+  const billing=pool&&auth&&origin&&config.billing?new Billing(pool,origin,config.billing):null;
+  const pro=billing?config.pro:null;
+  const twitchState=secure?'__Host-linb-twitch':'linb-twitch';
+  const twitchPending=secure?'__Host-linb-twitch-pending':'linb-twitch-pending';
+  const twitchCookie={path:'/',secure,httpOnly:true,sameSite:'Lax' as const,maxAge:600};
   const cookieOptions={path:'/',httpOnly:true,secure,sameSite:'Lax' as const,maxAge:7*24*3600};
   const name=secure?'__Host-lobby':'lobby';
   const cookie=(c:Context)=>getCookie(c,name);
@@ -58,7 +72,12 @@ export function createApp(config:Configuration={}) {
     if (!auth) throw new AppError(503,'sign_in_unavailable','Creator sign-in is unavailable.');
     return auth;
   };
-  const principal=(c:Context,role:'creator'|'operator')=>requireAuth().principal(cookie(c),role);
+  const principal=async(c:Context,role:'creator'|'operator')=>{
+    const sid=cookie(c);
+    const owner=await requireAuth().principal(sid,role);
+    if(twitch&&role==='creator'&&sid) await twitch.checkSession(sid);
+    return owner;
+  };
   const sameOrigin=(c:Context)=>{
     if (!origin || c.req.header('Origin')!==origin) throw forbidden();
   };
@@ -77,7 +96,9 @@ export function createApp(config:Configuration={}) {
       c.header('Referrer-Policy','same-origin');
       c.header('X-Content-Type-Options','nosniff');
       c.header('X-Frame-Options','DENY');
-      c.header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+      const allowedForms=(twitch?' https://id.twitch.tv':'')+(billing?' https://checkout.stripe.com https://billing.stripe.com':'');
+      const allowedFrames=pro?"frame-src https://www.youtube-nocookie.com; ":"";
+      c.header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'"+allowedForms+"; "+allowedFrames+"base-uri 'none'; frame-ancestors 'none'");
     }
     if(redirectHosts.size&&origin&&c.req.path!=='/healthz') {
       // The Node adapter builds this URL from the request authority, not X-Forwarded-Host.
@@ -88,10 +109,20 @@ export function createApp(config:Configuration={}) {
         if(url.pathname!=='/') {
           const [,root,id,kind,item,file]=parts;
           const isImage=parts.length===5&&kind==='images'&&uuidPattern.test(item);
+          const isSubpage=Boolean(pro?.multipage&&parts.length===5&&kind==='p'&&uuidPattern.test(item));
+          const isShareImage=parts.length===5&&kind==='share-image'&&uuidPattern.test(item);
           const isCalendar=parts.length===6&&kind==='calendar'&&uuidPattern.test(item)&&
             file.endsWith('.ics')&&uuidPattern.test(file.slice(0,-4));
-          if(root!=='h'||!uuidPattern.test(id??'')||!(parts.length===3||isImage||isCalendar)) return c.notFound();
-          const home=await publicHome(requirePool(),id);
+          if(root!=='h'||!uuidPattern.test(id??'')||!(parts.length===3||isImage||isCalendar||isShareImage||isSubpage)) return c.notFound();
+          const db=requirePool(),home=await publicHome(db,id);
+          if(isSubpage) {
+            const content=await publicPro(db,id,home.publication_id);
+            if(![content?.highlights?.id,content?.recommendations?.id].includes(item)) {
+              const known=await db.query('SELECT 1 FROM pro_page_history WHERE home_id=$1 AND page_id=$2',[id,item]);
+              if(!known.rowCount) return c.notFound();
+            }
+          }
+          if(isShareImage&&(item!==home.publication_id||!(await approvedPreview(db,home))?.coverId)) return c.notFound();
           if(isImage&&!refers(home.content,item)) return c.notFound();
         }
         const target=new URL(origin);
@@ -121,11 +152,13 @@ export function createApp(config:Configuration={}) {
   app.get('/healthz',c=>{c.header('Cache-Control','no-store');return c.json({status:'ok'});});
   app.get('/assets/linb.svg',c=>c.text(brandIcon,200,{'Content-Type':'image/svg+xml','Cache-Control':'public, max-age=300'}));
   app.get('/assets/lobby.css',c=>c.text(stylesheet,200,{'Content-Type':'text/css; charset=utf-8','Cache-Control':'public, max-age=300'}));
+  app.get('/assets/player.js',c=>c.text(playerScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
+  app.get('/assets/share.js',c=>c.text(shareScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/editor.js',c=>c.text(editorScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/preview.js',c=>c.text(previewScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/verify.js',c=>c.text(verifyScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/',c=>c.html(landing(Boolean(auth),Boolean(config.demo),origin?origin+'/':undefined)));
-  app.get('/sign-in',c=>c.html(signIn(false,c.req.query('sent')==='1')));
+  app.get('/sign-in',c=>c.html(signIn(false,c.req.query('sent')==='1',Boolean(twitch),c.req.query('twitch'))));
   app.get('/ops/sign-in',c=>c.html(signIn(true,c.req.query('sent')==='1')));
   for(const [path,kind] of [['/sign-in','login'],['/ops/sign-in','operator']] as const) {
     app.post(path,async c=>{
@@ -135,11 +168,45 @@ export function createApp(config:Configuration={}) {
       return c.redirect(path+'?sent=1',303);
     });
   }
+  if(twitch) {
+    app.post('/auth/twitch',async c=>{
+      sameOrigin(c);
+      const started=await twitch.begin('sign-in');
+      setCookie(c,twitchState,started.state,twitchCookie);
+      return c.redirect(started.url,303);
+    });
+    app.post('/account/twitch',async c=>{
+      const creator=await principal(c,'creator'),fields=await c.req.parseBody(),sid=cookie(c)!;
+      checkCsrf(c,fields.csrf);
+      if(!await twitch.recentEmail(sid,creator)) return c.redirect('/account?twitch=verify',303);
+      if(fields.action==='unlink') {
+        await twitch.unlink(creator);
+        return c.redirect('/account?twitch=unlinked',303);
+      }
+      const started=await twitch.begin('link',sid);
+      setCookie(c,twitchState,started.state,twitchCookie);
+      return c.redirect(started.url,303);
+    });
+    app.get(twitchCallback,async c=>{
+      c.header('Referrer-Policy','no-referrer');
+      const state=getCookie(c,twitchState);
+      deleteCookie(c,twitchState,twitchCookie);
+      try {
+        const result=await twitch.finish(c.req.query('state'),state,c.req.query('code'),cookie(c));
+        if(result.sid) setCookie(c,name,result.sid,cookieOptions);
+        if(result.pending) setCookie(c,twitchPending,result.pending,twitchCookie);
+        return c.redirect(result.destination,303);
+      } catch {
+        return c.redirect('/sign-in?twitch=retry',303);
+      }
+    });
+  }
   app.get('/verify',c=>c.html(confirmation()));
   app.post('/verify',async c=>{
     sameOrigin(c);
     const fields=await c.req.parseBody();
-    const result=await requireAuth().redeem(fields.token);
+    const result=await requireAuth().redeem(fields.token,twitch?getCookie(c,twitchPending):undefined);
+    if(twitch) deleteCookie(c,twitchPending,twitchCookie);
     if ('sid' in result && result.sid) setCookie(c,name,result.sid,cookieOptions);
     if ('clear' in result && result.clear) deleteCookie(c,name,cookieOptions);
     return c.redirect(result.destination,303);
@@ -159,9 +226,33 @@ export function createApp(config:Configuration={}) {
     const {rows}=await db.query('SELECT mailbox FROM creators WHERE id=$1',[creator]);
     const change=await db.query(`SELECT old_proved,new_proved FROM mailbox_changes WHERE creator_id=$1
       AND finished_at IS NULL AND cancelled_at IS NULL`,[creator]);
+    const connection=twitch?await db.query('SELECT login FROM twitch_identities WHERE creator_id=$1',[creator]):null;
     return c.html(accountPage(rows[0].mailbox,change.rows[0],csrf(cookie(c)!),contact??null,
-      c.req.query('sent')==='1'?'Check both mailboxes for verification links.':undefined));
+      c.req.query('sent')==='1'?'Check both mailboxes for verification links.':undefined,
+      connection?{linked:Boolean(connection.rowCount),login:connection.rows[0]?.login,status:c.req.query('twitch')}:undefined,Boolean(billing)));
   });
+  if(billing) {
+    app.get('/account/billing',async c=>{
+      const owner=await principal(c,'creator'),db=requirePool(),state=await editor(db,owner);
+      const home=state.publication_id&&!state.held?await publicHome(db,state.id):null;
+      return c.html(billingPage(home,csrf(cookie(c)!),await billing.status(owner),c.req.query('return')==='1'));
+    });
+    app.post('/account/billing',async c=>{
+      const owner=await principal(c,'creator'),db=requirePool(),fields=await c.req.parseBody();
+      checkCsrf(c,fields.csrf);
+      const {rowCount}=await db.query(`SELECT 1 FROM sessions WHERE digest=$1 AND creator_id=$2 AND revoked_at IS NULL
+        AND expires_at>now() AND mailbox_proved_at>now()-interval '15 minutes'`,[digest(cookie(c)!),owner]);
+      if(!rowCount) throw new AppError(401,'sign_in','Verify your mailbox again before managing billing.');
+      if(fields.action==='portal') return c.redirect(await billing.portal(owner),303);
+      const home=await publicHome(db,(await editor(db,owner)).id);
+      if(fields.action!=='checkout'||fields.approved!=='1'||fields.publication!==home.publication_id) throw invalid('approval','Review the exact Free page before trying checkout.');
+      return c.redirect(await billing.checkout(owner,home),303);
+    });
+    app.post('/webhooks/stripe',async c=>{
+      await billing.receive(await c.req.text(),c.req.header('stripe-signature')??'');
+      return c.json({received:true});
+    });
+  }
   app.post('/account/mailbox',async c=>{
     const creator=await principal(c,'creator');
     const fields=await c.req.parseBody();
@@ -173,7 +264,81 @@ export function createApp(config:Configuration={}) {
   app.get('/account/mailbox-changed',c=>c.html(message('Mailbox changed','Sign in with your new mailbox.','/sign-in','Sign in')));
   app.get('/editor',async c=>{
     const owner=await principal(c,'creator');
-    return c.html(editorPage(await editor(requirePool(),owner),csrf(cookie(c)!),Boolean(objects)));
+    const state=await editor(requirePool(),owner);
+    const linked=twitch&&!state.draft_revision?await requirePool().query('SELECT login FROM twitch_identities WHERE creator_id=$1',[owner]):null;
+    return c.html(editorPage(state,csrf(cookie(c)!),Boolean(objects),linked?.rows[0]?.login,Boolean(pro&&state.publication_id)));
+  });
+  if(pro) {
+    app.get('/editor/pro',async c=>{
+      const owner=await principal(c,'creator'),db=requirePool(),state=await editor(db,owner);
+      if(!state.publication_id) throw unavailable();
+      const draft=await proDraft(db,state.id);
+      return c.html(proEditor(state,draft,csrf(cookie(c)!),pro.multipage,Boolean((await billing!.status(owner))?.active),c.req.query('review')==='1'&&draft.revision>0));
+    });
+    app.post('/editor/pro',async c=>{
+      const owner=await principal(c,'creator'),db=requirePool(),state=await editor(db,owner),fields=await c.req.parseBody();
+      checkCsrf(c,fields.csrf);
+      if(!state.publication_id) throw unavailable();
+      const draft=await proDraft(db,state.id);
+      const content=normalizePro(fields,draft,pro.multipage);
+      const saved=await db.query('UPDATE pro_drafts SET content=$1,revision=revision+1 WHERE home_id=$2 AND revision=$3',
+        [content,state.id,Number(fields.version)]);
+      if(!saved.rowCount) throw new AppError(409,'conflict','The Pro draft changed. Reopen it before saving.');
+      return c.redirect('/editor/pro?review=1',303);
+    });
+    for(const kind of ['preview','free-preview'] as const) app.post('/editor/pro/'+kind,async c=>{
+      const owner=await principal(c,'creator'),db=requirePool(),state=await editor(db,owner),fields=await c.req.parseBody();
+      checkCsrf(c,fields.csrf);
+      if(state.draft_revision!==Number(fields.revision)) throw new AppError(409,'conflict','The Free draft changed. Review it again.');
+      const draft=kind==='preview'?await proDraft(db,state.id):null;
+      const page=typeof fields.page==='string'&&fields.page?fields.page:undefined;
+      if(draft&&(draft.revision!==Number(fields.version)||(page&&![draft.content.highlights?.id,draft.content.recommendations?.id].includes(page)))) throw unavailable();
+      return c.html(renderHome(state.content,{now:clock(),preview:true,asset:id=>'/editor/assets/'+id,
+        pro:draft?.content,currentPage:page}));
+    });
+    app.post('/editor/pro/publish',async c=>{
+      const owner=await principal(c,'creator'),fields=await c.req.parseBody();
+      checkCsrf(c,fields.csrf);
+      if(fields.approved!=='1') throw invalid('approved','Review the Free fallback and Pro pages before publishing.');
+      await mutate(requirePool(),owner,'publish',{revision:Number(fields.revision),proVersion:Number(fields.version),
+        publicationId:fields.publication||null,operationId:fields.operation},clock(),pro);
+      return c.redirect('/editor',303);
+    });
+  }
+  const selection=(value:Record<string,unknown>):Selection=>({name:value.name==='1',intro:value.intro==='1',image:value.image==='1'});
+  const shareProof=(session:string,pub:string,fingerprint:string)=>createHmac('sha256',session).update('lobby:preview:'+pub+':'+fingerprint).digest('hex');
+  app.get('/editor/share',async c=>{
+    const db=requirePool(),owner=await principal(c,'creator'),state=await editor(db,owner);
+    const home=await publicHome(db,state.id);
+    const selected=c.req.query('review')==='1'?selection(c.req.query()):null;
+    const proof=selected?shareProof(cookie(c)!,home.publication_id,previewFingerprint(home.content,selected)):null;
+    return c.html(editorShare(home,(origin??new URL(c.req.url).origin)+'/h/'+home.id,csrf(cookie(c)!),
+      await approvedPreview(db,home),selected,proof,clock()));
+  });
+  app.post('/editor/share',async c=>{
+    const db=requirePool(),owner=await principal(c,'creator'),fields=await c.req.parseBody();
+    checkCsrf(c,fields.csrf);
+    const state=await editor(db,owner);
+    if(fields.action==='disable') {
+      await db.query('DELETE FROM share_preview_consents WHERE home_id=$1',[state.id]);
+      return c.redirect('/editor/share',303);
+    }
+    const home=await publicHome(db,state.id);
+    const selected=selection(fields);
+    if(fields.action!=='enable'||fields.publication!==home.publication_id||!Object.values(selected).some(Boolean)||
+        (selected.image&&!objects)||(selected.image&&!home.content.coverId)) throw invalid('preview','Review the current preview and select at least one available field.');
+    const fingerprint=previewFingerprint(home.content,selected);
+    if(typeof fields.proof!=='string'||!equalSecret(fields.proof,shareProof(cookie(c)!,home.publication_id,fingerprint))) throw forbidden();
+    const consent=await transaction(db,async client=>{
+      await client.query('SELECT id FROM homes WHERE id=$1 FOR UPDATE',[home.id]);
+      return client.query(`INSERT INTO share_preview_consents(home_id,selection,fingerprint)
+      SELECT id,$2,$3 FROM homes h WHERE id=$1 AND publication_id=$4
+        AND NOT EXISTS(SELECT 1 FROM visibility_holds v WHERE v.home_id=h.id AND v.released_at IS NULL)
+      ON CONFLICT(home_id) DO UPDATE SET selection=excluded.selection,fingerprint=excluded.fingerprint,enabled_at=now()`,
+      [home.id,selected,fingerprint,home.publication_id]);
+    });
+    if(!consent.rowCount) throw unavailable();
+    return c.redirect('/editor/share',303);
   });
   app.get('/api/editor',async c=>{
     const state=await editor(requirePool(),await principal(c,'creator'));
@@ -226,15 +391,64 @@ export function createApp(config:Configuration={}) {
     if((await publicHome(db,home.id)).publication_id!==home.publication_id) throw unavailable();
     return sendImage(bytes);
   });
+  app.get('/h/:homeId/share-image/:publicationId',async c=>{
+    const db=requirePool(),home=await publicHome(db,c.req.param('homeId'));
+    if(home.publication_id!==c.req.param('publicationId')) throw unavailable();
+    const approved=await approvedPreview(db,home);
+    if(!approved?.coverId) throw unavailable();
+    const bytes=await assetBytes(db,objects,home.owner_id,approved.coverId);
+    const current=await publicHome(db,home.id);
+    if(current.publication_id!==home.publication_id||(await approvedPreview(db,current))?.coverId!==approved.coverId) throw unavailable();
+    return sendImage(bytes);
+  });
+  for(const method of ['get','post'] as const) {
+    app[method]('/h/:homeId/report',async c=>{
+      const db=requirePool(),home=await publicHome(db,c.req.param('homeId'));
+      const url=(origin??new URL(c.req.url).origin)+'/h/'+home.id;
+      if(method==='get') return c.html(reportPage(home.id,url,reportReasons));
+      sameOrigin(c);
+      const fields=await c.req.parseBody();
+      try { await acceptReport(db,home,config.clientAddress?.(c)??'local',fields); }
+      catch(error) {
+        if(error instanceof AppError) return c.html(reportPage(home.id,url,reportReasons,fields,error.message),error.status as 422);
+        return c.html(reportPage(home.id,url,reportReasons,fields,'The report could not be submitted. Try again.'),503);
+      }
+      return c.html(message('Report received','An operator can review your report.','/h/'+home.id,'Return to the creator page'),201);
+    });
+  }
   app.get('/h/:homeId',async c=>{
-    const home=await publicHome(requirePool(),c.req.param('homeId'));
-    return c.html(renderHome(home.content,{now:clock(),report:contact,asset:id=>'/h/'+home.id+'/images/'+id,
-      canonical:origin?origin+'/h/'+home.id:undefined}));
+    const db=requirePool(),home=await publicHome(db,c.req.param('homeId'));
+    const canonical=(origin??new URL(c.req.url).origin)+'/h/'+home.id;
+    const paid=pro?await publicPro(db,home.id,home.publication_id):null;
+    if(paid&&!pro?.multipage) { paid.highlights=null; paid.recommendations=null; }
+    const preview=await approvedPreview(db,home)??previewFields(home.content,{name:false,intro:false,image:false});
+    return c.html(renderHome(home.content,{now:clock(),report:'/h/'+home.id+'/report',homeId:home.id,pro:paid,notice:home.schedule_change,asset:id=>'/h/'+home.id+'/images/'+id,canonical,
+      metadata:{title:preview.title,description:preview.description,
+        image:preview.coverId?canonical+'/share-image/'+home.publication_id:undefined}}));
   });
 
+  if(pro?.multipage) app.get('/h/:homeId/p/:pageId',async c=>{
+    const db=requirePool(),home=await publicHome(db,c.req.param('homeId')),page=c.req.param('pageId');
+    if(!uuidPattern.test(page)) throw unavailable();
+    const paid=await publicPro(db,home.id,home.publication_id);
+    if(!paid||![paid.highlights?.id,paid.recommendations?.id].includes(page)) {
+      const known=await db.query('SELECT 1 FROM pro_page_history WHERE home_id=$1 AND page_id=$2',[home.id,page]);
+      if(!known.rowCount) throw unavailable();
+      return c.html(message('This page is no longer available','The creator’s Home is still available.','/h/'+home.id,'Open creator home'),410);
+    }
+    return c.html(renderHome(home.content,{now:clock(),asset:id=>'/h/'+home.id+'/images/'+id,pro:paid,
+      homeId:home.id,currentPage:page,canonical:(origin??new URL(c.req.url).origin)+'/h/'+home.id+'/p/'+page}));
+  });
+  app.post('/ops/fan-reports/:id/resolve',async c=>{
+    const actor=await principal(c,'operator'), fields=await c.req.parseBody(),id=c.req.param('id');
+    checkCsrf(c,fields.csrf);
+    if(!uuidPattern.test(id)) throw unavailable();
+    await requirePool().query('UPDATE fan_reports SET resolved_at=now(),resolved_by=$1 WHERE id=$2 AND resolved_at IS NULL',[actor,id]);
+    return c.redirect('/ops',303);
+  });
   app.get('/ops',async c=>{
     const actor=await principal(c,'operator');
-    return c.html(opsPage(await cases(requirePool(),actor),csrf(cookie(c)!),holdReasons));
+    return c.html(opsPage(await cases(requirePool(),actor),csrf(cookie(c)!),holdReasons,await reportInbox(requirePool())));
   });
   app.get('/ops/invites',async c=>{
     await principal(c,'operator');
@@ -268,7 +482,23 @@ export function createApp(config:Configuration={}) {
     const actor=await principal(c,'operator'),id=c.req.param('id');
     const result=await inspectPublication(requirePool(),actor,id);
     if(!result.content) return c.html(message('No current publication','The home remains held and no publication is set.','/ops/cases/'+id,'Back to case'));
-    return c.html(renderHome(result.content,{now:clock(),review:true,asset:asset=>'/ops/cases/'+id+'/publication/'+result.publicationId+'/images/'+asset}));
+    return c.html(renderHome(result.content,{now:clock(),review:true,pro:pro?result.pro:null,
+      proBase:'/ops/cases/'+id+'/publication/'+result.publicationId,asset:asset=>'/ops/cases/'+id+'/publication/'+result.publicationId+'/images/'+asset}));
+  });
+  if(pro?.multipage) app.get('/ops/cases/:id/publication/:publicationId/p/:pageId',async c=>{
+    const actor=await principal(c,'operator'),id=c.req.param('id'),publication=c.req.param('publicationId'),page=c.req.param('pageId');
+    if(!uuidPattern.test(publication)||!uuidPattern.test(page)) throw unavailable();
+    const result=await inspectPublication(requirePool(),actor,id,undefined,publication);
+    if(!result.content||!result.pro||![result.pro.highlights?.id,result.pro.recommendations?.id].includes(page)) throw unavailable();
+    return c.html(renderHome(result.content,{now:clock(),review:true,pro:result.pro,
+      proBase:'/ops/cases/'+id+'/publication/'+publication,currentPage:page,asset:asset=>'/ops/cases/'+id+'/publication/'+publication+'/images/'+asset}));
+  });
+  if(pro) app.get('/ops/cases/:id/publication/:publicationId',async c=>{
+    const actor=await principal(c,'operator'),id=c.req.param('id'),publication=c.req.param('publicationId');
+    const result=await inspectPublication(requirePool(),actor,id,undefined,publication);
+    if(!result.content) throw unavailable();
+    return c.html(renderHome(result.content,{now:clock(),review:true,pro:result.pro,
+      proBase:'/ops/cases/'+id+'/publication/'+publication,asset:asset=>'/ops/cases/'+id+'/publication/'+publication+'/images/'+asset}));
   });
   app.get('/ops/cases/:id/publication/:publicationId/images/:asset',async c=>{
     const actor=await principal(c,'operator'),db=requirePool(),id=c.req.param('id');
@@ -291,6 +521,7 @@ export function createApp(config:Configuration={}) {
       return c.redirect('/ops/cases/'+id,303);
     });
   }
+  if(config.demo) app.get('/demo/leaderboard',c=>c.html(leaderboardDemo(clock(),c.req.query('state')==='low')));
   if(config.demo) app.get('/demo',c=>{
     const quiet=c.req.query('state')==='quiet';
     const future=new Date(clock()+86400000);

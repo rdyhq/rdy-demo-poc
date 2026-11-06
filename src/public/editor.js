@@ -13,6 +13,7 @@ const layouts = {
 };
 let csrf = root.dataset.csrf;
 let saved = JSON.parse(root.dataset.content);
+saved.scheduleRemoval??='unknown';
 let content = clone(saved);
 let revision = Number(root.dataset.revision);
 let publication = root.dataset.publication || null;
@@ -37,6 +38,7 @@ function updateControls() {
   by('unpublish').disabled=writesBlocked||conflicted;
   by('unpublish').hidden=!publication;
   by('public-link').hidden=!publication||held;
+  by('share-link').hidden=!publication||held;
   by('availability').textContent=held?'Home held':publication?'Home available':'Private draft';
   by('hold-note').hidden=!held;
   by('revision-label').textContent='Draft revision '+revision;
@@ -48,8 +50,9 @@ function updateControls() {
 
 function updatePreview() {
   for (const key of fields) content[key]=by(key).value;
+  content.scheduleRemoval=by('scheduleRemoval').value;
   content.theme=form.querySelector('[name=theme]:checked')?.value||'Midnight';
-  document.documentElement.dataset.theme=content.theme;
+  by('mini-name').closest('section').dataset.theme=content.theme;
   by('mini-name').textContent=content.displayName||'Your creator name';
   by('mini-intro').textContent=content.intro||'Your intro appears here.';
 }
@@ -116,7 +119,8 @@ function entries() {
 }
 
 function loadValues(values) {
-  content=clone(values);
+  content=clone({...values,scheduleRemoval:values.scheduleRemoval??'unknown'});
+  by('scheduleRemoval').value=content.scheduleRemoval??'unknown';
   for (const key of fields) by(key).value=content[key];
   for (const radio of form.querySelectorAll('[name=theme]')) radio.checked=radio.value===content.theme;
   for (const key of ['avatarId','coverId']) {
@@ -417,3 +421,13 @@ for(const key of ['avatarId','coverId']) {
   });
 }
 loadValues(saved);
+
+for(const [button,target] of [['use-twitch-name','displayName'],['use-twitch-link','streamUrl']]) {
+  by(button)?.addEventListener('click',()=>{
+    by(target).value=by(button).dataset.value;
+    changed();
+    by(target).focus();
+  });
+}
+
+by('scheduleRemoval').addEventListener('change',changed);

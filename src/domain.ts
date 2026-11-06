@@ -23,11 +23,12 @@ export const uuidPattern = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i;
 export const themeNames = ['Hearth','Grove','Midnight'] as const;
 
 export type SessionSlot = { id: string; title: string; local: string; zone: string; offset: string; instant: string };
+export type ScheduleChange={prior:SessionSlot;next:SessionSlot|null;status:'Changed'|'Cancelled'|'New time unknown'};
 export type Update = { id: string; text: string; firstPublishedAt?: string };
 export type HomeContent = {
   schemaVersion: 1; displayName: string; intro: string; game: string; streamUrl: string;
   theme: typeof themeNames[number]; avatarId: string | null; coverId: string | null;
-  links: { label: string; url: string }[]; sessions: SessionSlot[]; updates: Update[];
+  scheduleRemoval?: 'unknown'|'cancelled'; links: { label: string; url: string }[]; sessions: SessionSlot[]; updates: Update[];
 };
 export const emptyHome: HomeContent = {
   schemaVersion:1,displayName:'',intro:'',game:'',streamUrl:'',theme:'Midnight',avatarId:null,coverId:null,links:[],sessions:[],updates:[],
@@ -122,11 +123,23 @@ export function normalize(value: any, old=emptyHome, now=Date.now(), preview=fal
     avatarId:value.avatarId==null?null:id(value.avatarId,'avatarId'),coverId:value.coverId==null?null:id(value.coverId,'coverId'),
     links:list(value.links,'links',5).map((entry,i)=>({
       label:text(entry?.label,'links.'+i,32,true),url:https(entry?.url,'links.'+i,true),
-    })),sessions,updates,
+    })),scheduleRemoval:value.scheduleRemoval==='cancelled'?'cancelled':'unknown',sessions,updates,
   };
 }
 
 export function nextSession(content: HomeContent, now: number) {
   return content.sessions.filter(s=>Date.parse(s.instant)>now)
     .sort((a,b)=>Date.parse(a.instant)-Date.parse(b.instant)||a.id.localeCompare(b.id))[0];
+}
+
+
+export function scheduleChange(before:HomeContent|undefined,after:HomeContent,now:number,existing?:ScheduleChange|null):ScheduleChange|null {
+  if(!before) return null;
+  const prior=nextSession(before,now),next=nextSession(after,now);
+  if(!prior) return existing&&Math.max(Date.parse(existing.prior.instant),Date.parse(existing.next?.instant??existing.prior.instant))>now?
+    next?{prior:existing.prior,next,status:'Changed'}:existing:null;
+  if(next?.id===prior.id&&next.instant===prior.instant&&next.zone===prior.zone) {
+    return existing&&Math.max(Date.parse(existing.prior.instant),Date.parse(existing.next?.instant??existing.prior.instant))>now?existing:null;
+  }
+  return {prior,next:next??null,status:next?'Changed':after.scheduleRemoval==='cancelled'?'Cancelled':'New time unknown'};
 }
