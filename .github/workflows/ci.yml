@@ -24,5 +24,8 @@ jobs:
           docker build -t lobby-ci .
           container_id=$(docker run --rm -d -p 127.0.0.1:18080:10000 -e PORT=10000 lobby-ci)
           trap 'docker stop "$container_id" >/dev/null' EXIT
-          response=$(curl -fsS --retry 5 --retry-connrefused http://127.0.0.1:18080/healthz)
+          if ! response=$(curl -fsS --retry 8 --retry-all-errors --retry-delay 1 --max-time 2 http://127.0.0.1:18080/healthz); then
+            docker logs "$container_id"
+            exit 1
+          fi
           test "$response" = '{"status":"ok"}'
