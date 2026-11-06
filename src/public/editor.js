@@ -328,7 +328,7 @@ by('compare').addEventListener('click',async()=>{
       const keep=document.createElement('input');
       keep.type='checkbox';
       keep.name=key;
-      keep.checked=true;
+      keep.checked=JSON.stringify(content[key])!==JSON.stringify(saved[key]);
       choice.append(keep,' Keep my values for '+title.textContent.toLowerCase());
       group.append(title,pair,choice);
       comparison.append(group);

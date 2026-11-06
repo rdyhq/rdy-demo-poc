@@ -66,7 +66,9 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const proof=token(creator)!;
       assert.ok(proof);
       assert.match(mail.at(-1)!.text,/\/verify#token=/);
-      assert.equal((await get('/verify')).status,200);
+      const verifyPage=await get('/verify');
+      assert.equal(verifyPage.status,200);
+      assert.equal(verifyPage.headers.get('Referrer-Policy'),'same-origin');
       assert.equal((await post('/verify',{token:proof},'','https://other.example')).status,403);
       const race=await Promise.all([post('/verify',{token:proof}),post('/verify',{token:proof})]);
       assert.deepEqual(race.map(r=>r.status).sort(),[303,410]);

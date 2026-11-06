@@ -70,7 +70,8 @@ export function createApp(config:Configuration={}) {
   app.use('*',async(c,next)=>{
     if(c.req.path!=='/healthz') {
       c.header('Cache-Control','no-store');
-      c.header('Referrer-Policy','no-referrer');
+      // A no-referrer policy strips Origin from same-origin browser form posts.
+      c.header('Referrer-Policy','same-origin');
       c.header('X-Content-Type-Options','nosniff');
       c.header('X-Frame-Options','DENY');
       c.header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
