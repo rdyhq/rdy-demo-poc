@@ -383,7 +383,7 @@ export function createApp(config:Configuration={}) {
       c.header('Content-Security-Policy',policy.replace("frame-ancestors 'none'","frame-ancestors 'self'"));
       c.header('X-Frame-Options','SAMEORIGIN');
     }
-    return c.html(renderHome(content,{now,notice,preview:true,embedded,phone:fields.width==='phone',asset:id=>'/editor/assets/'+id}));
+    return c.html(renderHome(content,{now,notice,preview:true,embedded,editCanvas:embedded&&fields.mode==='edit',phone:fields.width==='phone',asset:id=>'/editor/assets/'+id}));
   });
   for(const action of ['save','publish','unpublish'] as const) {
     app.post('/api/editor/'+action,async c=>{

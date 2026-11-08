@@ -18,19 +18,20 @@ const art=html`<svg class="art" viewBox="0 0 920 380" preserveAspectRatio="xMidY
 <path d="m0 380 117-48 92 17 112-37 128 47 65-12 88 29 111-46 69 19 138-35v66Z" fill="#14182d"/>
 <g fill="#b7d9ff"><circle cx="170" cy="122" r="3"/><circle cx="342" cy="103" r="3"/><circle cx="803" cy="106" r="3"/><path d="M97 54v22m-11-11h22m679 158v19m-9-9h18" stroke="#b7d9ff" stroke-width="1.7"/></g></svg>`;
 
-function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;editor?:boolean;phone?:boolean;share?:boolean;player?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
+function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;editor?:boolean;phone?:boolean;share?:boolean;player?:boolean;newTabLinks?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.theme==='Hearth'||options.theme==='Grove'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=workspace2">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas2">
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
+    ${options.newTabLinks?html`<base target="_blank">`:''}
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
     ${options.metadata?html`<meta property="og:type" content="website"><meta property="og:url" content="${options.canonical}">
       <meta property="og:title" content="${options.metadata.title}"><meta property="og:description" content="${options.metadata.description}">
       ${options.metadata.image?html`<meta property="og:image" content="${options.metadata.image}">`:''}`:''}
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js" defer></script>`:''}
-    ${options.script?html`<script src="/assets/editor.js?v=workspace2" defer></script>`:''}
+    ${options.script?html`<script src="/assets/editor.js?v=canvas2" defer></script>`:''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
@@ -148,6 +149,20 @@ const promoActions={
   Sponsor:'See sponsor offer', Community:'Join the community',
 };
 
+function editableCard(key:string,label:string,body:ReturnType<typeof html>,movable:boolean,editing?:boolean) {
+  if(!editing) return body;
+  return html`<div class="canvas-card" data-canvas-card="${key}">
+    <div inert>${body}</div>
+    <button type="button" class="canvas-select" aria-pressed="false" aria-label="Edit ${label}"></button>
+    ${movable?html`<button type="button" class="canvas-grip" aria-label="Reorder ${label}" title="Drag to reorder">
+      <svg aria-hidden="true" width="16" height="20" viewBox="0 0 16 20" fill="currentColor">
+        <circle cx="5" cy="4" r="1.6"/><circle cx="11" cy="4" r="1.6"/>
+        <circle cx="5" cy="10" r="1.6"/><circle cx="11" cy="10" r="1.6"/>
+        <circle cx="5" cy="16" r="1.6"/><circle cx="11" cy="16" r="1.6"/>
+      </svg></button>`:''}
+  </div>`;
+}
+
 function scheduleSlot(slot:SessionSlot) {
   return html`<div class="schedule-slot"><h3>${slot.title}</h3><dl>
     <div><dt>Creator date</dt><dd>${slot.local.slice(0,10)}</dd></div>
@@ -157,7 +172,7 @@ function scheduleSlot(slot:SessionSlot) {
 }
 
 export function renderHome(content:HomeContent|EditableHome,options:{now:number;asset:(id:string)=>string;canonical?:string;
-  preview?:boolean;embedded?:boolean;phone?:boolean;review?:boolean;report?:string;demo?:boolean;pro?:ProContent|null;homeId?:string;proBase?:string;notice?:ScheduleChange|null;currentPage?:string;metadata?:{title:string;description:string;image?:string}}) {
+  preview?:boolean;embedded?:boolean;editCanvas?:boolean;phone?:boolean;review?:boolean;report?:string;demo?:boolean;pro?:ProContent|null;homeId?:string;proBase?:string;notice?:ScheduleChange|null;currentPage?:string;metadata?:{title:string;description:string;image?:string}}) {
   const layout='layout' in content?content.layout:defaultLayout(options.homeId??'demo');
   const pro=options.pro, page=options.currentPage;
   const base=options.proBase??(options.homeId?'/h/'+options.homeId:null);
@@ -177,13 +192,38 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
   const compactDock=layout.dock.size==='compact';
   const visibleLinks=compactDock?content.links.slice(0,3):content.links;
   const remainingLinks=compactDock?content.links.slice(3):[];
+  const card = (key:string,label:string,body:ReturnType<typeof html>,movable=false) =>
+    editableCard(key,label,body,movable,options.editCanvas);
+  const dock=content.links.length?card('dock','Channel Dock',html`<section class="home-card dock-card" data-card="dock" data-size="${layout.dock.size}">
+    <h2>Find me</h2>${channelLinks(visibleLinks,compactDock)}
+    ${remainingLinks.length?html`<details><summary>More channels</summary>${channelLinks(remainingLinks)}</details>`:''}</section>`,true):'';
+  const notice=activeNotice(options.notice,options.now)?html`<aside class="home-card schedule-notice"><p class="micro">SCHEDULE CHANGE</p>
+    <p>${scheduleCopy(options.notice!)}</p></aside>`:'';
+  const supporting=layout.supporting.map(item=>{
+    if(item.hidden) return '';
+    if(item.family==='promo') {
+      if(!item.url||!item.title) return '';
+      return card(item.id,item.title,html`<section class="home-card promo-card" data-card="promo" data-size="${item.size}">
+        <p class="micro">${item.category}</p><h2>${item.title}</h2>
+        ${item.size==='expanded'&&item.description?html`<p>${item.description}</p>`:''}
+        <a class="button" href="${item.url}">${promoActions[item.category]} <span aria-hidden="true">↗</span></a></section>`,true);
+    }
+    if(!sessions.length) return '';
+    return card(item.id,'Schedule',html`<section class="home-card schedule-card" data-card="schedule" data-size="${item.size}">
+      <h2>${item.size==='compact'?'Next session':'Upcoming sessions'}</h2>
+      ${(item.size==='compact'?sessions.slice(0,1):sessions).map(scheduleSlot)}
+      ${content.streamUrl?html`<a class="button secondary" href="${content.streamUrl}">Open channel</a>`:''}</section>`,true);
+  });
+  supporting.splice(layout.dockPosition,0,dock);
+  // Keep the schedule-change notice near the lead, with the default Dock slot above it.
+  supporting.splice(layout.dockPosition===0?1:0,0,notice);
   return frame(name,html`
     ${options.preview&&!options.embedded?html`<aside class="status-note">Private preview · Unsaved values · ${options.phone?'Phone':'Desktop'}
       <button type="button" class="secondary" id="return-to-editor">Return to editor</button>
       <p class="dim">If this tab stays open, close it to return to your unsaved editor.</p></aside>`:''}
     ${options.review?html`<aside class="status-note">Restricted publication review · <a href="/ops">Back to cases</a></aside>`:''}
     <article class="creator card-home" data-flair="${pro?.appearance??'original'}">
-      <section class="home-card identity-card" data-card="identity" data-size="${identity.size}" data-align="${identity.alignment}"
+      ${card('identity','Creator Identity',html`<section class="home-card identity-card" data-card="identity" data-size="${identity.size}" data-align="${identity.alignment}"
         data-avatar-size="${identity.avatarSize}" data-avatar-position="${identity.avatarPosition}">
         <div class="cover" data-focal-x="${identity.focalX}" data-focal-y="${identity.focalY}">${content.coverId?html`<img src="${options.asset(content.coverId)}" alt="" fetchpriority="high">`:options.demo?art:html`<div class="plain-cover"></div>`}</div>
         <div class="identity">
@@ -192,37 +232,18 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
           <div class="identity-text"><h1>${name}</h1>${content.intro?html`<p>${content.intro}</p>`:''}
           ${content.game?html`<p class="signature-game"><span class="sr-only">Signature game: </span>${content.game}</p>`:''}</div>
         </div>
-      </section>
-      ${content.streamUrl?html`<section class="home-card spotlight-card" data-card="spotlight" data-size="${layout.spotlight.size}" aria-label="Stream destination">
-        <p class="micro">SPOTLIGHT</p><a class="button" href="${content.streamUrl}">${streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a></section>`:''}
-      ${content.links.length?html`<section class="home-card dock-card" data-card="dock" data-size="${layout.dock.size}">
-        <h2>Find me</h2>${channelLinks(visibleLinks,compactDock)}
-        ${remainingLinks.length?html`<details><summary>More channels</summary>${channelLinks(remainingLinks)}</details>`:''}</section>`:''}
-      ${activeNotice(options.notice,options.now)?html`<aside class="home-card schedule-notice"><p class="micro">SCHEDULE CHANGE</p>
-        <p>${scheduleCopy(options.notice!)}</p></aside>`:''}
-      ${layout.supporting.map(card=>{
-        if(card.hidden) return '';
-        if(card.family==='promo') {
-          if(!card.url||!card.title) return '';
-          return html`<section class="home-card promo-card" data-card="promo" data-size="${card.size}">
-            <p class="micro">${card.category}</p><h2>${card.title}</h2>
-            ${card.size==='expanded'&&card.description?html`<p>${card.description}</p>`:''}
-            <a class="button" href="${card.url}">${promoActions[card.category]} <span aria-hidden="true">↗</span></a></section>`;
-        }
-        if(!sessions.length) return '';
-        return html`<section class="home-card schedule-card" data-card="schedule" data-size="${card.size}">
-          <h2>${card.size==='compact'?'Next session':'Upcoming sessions'}</h2>
-          ${(card.size==='compact'?sessions.slice(0,1):sessions).map(scheduleSlot)}
-          ${content.streamUrl?html`<a class="button secondary" href="${content.streamUrl}">Open channel</a>`:''}</section>`;
-      })}
-      ${content.updates.length?html`<section class="home-card updates" data-card="updates"><h2>Updates</h2>${content.updates.map(update=>html`
+      </section>`)}
+      ${content.streamUrl?card('spotlight','Spotlight',html`<section class="home-card spotlight-card" data-card="spotlight" data-size="${layout.spotlight.size}" aria-label="Stream destination">
+        <p class="micro">SPOTLIGHT</p><a class="button" href="${content.streamUrl}">${streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a></section>`):''}
+      ${supporting}
+      ${content.updates.length?card('updates','Updates',html`<section class="home-card updates" data-card="updates"><h2>Updates</h2>${content.updates.map(update=>html`
         <article>${update.firstPublishedAt?html`<time datetime="${update.firstPublishedAt}">${update.firstPublishedAt.slice(0,10)} UTC</time>`:
-          options.preview?html`<small>Date added when published.</small>`:''}<p>${update.text}</p></article>`)}</section>`:''}
+          options.preview?html`<small>Date added when published.</small>`:''}<p>${update.text}</p></article>`)}</section>`):''}
       ${nav||pro?html`<section class="home-card">${nav}${module}</section>`:''}
       ${options.preview||options.review?'':html`<div class="fan-tools"><p class="bookmark">Save this home in your browser.</p>
         ${options.canonical?shareControl(options.canonical):''}
         ${options.report?html`<a class="dim" href="${options.report}">Report this page</a>`:''}</div>`}
-    </article>`,{theme:content.theme,preview:options.preview&&!options.embedded,phone:options.phone,creator:true,player:Boolean(pro?.video),canonical:options.canonical,share:!options.review,metadata:options.metadata});
+    </article>`,{theme:content.theme,preview:options.preview&&!options.embedded,phone:options.phone,creator:true,standalone:options.editCanvas,newTabLinks:options.embedded&&!options.editCanvas,player:Boolean(pro?.video),canonical:options.canonical,share:!options.review,metadata:options.metadata});
 }
 
 function editorSelect(id:string,label:string,options:readonly (readonly [string|number,string])[]) {
@@ -271,8 +292,9 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
         <div class="editor-outline-list">
           ${editorOutlineButton('identity','Creator Identity','Banner, avatar and games',true)}
           ${editorOutlineButton('spotlight','Spotlight','Primary stream link',true)}
-          ${editorOutlineButton('dock','Channel Dock','Social and community links',true)}
-          <div id="card-outline-supporting" class="editor-outline-list"></div>
+          <div id="card-outline-supporting" class="editor-outline-list">
+            ${editorOutlineButton('dock','Channel Dock','Social and community links')}
+          </div>
         </div>
         <button id="add-promo" type="button" class="secondary editor-add-card"><span aria-hidden="true">+</span> Add Promo card</button>
         <p id="supporting-budget" class="editor-budget"></p>
@@ -282,10 +304,14 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
           ${editorOutlineButton('publishing','Publishing','Revision and public link')}
         </div>
       </nav>
-      <section class="editor-stage editor-panel" aria-label="Private preview">
+      <section class="editor-stage editor-panel" aria-label="Private Home canvas">
         <div class="editor-stage-head">
-          <div><p class="editor-kicker">PRIVATE PREVIEW</p><h2>Visitor view</h2></div>
+          <div><p class="editor-kicker">PRIVATE DRAFT</p><h2 id="canvas-heading">Edit canvas</h2></div>
           <div class="editor-stage-controls">
+            <div class="editor-devices" role="group" aria-label="Canvas mode">
+              <button type="button" data-canvas-mode="edit" aria-pressed="true">Edit</button>
+              <button type="button" data-canvas-mode="visitor" aria-pressed="false">Visitor preview</button>
+            </div>
             <div class="editor-devices" role="group" aria-label="Preview size">
               <button id="preview" type="button" data-device="phone" aria-label="Phone preview" aria-pressed="true">Phone</button>
               <button id="preview-desktop" type="button" data-device="desktop" aria-label="Desktop preview" aria-pressed="false">Desktop</button>
@@ -296,10 +322,12 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
         <div class="editor-preview-stage" data-preview-size="phone">
           <iframe id="editor-canvas" name="lobby-editor-canvas" title="Private Home canvas"></iframe>
         </div>
-        <p class="editor-stage-note">Preview includes unsaved changes. Fans see the last published version.</p>
+        <p class="editor-stage-note" id="canvas-note">Select a card to edit it. Drag a handle to change the order.</p>
+        <p class="editor-stage-note">Fans see the last published version.</p>
       </section>
       <aside class="editor-inspector editor-panel" aria-label="Card inspector">
         <p class="editor-kicker">INSPECTOR</p>
+        <p id="card-announcement" role="status" class="sr-only"></p>
         <form id="home-form" novalidate>
       <section data-inspector="identity"><h2>Creator Identity</h2><p class="editor-description">Introduce yourself with a banner, avatar and short bio.</p>
         ${twitchLogin?html`<p>Suggested by Twitch: <strong>${twitchLogin}</strong>. Use these values, edit them, or skip.</p>
@@ -331,6 +359,7 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
       <section data-inspector="dock" hidden><h2>Channel Dock</h2><p class="editor-description">Group your social and community links.</p>
         <p id="dock-empty" hidden>Add a supporting link to show the Channel Dock.</p>
         ${editorSelect('dock-size','Channel Dock size',cardSizeOptions)}
+        <div class="editor-entry" id="dock-move" tabindex="-1"></div>
         <p>Move priority links to the top. The Dock and Promo cards share five supporting links.</p>
         <div id="links"></div><button type="button" class="secondary" data-add="links">Add a link</button>
       </section>
@@ -341,7 +370,6 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
           <label for="scheduleRemoval">If you remove a scheduled stream and publish without a new time</label>
           <select id="scheduleRemoval"><option value="unknown">New time unknown</option><option value="cancelled">Cancelled</option></select>
         </div>
-        <p id="card-announcement" role="status" class="sr-only"></p>
       </section>
       <section data-inspector="updates" hidden><h2>Updates</h2><p>Up to three updates. LINB adds the date when you first publish an update.</p>
         <div id="updates"></div><button type="button" class="secondary" data-add="updates">Add an update</button>

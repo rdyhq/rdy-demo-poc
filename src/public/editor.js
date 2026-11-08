@@ -36,7 +36,13 @@ let needsSignIn = false;
 let canvasTimer;
 let canvasPayload;
 let previewDevice='phone';
+let canvasMode='edit';
 let selectedCard=revision?'spotlight':'identity';
+const canvas=by('editor-canvas');
+const dockOutline=by('card-outline-supporting').querySelector('[data-edit-card=dock]');
+let canvasScroll=0;
+let canvasFocus;
+let drag;
 
 function updateControls() {
   const blocked=busy||uploading>0;
@@ -46,7 +52,7 @@ function updateControls() {
   by('reconnect').hidden=!needsSignIn;
   by('reconnect').querySelector('button').disabled=blocked;
   by('save').disabled=writesBlocked||conflicted||unresolvedPublication||unresolvedSave;
-  for(const button of root.querySelectorAll('[data-device], #preview-open')) button.disabled=writesBlocked;
+  for(const button of root.querySelectorAll('[data-device], [data-canvas-mode], #preview-open')) button.disabled=writesBlocked;
   by('publish').disabled=writesBlocked||conflicted||dirty||revision===0||Boolean(retry);
   for(const input of form.querySelectorAll('input, textarea, select, button[data-remove-image], .editor-entry button')) {
     input.disabled=blocked||input.dataset.boundary==='true';
@@ -91,10 +97,11 @@ function changed() {
   clearTimeout(canvasTimer);
   canvasTimer=setTimeout(()=>{
     const payload=JSON.stringify(content);
-    const key=previewDevice+' '+payload;
-    if(needsSignIn||key===canvasPayload) return;
+    const key=previewDevice+' '+canvasMode+' '+payload;
+    if(needsSignIn||drag||key===canvasPayload) return;
     canvasPayload=key;
-    submitPreview(by('editor-canvas').name,previewDevice,payload,true);
+    canvasScroll=canvas.contentDocument?.scrollingElement?.scrollTop??0;
+    submitPreview(canvas.name,previewDevice,payload,canvasMode);
   },400);
 }
 
@@ -194,6 +201,30 @@ function focusAfterMove(group,delta) {
   (sameDirection??group.querySelector('[data-move]:not(:disabled)')??group).focus();
 }
 
+function movableOrder(layout=content.layout) {
+  const order=layout.supporting.map(card=>card.id);
+  order.splice(layout.dockPosition,0,'dock');
+  return order;
+}
+
+function moveCard(order,key) {
+  const cards=new Map(content.layout.supporting.map(card=>[card.id,card]));
+  content.layout.dockPosition=order.indexOf('dock');
+  content.layout.supporting=order.filter(id=>id!=='dock').map(id=>cards.get(id));
+  supportingCards();
+  changed();
+  const name=key==='dock'?'Channel Dock':supportingName(cards.get(key));
+  by('card-announcement').textContent=name+' moved to position '+(order.indexOf(key)+1)+' below Spotlight.';
+}
+
+function cardMoveButtons(group,key,name) {
+  const order=movableOrder();
+  addMoveButtons(group,order,order.indexOf(key),name,(_,delta)=>{
+    moveCard(order,key);
+    focusAfterMove(by(group.id),delta);
+  });
+}
+
 function selectFor(id,label,options,value,onChange) {
   const container=document.createElement('div');
   const caption=document.createElement('label');
@@ -212,6 +243,18 @@ function supportingName(card) {
   return card.family==='schedule'?'Schedule':card.title.trim()||'Promo card';
 }
 
+function syncCanvasSelection(reveal=false) {
+  const doc=canvas.contentDocument;
+  for(const card of doc?.querySelectorAll('[data-canvas-card]')??[]) {
+    const selected=card.dataset.canvasCard===selectedCard;
+    card.querySelector('.canvas-select').setAttribute('aria-pressed',String(selected));
+    if(selected&&reveal) {
+      const top=card.getBoundingClientRect().top;
+      if(top<0||top>doc.documentElement.clientHeight-44) doc.scrollingElement.scrollTop+=top-8;
+    }
+  }
+}
+
 function selectInspector(key,scroll=false) {
   const card=content.layout.supporting.find(item=>item.id===key);
   const panel=card?'supporting':key;
@@ -224,6 +267,7 @@ function selectInspector(key,scroll=false) {
   for(const button of root.querySelectorAll('[data-edit-card]')) {
     button.setAttribute('aria-pressed',String(button.dataset.editCard===key));
   }
+  syncCanvasSelection();
   if(card) by('supporting-title').textContent=supportingName(card);
   if(scroll&&matchMedia('(max-width: 720px)').matches) {
     inspector.closest('.editor-inspector').scrollIntoView({block:'nearest'});
@@ -231,7 +275,10 @@ function selectInspector(key,scroll=false) {
 }
 
 function renderSupportingOutline() {
-  const rows=content.layout.supporting.map(card=>{
+  const cards=new Map(content.layout.supporting.map(card=>[card.id,card]));
+  const rows=movableOrder().map(key=>{
+    if(key==='dock') return dockOutline;
+    const card=cards.get(key);
     const button=document.createElement('button');
     button.type='button';
     button.className='editor-outline-row';
@@ -253,7 +300,10 @@ function renderSupportingOutline() {
 
 root.querySelector('.editor-outline').addEventListener('click',event=>{
   const button=event.target.closest('[data-edit-card]');
-  if(button) selectInspector(button.dataset.editCard,true);
+  if(button) {
+    selectInspector(button.dataset.editCard,true);
+    syncCanvasSelection(true);
+  }
 });
 
 function supportingCards() {
@@ -261,6 +311,8 @@ function supportingCards() {
   const schedule=by('schedule-fields');
   list.replaceChildren();
   const cards=content.layout.supporting;
+  by('dock-move').replaceChildren();
+  cardMoveButtons(by('dock-move'),'dock','Channel Dock');
   cards.forEach((card,index)=>{
     const group=document.createElement('fieldset');
     group.className='editor-entry';
@@ -271,12 +323,7 @@ function supportingCards() {
     title.textContent=supportingName(card)+(card.hidden?' · Hidden':'');
     group.append(title);
     const name=card.family==='schedule'?'Schedule':'Promo card '+(index+1);
-    addMoveButtons(group,cards,index,name,(next,delta)=>{
-      supportingCards();
-      changed();
-      focusAfterMove(by(group.id),delta);
-      by('card-announcement').textContent=name+' moved to supporting position '+(next+1)+'.';
-    });
+    cardMoveButtons(group,card.id,name);
     const toggle=actionButton(card.hidden?'Restore card':'Hide card',()=>{
       card.hidden=!card.hidden;
       supportingCards();
@@ -309,6 +356,7 @@ function supportingCards() {
         group.append(part.container);
       }
       group.append(actionButton('Remove Promo card',()=>{
+        if(index<content.layout.dockPosition) content.layout.dockPosition--;
         cards.splice(index,1);
         supportingCards();
         changed();
@@ -547,14 +595,15 @@ by('reconnect').querySelector('button').addEventListener('click',async()=>{
 function summarize(key,value) {
   if(key==='layout') {
     const {identity,spotlight,dock,supporting}=value;
+    const movable=supporting.map(card=>[
+      card.family==='schedule'?'Schedule':card.title||'Promo card',
+      card.category,card.url,card.description,card.size,card.hidden?'Hidden':'Visible',
+    ].filter(Boolean).join(' · '));
+    movable.splice(value.dockPosition,0,'Channel Dock · '+dock.size);
     return [
       'Identity: '+[identity.size,identity.alignment,identity.avatarSize,identity.avatarPosition,identity.focalX+' / '+identity.focalY].join(' · '),
       'Spotlight: '+spotlight.size,
-      'Channel Dock: '+dock.size,
-      ...supporting.map((card,index)=>[
-        (index+1)+'. '+(card.family==='schedule'?'Schedule':card.title||'Promo card'),
-        card.category,card.url,card.description,card.size,card.hidden?'Hidden':'Visible',
-      ].filter(Boolean).join(' · ')),
+      ...movable.map((card,index)=>(index+1)+'. '+card),
     ].join('\n');
   }
   if(key==='avatarId'||key==='coverId') return value?'An image is selected':'No image selected';
@@ -619,12 +668,12 @@ by('compare-dialog').addEventListener('close',event=>{
   loadValues(merged);
   show('Comparison applied to the editor. Save your changes against the current revision.');
 });
-function submitPreview(target,width,payload,embedded=false) {
+function submitPreview(target,width,payload,mode) {
   const preview=document.createElement('form');
   preview.method='post';
   preview.action='/editor/preview';
   preview.target=target;
-  for(const [name,value] of Object.entries({csrf,width,content:payload,embedded:embedded?'1':'0'})) {
+  for(const [name,value] of Object.entries({csrf,width,content:payload,embedded:mode?'1':'0',mode:mode??'visitor'})) {
     const input=document.createElement('input');
     input.type='hidden';input.name=name;input.value=value;
     preview.append(input);
@@ -634,10 +683,148 @@ function submitPreview(target,width,payload,embedded=false) {
   preview.remove();
 }
 
+canvas.addEventListener('load',()=>{
+  if(drag) {
+    cancelAnimationFrame(drag.frame);
+    drag=null;
+  }
+  const doc=canvas.contentDocument;
+  if(!doc?.scrollingElement) return;
+  doc.scrollingElement.scrollTop=canvasScroll;
+  if(!doc.querySelector('[data-canvas-card]')) return;
+  syncCanvasSelection();
+  let suppressGripClick=false;
+  if(canvasFocus) {
+    const focused=Array.from(doc.querySelectorAll('[data-canvas-card]')).find(card=>card.dataset.canvasCard===canvasFocus);
+    focused?.querySelector('.canvas-grip').focus();
+    canvasFocus=null;
+  }
+
+  doc.addEventListener('click',event=>{
+    const control=event.target.closest('.canvas-select,.canvas-grip');
+    if(!control) return;
+    if(suppressGripClick&&event.detail>0&&control.matches('.canvas-grip')) return;
+    const key=control.closest('[data-canvas-card]').dataset.canvasCard;
+    selectInspector(key,true);
+    if(control.matches('.canvas-grip')&&event.detail===0) {
+      const group=key==='dock'?by('dock-move'):by('supporting').querySelector('[data-supporting-card="'+key+'"]');
+      if(group) focusAfterMove(group,-1);
+    }
+  });
+
+  doc.addEventListener('pointerdown',event=>{
+    const grip=event.target.closest('.canvas-grip');
+    suppressGripClick=false;
+    if(!grip||!event.isPrimary||event.button!==0||busy||uploading||needsSignIn||drag) return;
+    const card=grip.closest('[data-canvas-card]');
+    const cards=Array.from(doc.querySelectorAll('.canvas-grip'),button=>button.closest('[data-canvas-card]'));
+    const index=cards.indexOf(card);
+    const order=movableOrder();
+    if(cards.some(item=>!order.includes(item.dataset.canvasCard))||cards.length<2) return;
+    drag={grip,card,cards,index,order,pointer:event.pointerId,startY:event.clientY,y:event.clientY,x:event.clientX,slot:index,active:false};
+    grip.setPointerCapture(event.pointerId);
+  });
+
+  function markDrop() {
+    const {card,cards,index,y}=drag;
+    const peers=cards.filter(item=>item!==card);
+    const next=peers.findIndex(item=>{
+      const rect=item.getBoundingClientRect();
+      return y<rect.top+rect.height/2;
+    });
+    drag.slot=next<0?peers.length:next;
+    for(const item of cards) item.classList.remove('drop-before','drop-after');
+    if(drag.slot===index) return;
+    if(next<0) peers.at(-1).classList.add('drop-after');
+    else peers[next].classList.add('drop-before');
+  }
+
+  function scrollDrag() {
+    const height=doc.documentElement.clientHeight;
+    if(drag.y>=0&&drag.y<=height) {
+      const step=drag.y<45?-Math.ceil((45-drag.y)/3):Math.ceil(Math.max(0,drag.y-height+45)/3);
+      if(step) {
+        doc.scrollingElement.scrollTop+=step;
+        markDrop();
+      }
+    }
+    drag.frame=requestAnimationFrame(scrollDrag);
+  }
+
+  doc.addEventListener('pointermove',event=>{
+    if(event.pointerId!==drag?.pointer) return;
+    drag.x=event.clientX;
+    drag.y=event.clientY;
+    if(!drag.active) {
+      if(Math.abs(drag.y-drag.startY)<6) return;
+      drag.active=true;
+      drag.card.classList.add('canvas-dragging');
+      doc.documentElement.classList.add('canvas-reordering');
+      selectInspector(drag.card.dataset.canvasCard);
+      drag.frame=requestAnimationFrame(scrollDrag);
+    }
+    markDrop();
+  });
+
+  function finishDrag(commit) {
+    const current=drag;
+    if(!current) return;
+    drag=null;
+    const {card,cards,index,grip,order,pointer,slot,active,x,y}=current;
+    cancelAnimationFrame(current.frame);
+    if(grip.hasPointerCapture(pointer)) grip.releasePointerCapture(pointer);
+    card.classList.remove('canvas-dragging');
+    doc.documentElement.classList.remove('canvas-reordering');
+    for(const item of cards) item.classList.remove('drop-before','drop-after');
+    suppressGripClick=active;
+    const lead=doc.querySelector('[data-canvas-card=spotlight]')??doc.querySelector('[data-canvas-card=identity]');
+    const bounds=canvas.getBoundingClientRect();
+    const inside=document.elementFromPoint(bounds.left+canvas.clientLeft+x,bounds.top+canvas.clientTop+y)===canvas;
+    const belowLead=!lead||y>=lead.getBoundingClientRect().bottom;
+    if(commit&&active&&inside&&belowLead&&slot!==index&&!busy&&!uploading&&!needsSignIn&&
+        order.join()===movableOrder().join()) {
+      const key=card.dataset.canvasCard;
+      const visibleOrder=cards.map(item=>item.dataset.canvasCard);
+      const visibleKeys=new Set(visibleOrder);
+      visibleOrder.splice(index,1);
+      visibleOrder.splice(slot,0,key);
+      canvasFocus=key;
+      moveCard(order.map(id=>visibleKeys.has(id)?visibleOrder.shift():id),key);
+    } else if(active) {
+      grip.focus({preventScroll:true});
+      changed();
+    }
+  }
+
+  doc.addEventListener('pointerup',event=>{
+    if(event.pointerId===drag?.pointer) finishDrag(true);
+  });
+  doc.addEventListener('pointercancel',event=>{
+    if(event.pointerId===drag?.pointer) finishDrag(false);
+  });
+  doc.addEventListener('lostpointercapture',event=>{
+    if(event.pointerId===drag?.pointer) finishDrag(false);
+  });
+  doc.addEventListener('keydown',event=>{
+    if(event.key==='Escape'&&drag) finishDrag(false);
+  });
+});
+
 for(const button of root.querySelectorAll('[data-device]')) button.addEventListener('click',()=>{
   previewDevice=button.dataset.device;
   root.querySelector('.editor-preview-stage').dataset.previewSize=previewDevice;
   for(const choice of root.querySelectorAll('[data-device]')) {
+    choice.setAttribute('aria-pressed',String(choice===button));
+  }
+  changed();
+});
+
+for(const button of root.querySelectorAll('[data-canvas-mode]')) button.addEventListener('click',()=>{
+  canvasMode=button.dataset.canvasMode;
+  const editing=canvasMode==='edit';
+  by('canvas-heading').textContent=editing?'Edit canvas':'Visitor preview';
+  by('canvas-note').textContent=editing?'Select a card to edit it. Drag a handle to change the order.':'Test links with your unsaved changes at either width.';
+  for(const choice of root.querySelectorAll('[data-canvas-mode]')) {
     choice.setAttribute('aria-pressed',String(choice===button));
   }
   changed();

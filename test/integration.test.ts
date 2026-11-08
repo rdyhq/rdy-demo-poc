@@ -348,6 +348,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const retained=await (await get('/api/editor',cookie)).json();
       const stable=await (await get('/api/editor',cookie)).json();
       assert.deepEqual(retained.content.layout,stable.content.layout);
+      assert.equal(retained.content.layout.dockPosition,0);
       const path='/h/'+homeId;
       const before=await (await get(path)).text();
       assert.match(before,/data-card="identity".*data-card="spotlight".*data-card="dock"/s);
@@ -375,10 +376,28 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal(embedded.headers.get('x-frame-options'),'SAMEORIGIN');
       assert.match(embedded.headers.get('content-security-policy')!,/frame-ancestors 'self'/);
       assert.equal((await post('/editor/preview',{embedded:'1',content:JSON.stringify(next)})).status,401);
+      next.layout.dockPosition=2;
+      for(const [width,mode] of [['phone','edit'],['desktop','visitor']]) {
+        const preview=await post('/editor/preview',{csrf:csrf(cookie),width,embedded:'1',mode,content:JSON.stringify(next)},cookie);
+        assert.equal(preview.status,200,await preview.clone().text());
+        const page=await preview.text();
+        assert.match(page,/data-card="identity".*data-card="spotlight".*data-card="promo".*data-card="dock"/s);
+        assert.doesNotMatch(page,/data-card="schedule"/);
+        if(mode==='edit') {
+          assert.match(page,/data-canvas-card="dock".*inert.*aria-label="Reorder Channel Dock"/s);
+          assert.doesNotMatch(page,/aria-label="Reorder (Creator Identity|Spotlight)"/);
+        } else {
+          assert.doesNotMatch(page,/data-canvas-card=|<div inert>/);
+          assert.match(page,/<base target="_blank">.*href="https:\/\/example.test\/giveaway"/s);
+        }
+      }
 
       const firstSave={operationId:randomUUID(),revision:0,content:next};
       const invalidLayout=structuredClone(next);
       invalidLayout.layout.supporting.push({...invalidLayout.layout.supporting[1]});
+      assert.equal((await change('save',{...firstSave,content:invalidLayout},cookie)).status,422);
+      invalidLayout.layout.supporting.pop();
+      invalidLayout.layout.dockPosition=3;
       assert.equal((await change('save',{...firstSave,content:invalidLayout},cookie)).status,422);
       const overBudget=structuredClone(next);
       overBudget.links.push({label:'Extra',url:'https://example.test/extra'});
@@ -388,6 +407,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.deepEqual(stored[0],old);
       assert.equal(stored[1].schemaVersion,2);
       assert.equal(stored[1].identity.id,retained.content.layout.identity.id);
+      assert.equal(stored[1].dockPosition,2);
       assert.equal(stored[1].supporting[0].id,promo.id);
       assert.equal((await get(path)).status,200);
       assert.equal(await (await get(path)).text(),before);
@@ -404,6 +424,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
         const afterFailure=await (await get('/api/editor',cookie)).json();
         assert.equal(afterFailure.draft_revision,1);
         assert.equal(afterFailure.content.intro,next.intro);
+        assert.equal(afterFailure.content.layout.dockPosition,2);
       } finally {
         await pool.query('DROP TRIGGER reject_fixture_publication ON publications; DROP FUNCTION reject_fixture_publication()');
       }
@@ -419,6 +440,8 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const after=await (await get(path)).text();
       assert.match(after,/A private card draft.*Open stream.*Supporter giveaway/s);
       assert.match(after,/data-avatar-position="banner-center"/);
+      assert.match(after,/data-card="identity".*data-card="spotlight".*data-card="promo".*data-card="dock"/s);
+      assert.doesNotMatch(after,/data-canvas-card=/);
       const rows=(await pool.query('SELECT content FROM publications WHERE home_id=$1 ORDER BY draft_revision',[homeId])).rows;
       assert.deepEqual(rows[0].content,old);
       assert.equal(rows[1].content.schemaVersion,2);

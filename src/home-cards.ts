@@ -20,6 +20,7 @@ export type HomeLayout = {
   identity: IdentitySettings;
   spotlight: CardSettings;
   dock: CardSettings;
+  dockPosition: number;
   supporting: (ScheduleSettings | PromoCard)[];
 };
 
@@ -32,6 +33,7 @@ export type CardHome = {
   identity: IdentitySettings & IdentityContent;
   spotlight: CardSettings & { url: string };
   dock: CardSettings & { links: HomeContent['links'] };
+  dockPosition?: number;
   supporting: ((ScheduleSettings & Pick<HomeContent, 'sessions' | 'scheduleRemoval'>) | PromoCard)[];
   updates: HomeContent['updates'];
 };
@@ -48,6 +50,7 @@ export function defaultLayout(homeId: string): HomeLayout {
     identity: { ...fixed('identity'), alignment: 'left', avatarSize: 'medium', avatarPosition: 'edge', focalX: 50, focalY: 50 },
     spotlight: fixed('spotlight'),
     dock: fixed('dock'),
+    dockPosition: 0,
     supporting: [{ ...fixed('schedule'), family: 'schedule', hidden: false }],
   };
 }
@@ -66,7 +69,7 @@ export function readHome(value: StoredHome, homeId: string): EditableHome {
   return {
     schemaVersion: 1, displayName, intro, game, avatarId, coverId, theme: value.skin,
     streamUrl: url, links, sessions: schedule?.sessions ?? [], scheduleRemoval: schedule?.scheduleRemoval,
-    updates: value.updates, layout: { identity, spotlight, dock, supporting },
+    updates: value.updates, layout: { identity, spotlight, dock, dockPosition: value.dockPosition ?? 0, supporting },
   };
 }
 
@@ -77,6 +80,7 @@ export function writeHome(value: EditableHome): CardHome {
     identity: { ...layout.identity, displayName, intro, game, avatarId, coverId },
     spotlight: { ...layout.spotlight, url: streamUrl },
     dock: { ...layout.dock, links },
+    dockPosition: layout.dockPosition,
     supporting: layout.supporting.map(card => card.family === 'schedule' ? { ...card, sessions, scheduleRemoval } : card),
     updates,
   };
@@ -99,7 +103,7 @@ function focal(value: unknown, field: string) {
 }
 
 function settings(value: any, expected: CardSettings, field: string): CardSettings {
-  if (value?.id !== expected.id) throw invalid(field, 'Keep the fixed card in its position.');
+  if (value?.id !== expected.id) throw invalid(field, 'Keep the existing card ID.');
   return { id: expected.id, size: choice(value.size, sizes, field) };
 }
 
@@ -107,8 +111,8 @@ export function normalizeHome(value: any, old: EditableHome, now: number, previe
   const content = normalize(value, old, now, preview);
   const input = value.layout === undefined ? old.layout : value.layout;
   if (!input || typeof input !== 'object' || Array.isArray(input) ||
-      Object.keys(input).some(key => !['identity', 'spotlight', 'dock', 'supporting'].includes(key))) {
-    throw invalid('layout', 'Use the fixed Home positions and the supporting card list.');
+      Object.keys(input).some(key => !['identity', 'spotlight', 'dock', 'dockPosition', 'supporting'].includes(key))) {
+    throw invalid('layout', 'Use the Home card layout.');
   }
   const identity = {
     ...settings(input.identity, old.layout.identity, 'identity-size'),
@@ -140,7 +144,13 @@ export function normalizeHome(value: any, old: EditableHome, now: number, previe
   if (content.links.length + supporting.length - 1 > 5) {
     throw invalid('supporting', 'Use at most five supporting links across the Channel Dock and Promo cards.');
   }
-  return { ...content, layout: { identity, spotlight, dock, supporting } };
+  const dockPosition = input.dockPosition === undefined
+    ? Math.min(old.layout.dockPosition, supporting.length)
+    : input.dockPosition;
+  if (!Number.isInteger(dockPosition) || dockPosition < 0 || dockPosition > supporting.length) {
+    throw invalid('layout', 'Place the Channel Dock below Spotlight among the supporting cards.');
+  }
+  return { ...content, layout: { identity, spotlight, dock, dockPosition, supporting } };
 }
 
 export const platforms = {
