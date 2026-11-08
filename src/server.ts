@@ -50,6 +50,7 @@ if(LINB_STRIPE_TEST==='1'&&(!STRIPE_TEST_SECRET||!STRIPE_TEST_PRICE||!STRIPE_TES
 }
 const billing=LINB_STRIPE_TEST==='1'?{secret:STRIPE_TEST_SECRET!,price:STRIPE_TEST_PRICE!,webhookSecret:STRIPE_TEST_WEBHOOK_SECRET!}:undefined;
 const app=createApp({pool,origin:origin.origin,redirectOrigins,twitch,billing,pro:process.env.LINB_PRO_SYNTHETIC==='1'?{multipage:process.env.LINB_MULTIPAGE_SYNTHETIC==='1'}:undefined,mail,objects,reportContact:process.env.REPORT_CONTACT,
+  readOnlyHomes:process.env.LINB_HOME_READ_ONLY==='1',
   demo:Boolean(dev&&process.env.LOBBY_DEMO==='1'),
   clientAddress:context=>{
     const address=getConnInfo(context).remote.address??'unknown';

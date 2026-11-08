@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import type { ProContent } from './pro.ts';
 import { transaction } from './db.ts';
-import { conflict, invalid, mailbox, unavailable, uuidPattern, type HomeContent } from './domain.ts';
+import { readHome, type EditableHome } from './home-cards.ts';
+import { conflict, invalid, mailbox, unavailable, uuidPattern } from './domain.ts';
 
 const reasons=['Private contact information','Serious safety exposure','Other serious public exposure'];
 export const holdReasons=reasons;
@@ -63,10 +64,10 @@ export async function inspectPublication(pool:pg.Pool,actor:string,id:string,ass
   return transaction(pool,async client=>{
     const row=await lockCase(client,actor,id);
     if (row.reviewer_id!==actor || !row.applied_at || row.released_at || (expected && expected!==row.publication_id)) throw unavailable();
-    let content:HomeContent|null=null,pro:ProContent|null=null;
+    let content:EditableHome|null=null,pro:ProContent|null=null;
     if (row.publication_id) {
       const result=await client.query('SELECT content,pro_content FROM publications WHERE home_id=$1 AND id=$2',[row.home_id,row.publication_id]);
-      content=result.rows[0]?.content??null;
+      content=result.rows[0]?readHome(result.rows[0].content,row.home_id):null;
       pro=result.rows[0]?.pro_content??null;
     }
     if (asset && (!content || ![content.avatarId,content.coverId].includes(asset))) throw unavailable();

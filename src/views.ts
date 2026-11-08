@@ -1,6 +1,7 @@
 import { html, raw } from 'hono/html';
 import { randomUUID } from 'node:crypto';
-import { nextSession, themeNames, type HomeContent, type ScheduleChange, type SessionSlot } from './domain.ts';
+import { futureSessions, nextSession, themeNames, type HomeContent, type ScheduleChange, type SessionSlot } from './domain.ts';
+import { channelPlatform, defaultLayout, platforms, type EditableHome } from './home-cards.ts';
 import { demoRanking } from './leaderboard.ts';
 import type { ProContent, ProDraft } from './pro.ts';
 import { discordSchedule, type Selection } from './sharing.ts';
@@ -17,11 +18,11 @@ const art=html`<svg class="art" viewBox="0 0 920 380" preserveAspectRatio="xMidY
 <path d="m0 380 117-48 92 17 112-37 128 47 65-12 88 29 111-46 69 19 138-35v66Z" fill="#14182d"/>
 <g fill="#b7d9ff"><circle cx="170" cy="122" r="3"/><circle cx="342" cy="103" r="3"/><circle cx="803" cy="106" r="3"/><path d="M97 54v22m-11-11h22m679 158v19m-9-9h18" stroke="#b7d9ff" stroke-width="1.7"/></g></svg>`;
 
-function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;share?:boolean;player?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
+function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;phone?:boolean;share?:boolean;player?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.theme==='Hearth'||options.theme==='Grove'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=product1">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=cards1">
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
     ${options.metadata?html`<meta property="og:type" content="website"><meta property="og:url" content="${options.canonical}">
@@ -29,13 +30,13 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
       ${options.metadata.image?html`<meta property="og:image" content="${options.metadata.image}">`:''}`:''}
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js" defer></script>`:''}
-    ${options.script?html`<script src="/assets/editor.js?v=product1" defer></script>`:''}
+    ${options.script?html`<script src="/assets/editor.js?v=cards1" defer></script>`:''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     </head><body>${options.creator||options.standalone?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
       <span class="top-label">${options.privatePage?'Creator workspace':'LINK IN BIO FOR STREAMERS'}</span>
       ${options.privatePage?html`<nav aria-label="Workspace"><a href="/editor">Editor</a><a href="/account">Account</a></nav>`:html`<a class="small-link" href="/sign-in">Creator sign-in <span aria-hidden="true">↗</span></a>`}
-    </header>`}<main class="${options.wide?'wide':'shell'}">${body}</main>
+    </header>`}<main class="${options.wide?'wide':options.phone?'shell phone-preview':'shell'}">${body}</main>
     ${options.standalone?'':options.creator?html`<footer class="creator-credit"><a href="/">Made with LINB</a></footer>`:
       html`<footer class="footer"><span>${mark} LINB</span><span>linb.io · Built for streamers.</span></footer>`}
     </body></html>`;
@@ -132,9 +133,32 @@ function streamLabel(link:string) {
   return 'Open stream';
 }
 
-export function renderHome(content:HomeContent,options:{now:number;asset:(id:string)=>string;canonical?:string;
-  preview?:boolean;review?:boolean;report?:string;demo?:boolean;pro?:ProContent|null;homeId?:string;proBase?:string;notice?:ScheduleChange|null;currentPage?:string;metadata?:{title:string;description:string;image?:string}}) {
-  const slot=nextSession(content,options.now);
+function channelLinks(links: HomeContent['links'], shortcuts = false) {
+  return html`<ul class="dock-links">${links.map(link=>{
+    const platform=channelPlatform(link.url);
+    const label=platform&&link.label.toLowerCase()!==platforms[platform].toLowerCase()?`${platforms[platform]}: ${link.label}`:link.label;
+    return html`<li><a class="button secondary" href="${link.url}" aria-label="${label}" title="${link.label}">
+      ${platform?html`<span class="platform-icon" data-platform="${platform}" aria-hidden="true"></span>`:''}
+      ${!platform||!shortcuts?link.label:''}</a></li>`;
+  })}</ul>`;
+}
+
+const promoActions={
+  Giveaway:'See giveaway', Support:'Support the creator', Merch:'Shop merch',
+  Sponsor:'See sponsor offer', Community:'Join the community',
+};
+
+function scheduleSlot(slot:SessionSlot) {
+  return html`<div class="schedule-slot"><h3>${slot.title}</h3><dl>
+    <div><dt>Creator date</dt><dd>${slot.local.slice(0,10)}</dd></div>
+    <div><dt>Creator time</dt><dd>${slot.local.slice(11)}</dd></div>
+    <div><dt>Time zone</dt><dd>${slot.zone} (${slot.offset})</dd></div></dl>
+    <p hidden data-fan-time="${slot.instant}"></p></div>`;
+}
+
+export function renderHome(content:HomeContent|EditableHome,options:{now:number;asset:(id:string)=>string;canonical?:string;
+  preview?:boolean;embedded?:boolean;phone?:boolean;review?:boolean;report?:string;demo?:boolean;pro?:ProContent|null;homeId?:string;proBase?:string;notice?:ScheduleChange|null;currentPage?:string;metadata?:{title:string;description:string;image?:string}}) {
+  const layout='layout' in content?content.layout:defaultLayout(options.homeId??'demo');
   const pro=options.pro, page=options.currentPage;
   const base=options.proBase??(options.homeId?'/h/'+options.homeId:null);
   const nav=base&&pro?proNav(pro,base,page):'';
@@ -148,81 +172,145 @@ export function renderHome(content:HomeContent,options:{now:number;asset:(id:str
   }
   const name=content.displayName||'Your creator name';
   const initials=name.split(/\s+/).slice(0,2).map(word=>[...word][0]).join('').toUpperCase();
+  const identity=layout.identity;
+  const sessions=futureSessions(content,options.now);
+  const compactDock=layout.dock.size==='compact';
+  const visibleLinks=compactDock?content.links.slice(0,3):content.links;
+  const remainingLinks=compactDock?content.links.slice(3):[];
   return frame(name,html`
-    ${options.preview?html`<aside class="status-note">Private preview · Unsaved values
+    ${options.preview&&!options.embedded?html`<aside class="status-note">Private preview · Unsaved values · ${options.phone?'Phone':'Desktop'}
       <button type="button" class="secondary" id="return-to-editor">Return to editor</button>
       <p class="dim">If this tab stays open, close it to return to your unsaved editor.</p></aside>`:''}
     ${options.review?html`<aside class="status-note">Restricted publication review · <a href="/ops">Back to cases</a></aside>`:''}
-    <article class="creator" data-flair="${pro?.appearance??'original'}"><div class="cover">${content.coverId?html`<img src="${options.asset(content.coverId)}" alt="" fetchpriority="high">`:options.demo?art:html`<div class="plain-cover"></div>`}</div>
-      <div class="creator-body">${nav}<div class="identity">${content.avatarId?html`<img class="avatar" src="${options.asset(content.avatarId)}" alt="">`:
-        html`<div class="avatar initials" aria-hidden="true">${initials}</div>`}
-        <div><span class="micro dim">CREATOR HOME</span><h1>${name}</h1>${content.intro?html`<p>${content.intro}</p>`:''}</div></div>
-      ${content.streamUrl?html`<a class="button secondary stream" href="${content.streamUrl}">${streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a>`:
-        html`<p class="dim compact">Stream link is not available.</p>`}
-      ${content.links.length?html`<section class="links"><h2>Key links</h2><ul>${content.links.map(item=>html`<li><a href="${item.url}">${item.label} <span aria-hidden="true">↗</span></a></li>`)}</ul></section>`:''}
-      ${module}
-      ${content.game?html`<div class="game"><span class="micro">CURRENT GAME</span><strong>${content.game}</strong></div>`:''}
-      ${activeNotice(options.notice,options.now)?html`<aside class="next"><p class="micro">SCHEDULE CHANGE</p>
+    <article class="creator card-home" data-flair="${pro?.appearance??'original'}">
+      <section class="home-card identity-card" data-card="identity" data-size="${identity.size}" data-align="${identity.alignment}"
+        data-avatar-size="${identity.avatarSize}" data-avatar-position="${identity.avatarPosition}">
+        <div class="cover" data-focal-x="${identity.focalX}" data-focal-y="${identity.focalY}">${content.coverId?html`<img src="${options.asset(content.coverId)}" alt="" fetchpriority="high">`:options.demo?art:html`<div class="plain-cover"></div>`}</div>
+        <div class="identity">
+          ${content.avatarId?html`<img class="avatar" src="${options.asset(content.avatarId)}" alt="">`:
+            html`<div class="avatar initials" aria-hidden="true">${initials}</div>`}
+          <div class="identity-text"><h1>${name}</h1>${content.intro?html`<p>${content.intro}</p>`:''}
+          ${content.game?html`<p class="signature-game"><span class="sr-only">Signature game: </span>${content.game}</p>`:''}</div>
+        </div>
+      </section>
+      ${content.streamUrl?html`<section class="home-card spotlight-card" data-card="spotlight" data-size="${layout.spotlight.size}" aria-label="Stream destination">
+        <p class="micro">SPOTLIGHT</p><a class="button" href="${content.streamUrl}">${streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a></section>`:''}
+      ${content.links.length?html`<section class="home-card dock-card" data-card="dock" data-size="${layout.dock.size}">
+        <h2>Find me</h2>${channelLinks(visibleLinks,compactDock)}
+        ${remainingLinks.length?html`<details><summary>More channels</summary>${channelLinks(remainingLinks)}</details>`:''}</section>`:''}
+      ${activeNotice(options.notice,options.now)?html`<aside class="home-card schedule-notice"><p class="micro">SCHEDULE CHANGE</p>
         <p>${scheduleCopy(options.notice!)}</p></aside>`:''}
-      ${slot?html`<section class="next"><p class="micro">NEXT SESSION</p><h2>${slot.title}</h2><dl>
-        <div><dt>Creator date</dt><dd>${slot.local.slice(0,10)}</dd></div><div><dt>Creator time</dt><dd>${slot.local.slice(11)}</dd></div>
-        <div><dt>Time zone</dt><dd>${slot.zone} (${slot.offset})</dd></div></dl><p hidden data-fan-time="${slot.instant}"></p></section>`:''}
-      ${content.updates.length?html`<section class="updates"><h2>Updates</h2>${content.updates.map(update=>html`
+      ${layout.supporting.map(card=>{
+        if(card.hidden) return '';
+        if(card.family==='promo') {
+          if(!card.url||!card.title) return '';
+          return html`<section class="home-card promo-card" data-card="promo" data-size="${card.size}">
+            <p class="micro">${card.category}</p><h2>${card.title}</h2>
+            ${card.size==='expanded'&&card.description?html`<p>${card.description}</p>`:''}
+            <a class="button" href="${card.url}">${promoActions[card.category]} <span aria-hidden="true">↗</span></a></section>`;
+        }
+        if(!sessions.length) return '';
+        return html`<section class="home-card schedule-card" data-card="schedule" data-size="${card.size}">
+          <h2>${card.size==='compact'?'Next session':'Upcoming sessions'}</h2>
+          ${(card.size==='compact'?sessions.slice(0,1):sessions).map(scheduleSlot)}
+          ${content.streamUrl?html`<a class="button secondary" href="${content.streamUrl}">Open channel</a>`:''}</section>`;
+      })}
+      ${content.updates.length?html`<section class="home-card updates" data-card="updates"><h2>Updates</h2>${content.updates.map(update=>html`
         <article>${update.firstPublishedAt?html`<time datetime="${update.firstPublishedAt}">${update.firstPublishedAt.slice(0,10)} UTC</time>`:
           options.preview?html`<small>Date added when published.</small>`:''}<p>${update.text}</p></article>`)}</section>`:''}
-      ${options.preview||options.review?'':html`<p class="bookmark">Save this home in your browser.</p>
+      ${nav||pro?html`<section class="home-card">${nav}${module}</section>`:''}
+      ${options.preview||options.review?'':html`<div class="fan-tools"><p class="bookmark">Save this home in your browser.</p>
         ${options.canonical?shareControl(options.canonical):''}
-        ${options.report?html`<a class="dim" href="${options.report}">Report this page</a>`:''}`}
-      </div></article>`,{theme:content.theme,preview:options.preview,creator:true,player:Boolean(pro?.video),canonical:options.canonical,share:!options.preview&&!options.review,metadata:options.metadata});
+        ${options.report?html`<a class="dim" href="${options.report}">Report this page</a>`:''}</div>`}
+    </article>`,{theme:content.theme,preview:options.preview&&!options.embedded,phone:options.phone,creator:true,player:Boolean(pro?.video),canonical:options.canonical,share:!options.review,metadata:options.metadata});
 }
+
+function editorSelect(id:string,label:string,options:readonly (readonly [string|number,string])[]) {
+  return html`<div><label for="${id}">${label}</label><select id="${id}">${options.map(([value,name])=>html`<option value="${value}">${name}</option>`)}</select></div>`;
+}
+
+const cardSizeOptions=[['compact','Compact'],['expanded','Expanded']] as const;
 
 export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twitchLogin?:string,proEnabled=false) {
   return frame('Edit your home',html`<div class="workspace" id="workspace" data-content="${JSON.stringify(state.content)}"
-    data-home="${state.id}" data-csrf="${csrf}" data-revision="${state.draft_revision}" data-publication="${state.publication_id??''}" data-held="${state.held}">
+    data-home="${state.id}" data-csrf="${csrf}" data-revision="${state.draft_revision}" data-publication="${state.publication_id??''}" data-published-revision="${state.published_revision??''}" data-held="${state.held}">
     <header class="workspace-head"><div><p class="eyebrow">LINB / WORKSPACE</p><h1>${state.draft_revision?'Edit your home':'Make your first link page'}</h1><p>${state.draft_revision?'Give fans one place to find you.':'Start with your name, a short intro, and where fans can find you. You can add more later.'}</p></div>
-      <span id="availability" class="badge">${state.held?'Home held':state.publication_id?'Home available':'Private draft'}</span></header>
+      <span id="availability" class="badge">${state.held?'Home held':state.publication_id?(state.published_revision===state.draft_revision?'Published':'Unpublished changes'):'Private draft'}</span></header>
     <aside id="hold-note" class="status-note" ${state.held?'':raw('hidden')}>Home held—unavailable to the public. Publishing changes will not release the hold.
       ${state.hold_reason?html`<p>Reason: ${state.hold_reason}. <a href="/account">Contact the review operator.</a></p>`:''}</aside>
     ${proEnabled?html`<p><a href="/editor/pro">Preview Pro style and components</a></p>`:''}
     ${state.notice&&!state.held?html`<p class="status-note">${state.notice}</p>`:''}
     <div class="workspace-grid"><form id="home-form" class="panel">
       <div id="errors" class="notice error" tabindex="-1" hidden><strong>Review these fields</strong><ul></ul></div>
-      <section><h2>Identity</h2>
+      <section><h2>Creator Identity <small class="fixed-card">Fixed</small></h2>
         ${twitchLogin?html`<p>Suggested by Twitch: <strong>${twitchLogin}</strong>. Use these values, edit them, or skip.</p>
           <button type="button" class="secondary" id="use-twitch-name" data-value="${twitchLogin}">Use Twitch name</button>
           <button type="button" class="secondary" id="use-twitch-link" data-value="https://www.twitch.tv/${twitchLogin}">Use Twitch link</button>`:''}
         <label for="displayName">Display name <small>Required · 40 characters</small></label><input id="displayName" maxlength="40" required value="${state.content.displayName}">
         <label for="intro">Intro <small>Required · 160 characters</small></label><textarea id="intro" maxlength="160" required>${state.content.intro}</textarea>
-        <label for="game">Current game</label><input id="game" maxlength="80" value="${state.content.game}">
-        <label for="streamUrl">Stream destination <small>HTTPS address</small></label><input id="streamUrl" type="url" maxlength="2048" value="${state.content.streamUrl}">
-      </section><details class="editor-extras" ${state.draft_revision?raw('open'):''}><summary>Optional: appearance, schedule and more links</summary><section><h2>Theme and art</h2>
-        <fieldset><legend>Theme</legend><div class="theme-picker">${themeNames.map(theme=>html`<label><input name="theme" type="radio" value="${theme}" ${state.content.theme===theme?raw('checked'):''}><span class="swatch" data-swatch="${theme}"></span>${theme}</label>`)}</div></fieldset>
-        ${imagesEnabled?html`<div class="image-controls">${['avatarId','coverId'].map(key=>html`<div>
-          <label for="${key}">${key==='avatarId'?'Avatar':'Cover image'}</label>
-          <input id="${key}" type="file" accept="image/jpeg,image/png,image/webp"><button class="secondary" type="button" data-remove-image="${key}">Remove</button><small id="${key}-state"></small>
+        <label for="game">Signature game</label><input id="game" maxlength="80" value="${state.content.game}">
+        <details class="editor-extras"><summary>Identity appearance</summary>
+          <div class="identity-options">
+            ${editorSelect('identity-size','Card size',cardSizeOptions)}
+            ${editorSelect('identity-alignment','Text alignment',[['left','Left'],['center','Centered'],['right','Right']])}
+            ${editorSelect('avatar-size','Avatar size',[['small','Small'],['medium','Medium'],['large','Large']])}
+            ${editorSelect('avatar-position','Avatar position',[['edge','Banner edge'],['banner-center','Banner center']])}
+            ${editorSelect('cover-x','Banner focal point horizontally',[[0,'Far left'],[25,'Left'],[50,'Center'],[75,'Right'],[100,'Far right']])}
+            ${editorSelect('cover-y','Banner focal point vertically',[[0,'Top'],[25,'Upper'],[50,'Center'],[75,'Lower'],[100,'Bottom']])}
+          </div>
+          ${imagesEnabled?html`<div class="image-controls">${['avatarId','coverId'].map(key=>html`<div>
+            <label for="${key}">${key==='avatarId'?'Avatar':'Cover image'}</label>
+            <input id="${key}" type="file" accept="image/jpeg,image/png,image/webp"><button class="secondary" type="button" data-remove-image="${key}">Remove</button><small id="${key}-state"></small>
           </div>`)}</div>`:html`<p class="dim">Image upload is unavailable in this environment.</p>`}
-      </section><section><h2>Schedule</h2><p>Add an optional next stream to your link page. Save and publish to make the change public.</p><div id="sessions"></div>
-        <button type="button" class="secondary" data-add="sessions">Add a session</button>
-        <label for="scheduleRemoval">If you remove a scheduled stream and publish without a new time</label>
-        <select id="scheduleRemoval"><option value="unknown">New time unknown</option><option value="cancelled">Cancelled</option></select></section>
-      <section><h2>Updates</h2><p>Up to three updates. LINB adds the date when you first publish an update.</p><div id="updates"></div>
-        <button type="button" class="secondary" data-add="updates">Add an update</button></section>
-      <section><h2>Key links</h2><div id="links"></div><button type="button" class="secondary" data-add="links">Add a link</button></section></details>
-      <div class="form-actions"><button id="save" type="submit">Save draft</button><button id="preview" type="button" class="secondary">Open full preview</button></div>
+        </details>
+      </section>
+      <section><h2>Spotlight <small class="fixed-card">Fixed</small></h2>
+        <p id="spotlight-empty" hidden>Add a stream destination to show Spotlight on your Home.</p>
+        <label for="streamUrl">Stream destination <small>HTTPS address</small></label><input id="streamUrl" type="url" maxlength="2048" value="${state.content.streamUrl}">
+        ${editorSelect('spotlight-size','Spotlight size',cardSizeOptions)}
+      </section>
+      <section><h2>Channel Dock <small class="fixed-card">Fixed</small></h2>
+        <p id="dock-empty" hidden>Add a supporting link to show the Channel Dock.</p>
+        ${editorSelect('dock-size','Channel Dock size',cardSizeOptions)}
+        <p>Move priority links to the top. The Dock and Promo cards share five supporting links.</p>
+        <div id="links"></div><button type="button" class="secondary" data-add="links">Add a link</button>
+      </section>
+      <section><h2>Supporting cards</h2><p>Move or hide these cards within this section.</p>
+        <div id="supporting" tabindex="-1"></div>
+        <div id="schedule-fields" hidden>
+          <div id="sessions"></div><button type="button" class="secondary" data-add="sessions">Add a session</button>
+          <label for="scheduleRemoval">If you remove a scheduled stream and publish without a new time</label>
+          <select id="scheduleRemoval"><option value="unknown">New time unknown</option><option value="cancelled">Cancelled</option></select>
+        </div>
+        <button id="add-promo" type="button" class="secondary">Add Promo card</button>
+        <p id="card-announcement" role="status" class="sr-only"></p>
+      </section>
+      <section><h2>Updates</h2><p>Up to three updates. LINB adds the date when you first publish an update.</p>
+        <div id="updates"></div><button type="button" class="secondary" data-add="updates">Add an update</button>
+      </section>
+      <section><h2>Skin</h2><fieldset><legend>Theme</legend><div class="theme-picker">${themeNames.map(theme=>html`<label>
+        <input name="theme" type="radio" value="${theme}" ${state.content.theme===theme?raw('checked'):''}><span class="swatch" data-swatch="${theme}"></span>${theme}</label>`)}</div></fieldset>
+      </section>
+      <div class="form-actions"><button id="save" type="submit">Save draft</button><button id="preview" type="button" class="secondary" data-preview="phone">Phone preview</button><button id="preview-desktop" type="button" class="secondary" data-preview="desktop">Desktop preview</button></div>
     </form><aside class="workspace-side"><section class="panel"><p class="micro">PUBLISHING</p><h2>Public home</h2>
        <p id="revision-label">Draft revision ${state.draft_revision}</p><p class="dim" id="publish-help">Save changes before you publish.</p>
        <button type="button" id="publish" ${state.draft_revision===0?raw('disabled'):''}>Publish</button>
        <a class="button secondary" id="public-link" href="/h/${state.id}" ${state.publication_id&&!state.held?'':raw('hidden')}>Open home ↗</a>
+       <button type="button" class="secondary" id="copy-home" ${state.publication_id&&!state.held?'':raw('hidden')}>Copy link</button>
        <a class="button secondary" id="share-link" href="/editor/share" ${state.publication_id&&!state.held?'':raw('hidden')}>Share</a>
        <button type="button" id="unpublish" class="secondary" ${state.publication_id?'':raw('hidden')}>Unpublish</button>
        <div class="notice" id="editor-status" role="status" hidden></div><button id="retry" type="button" class="secondary" hidden>Retry original attempt</button>
        <button id="compare" type="button" class="secondary" hidden>Compare with saved draft</button>
        <div id="reconnect" class="form-actions" hidden><a href="/sign-in" target="_blank" rel="noopener">Sign in in a new tab</a>
          <button type="button" class="secondary">Reconnect editor</button></div>
-      </section><section class="panel"><p class="micro">PRIVATE PREVIEW</p><h2 id="mini-name">${state.content.displayName||'Your creator name'}</h2>
-      <p id="mini-intro">${state.content.intro||'Your intro appears here.'}</p><p class="dim">The preview uses local changes. Your public home changes after Publish.</p></section></aside></div>
+      </section><section class="panel"><p class="micro">PRIVATE PREVIEW</p><h2>Home preview</h2>
+      <p class="dim">Preview includes unsaved changes. Fans see the last published version.</p>
+      <iframe id="editor-canvas" name="lobby-editor-canvas" title="Private Home canvas"></iframe>
+      </section></aside></div>
     <dialog id="compare-dialog"><h2>Compare drafts</h2><p>Choose which changes to keep in the editor. Uncheck a field to use its saved value.</p><div id="comparison"></div>
       <form method="dialog"><button value="cancel" class="secondary">Cancel</button><button value="reapply">Apply selected changes</button></form></dialog>
+    <dialog id="publish-dialog" aria-labelledby="publish-title"><h2 id="publish-title">Publish your home?</h2><p id="publish-confirmation"></p>
+      <form method="dialog"><button class="secondary" value="cancel">Cancel</button><button value="publish">Publish saved draft</button></form></dialog>
     <dialog id="unpublish-dialog"><h2>Unpublish your home?</h2><p>The public page and its shared images become unavailable. Your private draft stays in the editor.</p>
       <form method="dialog"><button class="secondary" value="cancel">Cancel</button><button value="unpublish">Unpublish</button></form></dialog>
     </div>`,{wide:true,privatePage:true,script:true});

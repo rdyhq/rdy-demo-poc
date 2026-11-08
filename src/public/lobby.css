@@ -36,3 +36,71 @@ label,legend{display:block;font-weight:720;margin:11px 0 4px}label small{color:v
 .editor-extras,.report-inbox{margin-top:20px}.editor-extras>section{margin-top:18px}.report-inbox article+article{border-top:1px solid var(--border);margin-top:12px;padding-top:12px}
 .pro-nav{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px}.pro-nav a{padding:6px 8px}.pro-nav [aria-current=page]{font-weight:800;border-bottom:2px solid var(--accent)}.creator[data-flair=arcade] .cover{border-bottom:5px solid var(--accent)}.creator[data-flair=arcade] .plain-cover{background:repeating-linear-gradient(90deg,transparent 0 16px,color-mix(in srgb,var(--accent) 38%,transparent) 16px 17px),repeating-linear-gradient(0deg,var(--page) 0 16px,var(--surface) 16px 17px)}.creator[data-flair=afterglow]{border-width:2px;border-color:var(--accent)}.creator[data-flair=afterglow] .cover{background:radial-gradient(ellipse at 75% 70%,var(--accent),var(--page) 68%)}.creator[data-flair=afterglow] .plain-cover{background:none}.feature-video{border:1px solid var(--border);padding:14px;margin:16px 0}.feature-video [data-player]{display:grid;place-items:center;background:var(--page);aspect-ratio:16/9;min-height:200px;color:var(--accent);font-size:42px;margin-bottom:10px}.feature-video iframe{width:100%;height:100%;min-height:200px;border:0}.pro-collection ul{display:grid;gap:8px}.pro-collection p{margin:0 0 8px}
 .rank{border-collapse:collapse;width:100%;text-align:left;margin:14px 0}.rank :is(th,td){padding:8px;border-bottom:1px solid var(--border)}
+
+/* The card layout is shared by public Homes and both private preview widths. */
+.phone-preview { max-width:358px; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
+.card-home { container-type:inline-size; display:grid; gap:12px; overflow:visible; border:0; background:transparent; overflow-wrap:anywhere; }
+.home-card { min-width:0; padding:clamp(12px,3cqw,18px); border:1px solid color-mix(in srgb,var(--border) 70%,transparent); border-radius:12px; background:var(--surface); }
+.home-card h2 { margin:0 0 8px; font-size:1.2rem; }
+.home-card .micro { margin:0 0 8px; }
+.home-card .button { min-width:44px; }
+.identity-card { --cover-height:clamp(84px,26cqw,154px); --avatar-size:56px; padding:0; overflow:hidden; }
+.identity-card[data-size=expanded] { --cover-height:clamp(110px,34cqw,218px); }
+.identity-card[data-avatar-size=small] { --avatar-size:44px; }
+.identity-card[data-avatar-size=large] { --avatar-size:72px; }
+.identity-card .cover { height:var(--cover-height); aspect-ratio:auto; }
+.identity-card .cover img { object-position:var(--focal-x,50%) var(--focal-y,50%); }
+.cover[data-focal-x="0"] { --focal-x:0%; }
+.cover[data-focal-x="25"] { --focal-x:25%; }
+.cover[data-focal-x="75"] { --focal-x:75%; }
+.cover[data-focal-x="100"] { --focal-x:100%; }
+.cover[data-focal-y="0"] { --focal-y:0%; }
+.cover[data-focal-y="25"] { --focal-y:25%; }
+.cover[data-focal-y="75"] { --focal-y:75%; }
+.cover[data-focal-y="100"] { --focal-y:100%; }
+.identity-card .identity { position:relative; align-items:flex-start; gap:12px; padding:10px 14px 14px; margin:0; }
+.identity-card .identity-text { flex:1; min-width:0; }
+.identity-card[data-align=center] .identity-text { text-align:center; }
+.identity-card[data-align=right] .identity-text { text-align:right; }
+.identity-card .identity h1 { font-size:clamp(1.35rem,6cqw,2rem); line-height:1.15; }
+.identity-card .identity p { font-size:.92rem; }
+.identity-card .avatar { width:var(--avatar-size); height:var(--avatar-size); }
+.identity-card[data-avatar-position=edge] .avatar { margin-top:-22px; }
+.identity-card[data-avatar-position=banner-center] .avatar { position:absolute; left:50%; top:calc((var(--cover-height) + var(--avatar-size)) / -2); transform:translateX(-50%); }
+.identity-card .signature-game { display:inline-block; margin-top:8px; padding:2px 6px; background:var(--page); border:1px solid var(--border); border-radius:4px; }
+.spotlight-card { background:color-mix(in srgb,var(--surface) 87%,var(--accent)); }
+.spotlight-card[data-size=expanded] { padding-block:22px; }
+.spotlight-card .button { display:flex; justify-content:space-between; width:100%; }
+.promo-card[data-size=expanded] { padding-block:22px; }
+.dock-links { display:flex; flex-wrap:wrap; gap:7px; padding:0; margin:0; list-style:none; }
+.dock-links li { min-width:0; max-width:100%; }
+.dock-card details { margin-top:8px; }
+.dock-card summary { width:max-content; max-width:100%; min-height:44px; align-content:center; padding-inline:6px; }
+.dock-card details[open] .dock-links { margin-top:8px; }
+.platform-icon { display:inline-block; flex:none; width:24px; height:24px; background:currentColor; mask:var(--platform) center / 24px 24px no-repeat; }
+.platform-icon[data-platform=twitch] { --platform:url('/assets/platforms/twitch.svg'); }
+.platform-icon[data-platform=youtube] { --platform:url('/assets/platforms/youtube.svg'); }
+.platform-icon[data-platform=tiktok] { --platform:url('/assets/platforms/tiktok.svg'); }
+.platform-icon[data-platform=x] { --platform:url('/assets/platforms/x.svg'); }
+.platform-icon[data-platform=kick] { --platform:url('/assets/platforms/kick.svg'); }
+.platform-icon[data-platform=instagram] { --platform:url('/assets/platforms/instagram.svg'); }
+.schedule-slot + .schedule-slot { margin-top:12px; padding-top:12px; border-top:1px solid var(--border); }
+.schedule-slot h3 { margin:0 0 4px; font-size:1rem; }
+.schedule-slot dl { display:flex; flex-wrap:wrap; gap:6px 16px; margin:0 0 10px; }
+.schedule-slot dt { color:var(--muted); font-size:.83rem; }
+.schedule-slot dd { margin:0; }
+.schedule-notice p:last-child { margin:0; }
+.card-home .updates, .card-home .feature-video { margin:0; }
+.fan-tools { padding:0 10px; }
+.fan-tools > a, .creator-credit > a { display:inline-flex; align-items:center; min-height:44px; }
+.fixed-card { margin-inline-start:6px; color:var(--muted); font-size:.7rem; }
+.identity-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr)); gap:0 10px; }
+.editor-entry { min-inline-size:0; }
+.editor-entry button { margin-inline-end:6px; }
+#preview-order { padding-inline-start:22px; overflow-wrap:anywhere; }
+@container (max-width:358px) {
+  .identity-card .identity { gap:9px; }
+  .card-home .dock-links .button { padding-inline:9px; }
+}
+#editor-canvas { display:block; width:100%; height:clamp(300px,55vh,568px); border:1px solid var(--border); border-radius:8px; background:var(--page); }

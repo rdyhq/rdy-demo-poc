@@ -11,8 +11,9 @@ import { transaction } from './db.ts';
 import { acceptReport, reportInbox, reportReasons } from './reports.ts';
 import { assetBytes, maxUpload, upload, type Objects } from './assets.ts';
 import { Auth, type SendMail } from './auth.ts';
-import { AppError, digest, emptyHome, equalSecret, invalid, mailbox, normalize, unavailable, uuidPattern } from './domain.ts';
+import { AppError, digest, emptyHome, equalSecret, invalid, mailbox, scheduleChange, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
 import { invite, inviteList, revokeInvite } from './enrollment.ts';
+import { normalizeHome, platforms, readHome, type StoredHome } from './home-cards.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
@@ -25,10 +26,13 @@ const shareScript=readFileSync(new URL('./public/share.js',import.meta.url),'utf
 const editorScript=readFileSync(new URL('./public/editor.js',import.meta.url),'utf8');
 const previewScript=readFileSync(new URL('./public/preview.js',import.meta.url),'utf8');
 const verifyScript=readFileSync(new URL('./public/verify.js',import.meta.url),'utf8');
+const platformIcons=new Map(Object.keys(platforms).map(name=>[
+  name,readFileSync(new URL('./public/platforms/'+name+'.svg',import.meta.url),'utf8'),
+]));
 
 type Configuration={
   pool?:pg.Pool; origin?:string; twitch?:TwitchConfig; billing?:BillingConfig; pro?:{multipage:boolean}; redirectOrigins?:string[]; mail?:SendMail; objects?:Objects|null;
-  reportContact?:string; clock?:()=>number; demo?:boolean;
+  reportContact?:string; clock?:()=>number; demo?:boolean; readOnlyHomes?:boolean;
   clientAddress?:(context:Context)=>string;
 };
 
@@ -54,7 +58,7 @@ export function createApp(config:Configuration={}) {
   const contact=mailbox(config.reportContact)??undefined;
   const pool=config.pool;
   const objects=config.objects??null;
-  const auth=pool&&config.mail&&origin?new Auth(pool,config.mail,origin,Boolean(config.twitch)):null;
+  const auth=pool&&config.mail&&origin?new Auth(pool,config.mail,origin,Boolean(config.twitch),config.readOnlyHomes):null;
   const twitch=pool&&auth&&origin&&config.twitch?new Twitch(pool,config.twitch,origin):null;
   const billing=pool&&auth&&origin&&config.billing?new Billing(pool,origin,config.billing):null;
   const pro=billing?config.pro:null;
@@ -67,6 +71,9 @@ export function createApp(config:Configuration={}) {
   const requirePool=()=>{
     if (!pool) throw new AppError(503,'unavailable','LINB is temporarily unavailable.');
     return pool;
+  };
+  const requireHomeWrites=()=>{
+    if(config.readOnlyHomes) throw new AppError(503,'home_writes_paused','Home changes are temporarily paused.');
   };
   const requireAuth=()=>{
     if (!auth) throw new AppError(503,'sign_in_unavailable','Creator sign-in is unavailable.');
@@ -97,7 +104,8 @@ export function createApp(config:Configuration={}) {
       c.header('X-Content-Type-Options','nosniff');
       c.header('X-Frame-Options','DENY');
       const allowedForms=(twitch?' https://id.twitch.tv':'')+(billing?' https://checkout.stripe.com https://billing.stripe.com':'');
-      const allowedFrames=pro?"frame-src https://www.youtube-nocookie.com; ":"";
+      const frameSources=[...(c.req.path==='/editor'?["'self'"]:[]),...(pro?['https://www.youtube-nocookie.com']:[])];
+      const allowedFrames=frameSources.length?'frame-src '+frameSources.join(' ')+'; ':'';
       c.header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'"+allowedForms+"; "+allowedFrames+"base-uri 'none'; frame-ancestors 'none'");
     }
     if(redirectHosts.size&&origin&&c.req.path!=='/healthz') {
@@ -150,6 +158,12 @@ export function createApp(config:Configuration={}) {
   });
 
   app.get('/healthz',c=>{c.header('Cache-Control','no-store');return c.json({status:'ok'});});
+  app.get('/assets/platforms/:file',c=>{
+    const file=c.req.param('file');
+    const asset=file.endsWith('.svg')?platformIcons.get(file.slice(0,-4)):undefined;
+    if(!asset) throw unavailable();
+    return c.text(asset,200,{'Content-Type':'image/svg+xml; charset=utf-8','Cache-Control':'public, max-age=300'});
+  });
   app.get('/assets/linb.svg',c=>c.text(brandIcon,200,{'Content-Type':'image/svg+xml','Cache-Control':'public, max-age=300'}));
   app.get('/assets/lobby.css',c=>c.text(stylesheet,200,{'Content-Type':'text/css; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/player.js',c=>c.text(playerScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
@@ -299,6 +313,7 @@ export function createApp(config:Configuration={}) {
     app.post('/editor/pro/publish',async c=>{
       const owner=await principal(c,'creator'),fields=await c.req.parseBody();
       checkCsrf(c,fields.csrf);
+      requireHomeWrites();
       if(fields.approved!=='1') throw invalid('approved','Review the Free fallback and Pro pages before publishing.');
       await mutate(requirePool(),owner,'publish',{revision:Number(fields.revision),proVersion:Number(fields.version),
         publicationId:fields.publication||null,operationId:fields.operation},clock(),pro);
@@ -351,18 +366,30 @@ export function createApp(config:Configuration={}) {
     checkCsrf(c,fields.csrf);
     const db=requirePool(), state=await editor(db,owner);
     if(typeof fields.content!=='string') throw invalid('content','Enter home content.');
-    const content=normalize(parseJson(fields.content),state.content,clock(),true);
+    const now=clock();
+    const content=normalizeHome(parseJson(fields.content),state.content,now,true);
     if(content.updates.length) {
       const {rows}=await db.query('SELECT update_id, first_published_at FROM update_dates WHERE home_id=$1',[state.id]);
       const dates=new Map(rows.map(row=>[row.update_id,row.first_published_at.toISOString()]));
       for(const update of content.updates) update.firstPublishedAt=dates.get(update.id);
     }
-    return c.html(renderHome(content,{now:clock(),preview:true,asset:id=>'/editor/assets/'+id}));
+    const prior=state.publication_id?await db.query<{content:StoredHome;schedule_change:ScheduleChange|null}>(
+      'SELECT content,schedule_change FROM publications WHERE home_id=$1 AND id=$2',[state.id,state.publication_id]):null;
+    const current=prior?.rows[0];
+    const notice=current?scheduleChange(readHome(current.content,state.id),content,now,current.schedule_change):null;
+    const embedded=fields.embedded==='1';
+    if(embedded) {
+      const policy=c.res.headers.get('Content-Security-Policy')!;
+      c.header('Content-Security-Policy',policy.replace("frame-ancestors 'none'","frame-ancestors 'self'"));
+      c.header('X-Frame-Options','SAMEORIGIN');
+    }
+    return c.html(renderHome(content,{now,notice,preview:true,embedded,phone:fields.width==='phone',asset:id=>'/editor/assets/'+id}));
   });
   for(const action of ['save','publish','unpublish'] as const) {
     app.post('/api/editor/'+action,async c=>{
       const owner=await principal(c,'creator');
       checkCsrf(c,c.req.header('x-csrf-token'));
+      requireHomeWrites();
       return c.json(await mutate(requirePool(),owner,action,await requestJson(c),clock()));
     });
   }

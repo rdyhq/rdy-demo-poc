@@ -5,7 +5,14 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 const fields = ['displayName','intro','game','streamUrl'];
 const capacities = {sessions:7,updates:3,links:5};
 const labels = {sessions:'Session',updates:'Update',links:'Link'};
-const fieldNames = {displayName:'Display name',intro:'Intro',game:'Current game',streamUrl:'Stream destination',theme:'Theme',avatarId:'Avatar',coverId:'Cover image'};
+const fixedControls = {
+  'identity-size':['identity','size'], 'identity-alignment':['identity','alignment'],
+  'avatar-size':['identity','avatarSize'], 'avatar-position':['identity','avatarPosition'],
+  'cover-x':['identity','focalX'], 'cover-y':['identity','focalY'],
+  'spotlight-size':['spotlight','size'], 'dock-size':['dock','size'],
+};
+const promoCategories = ['Giveaway','Support','Merch','Sponsor','Community'];
+const fieldNames = {layout:'Card layout and supporting cards',scheduleRemoval:'Schedule removal notice',displayName:'Display name',intro:'Intro',game:'Current game',streamUrl:'Stream destination',theme:'Theme',avatarId:'Avatar',coverId:'Cover image'};
 const layouts = {
   sessions:[['title','Session title','text',80],['local','Local date and time','datetime-local'],['zone','IANA time zone','text',90],['offset','UTC offset if the local time repeats','text',6]],
   updates:[['text','Update text','textarea',280]],
@@ -17,6 +24,7 @@ saved.scheduleRemoval??='unknown';
 let content = clone(saved);
 let revision = Number(root.dataset.revision);
 let publication = root.dataset.publication || null;
+let publishedRevision = publication ? Number(root.dataset.publishedRevision) : null;
 let held = root.dataset.held === 'true';
 let busy = false;
 let uploading = 0;
@@ -25,42 +33,63 @@ let conflicted = false;
 let retry = null;
 let other = null;
 let needsSignIn = false;
+let canvasTimer;
+let canvasPayload;
 
 function updateControls() {
   const blocked=busy||uploading>0;
   const writesBlocked=blocked||needsSignIn;
+  const unresolvedPublication=retry&&retry.action!=='save';
+  const unresolvedSave=retry?.action==='save'&&JSON.stringify(content)===JSON.stringify(retry.value.content);
   by('reconnect').hidden=!needsSignIn;
   by('reconnect').querySelector('button').disabled=blocked;
-  by('save').disabled=writesBlocked||conflicted;
-  by('preview').disabled=writesBlocked;
-  by('publish').disabled=writesBlocked||conflicted||dirty||revision===0||retry?.action==='save';
-  for(const input of form.querySelectorAll('input, textarea, button[data-remove-image], .editor-entry button')) input.disabled=blocked;
-  by('unpublish').disabled=writesBlocked||conflicted;
+  by('save').disabled=writesBlocked||conflicted||unresolvedPublication||unresolvedSave;
+  for(const button of form.querySelectorAll('[data-preview]')) button.disabled=writesBlocked;
+  by('publish').disabled=writesBlocked||conflicted||dirty||revision===0||Boolean(retry);
+  for(const input of form.querySelectorAll('input, textarea, select, button[data-remove-image], .editor-entry button')) {
+    input.disabled=blocked||input.dataset.boundary==='true';
+  }
+  by('unpublish').disabled=writesBlocked||conflicted||Boolean(retry);
   by('unpublish').hidden=!publication;
   by('public-link').hidden=!publication||held;
   by('share-link').hidden=!publication||held;
-  by('availability').textContent=held?'Home held':publication?'Home available':'Private draft';
+  by('copy-home').hidden=!publication||held;
+  by('availability').textContent=held?'Home held':publication?(revision===publishedRevision?'Published':'Unpublished changes'):'Private draft';
   by('hold-note').hidden=!held;
   by('revision-label').textContent='Draft revision '+revision;
-  by('publish-help').textContent=conflicted?'Compare the current draft first.':dirty||!revision?'Save changes before you publish.':'The saved revision is ready to publish.';
+  by('publish-help').textContent=retry?'Resolve the previous attempt first.':conflicted?'Compare the current draft first.':dirty||!revision?'Save changes before you publish.':'The saved revision is ready to publish.';
   for(const input of form.querySelectorAll('input[type=file]')) input.disabled=writesBlocked;
   by('retry').disabled=writesBlocked;
-  for(const button of form.querySelectorAll('[data-add]')) button.disabled=blocked||content[button.dataset.add].length>=capacities[button.dataset.add];
+  for(const button of form.querySelectorAll('[data-add]')) {
+    const key=button.dataset.add;
+    button.disabled=blocked||(key==='links'?supportingLinkCount()>=5:content[key].length>=capacities[key]);
+  }
+  by('add-promo').disabled=blocked||supportingLinkCount()>=5;
 }
 
 function updatePreview() {
   for (const key of fields) content[key]=by(key).value;
   content.scheduleRemoval=by('scheduleRemoval').value;
-  content.theme=form.querySelector('[name=theme]:checked')?.value||'Midnight';
-  by('mini-name').closest('section').dataset.theme=content.theme;
-  by('mini-name').textContent=content.displayName||'Your creator name';
-  by('mini-intro').textContent=content.intro||'Your intro appears here.';
+  for(const [control,[card,field]] of Object.entries(fixedControls)) {
+    const value=by(control).value;
+    content.layout[card][field]=field.startsWith('focal')?Number(value):value;
+  }
+  by('spotlight-empty').hidden=Boolean(content.streamUrl.trim());
+  by('dock-empty').hidden=content.links.length>0;
+
 }
 
 function changed() {
   updatePreview();
   dirty=JSON.stringify(content)!==JSON.stringify(saved);
   updateControls();
+  clearTimeout(canvasTimer);
+  canvasTimer=setTimeout(()=>{
+    const payload=JSON.stringify(content);
+    if(needsSignIn||payload===canvasPayload) return;
+    canvasPayload=payload;
+    submitPreview(by('editor-canvas').name,'phone',payload,true);
+  },400);
 }
 
 function inputFor(type,id,value,limit,label) {
@@ -102,6 +131,14 @@ function entries() {
         });
         group.append(part.container);
       }
+      if(key==='links') {
+        addMoveButtons(group,content.links,index,labels[key],(next,delta)=>{
+          entries();
+          changed();
+          focusAfterMove(by(key+'.'+next),delta);
+          by('card-announcement').textContent='Link moved to position '+(next+1)+'.';
+        });
+      }
       const remove=document.createElement('button');
       remove.type='button';
       remove.className='secondary';
@@ -110,13 +147,125 @@ function entries() {
         content[key].splice(index,1);
         entries();
         changed();
-        form.querySelector('[data-add='+key+']').focus();
+        const add=form.querySelector('[data-add='+key+']');
+        (add.disabled?by(key+'.'+Math.max(0,index-1)):add)?.focus();
       });
       group.append(remove);
       container.append(group);
     });
   }
 }
+
+function supportingLinkCount() {
+  return content.links.length+content.layout.supporting.filter(card=>card.family==='promo').length;
+}
+
+function actionButton(label,onClick) {
+  const button=document.createElement('button');
+  button.type='button';
+  button.className='secondary';
+  button.textContent=label;
+  button.addEventListener('click',onClick);
+  return button;
+}
+
+function addMoveButtons(group,items,index,name,afterMove) {
+  for(const [delta,direction] of [[-1,'up'],[1,'down']]) {
+    const next=index+delta;
+    const button=actionButton('Move '+direction,()=>{
+      [items[index],items[next]]=[items[next],items[index]];
+      afterMove(next,delta);
+    });
+    button.dataset.move=String(delta);
+    button.dataset.boundary=String(next<0||next>=items.length);
+    button.setAttribute('aria-label','Move '+name+' '+direction);
+    group.append(button);
+  }
+}
+
+function focusAfterMove(group,delta) {
+  const sameDirection=group.querySelector('[data-move="'+delta+'"]:not(:disabled)');
+  (sameDirection??group.querySelector('[data-move]:not(:disabled)')??group).focus();
+}
+
+function selectFor(id,label,options,value,onChange) {
+  const container=document.createElement('div');
+  const caption=document.createElement('label');
+  caption.htmlFor=id;
+  caption.textContent=label;
+  const select=document.createElement('select');
+  select.id=id;
+  for(const [key,name] of options) select.add(new Option(name,key));
+  select.value=value;
+  select.addEventListener('change',()=>{onChange(select.value);changed();});
+  container.append(caption,select);
+  return container;
+}
+
+function supportingCards() {
+  const list=by('supporting');
+  const schedule=by('schedule-fields');
+  list.replaceChildren();
+  const cards=content.layout.supporting;
+  cards.forEach((card,index)=>{
+    const group=document.createElement('fieldset');
+    group.className='editor-entry';
+    group.id=card.family==='schedule'?'schedule-card':'promo-'+card.id;
+    group.tabIndex=-1;
+    const title=document.createElement('legend');
+    title.textContent=(card.family==='schedule'?'Schedule':card.title.trim()||'Promo card')+(card.hidden?' · Hidden':'');
+    group.append(title);
+    const name=card.family==='schedule'?'Schedule':'Promo card '+(index+1);
+    addMoveButtons(group,cards,index,name,(next,delta)=>{
+      supportingCards();
+      changed();
+      focusAfterMove(by(group.id),delta);
+      by('card-announcement').textContent=name+' moved to supporting position '+(next+1)+'.';
+    });
+    const toggle=actionButton(card.hidden?'Restore card':'Hide card',()=>{
+      card.hidden=!card.hidden;
+      supportingCards();
+      changed();
+      by(group.id).querySelector('[data-visibility]').focus();
+      by('card-announcement').textContent=name+(card.hidden?' hidden.':' restored.');
+    });
+    toggle.dataset.visibility='';
+    group.append(toggle);
+    const sizeId=card.family==='schedule'?'schedule-size':group.id+'-size';
+    group.append(selectFor(sizeId,'Card size',[['compact','Compact'],['expanded','Expanded']],card.size,value=>{card.size=value;}));
+    if(card.family==='schedule') {
+      schedule.hidden=false;
+      group.append(schedule);
+    } else {
+      group.append(selectFor(group.id+'-category','Category',promoCategories.map(value=>[value,value]),card.category,value=>{card.category=value;}));
+      for(const [key,label,type,limit] of [['title','Headline','text',80],['url','HTTPS address','url',2048],['description','Expanded description','textarea',160]]) {
+        const part=inputFor(type,group.id+'-'+key,card[key],limit,label);
+        part.input.addEventListener('input',()=>{
+          card[key]=part.input.value;
+          if(key==='title') title.textContent=(card.title.trim()||'Promo card')+(card.hidden?' · Hidden':'');
+          changed();
+        });
+        group.append(part.container);
+      }
+      group.append(actionButton('Remove Promo card',()=>{
+        cards.splice(index,1);
+        supportingCards();
+        changed();
+        by('add-promo').focus();
+      }));
+    }
+    list.append(group);
+  });
+}
+
+by('add-promo').addEventListener('click',()=>{
+  if(supportingLinkCount()>=5) return;
+  const card={id:crypto.randomUUID(),family:'promo',size:'compact',hidden:false,category:'Giveaway',title:'',url:'',description:''};
+  content.layout.supporting.push(card);
+  supportingCards();
+  changed();
+  by('promo-'+card.id+'-title').focus();
+});
 
 function loadValues(values) {
   content=clone({...values,scheduleRemoval:values.scheduleRemoval??'unknown'});
@@ -127,6 +276,8 @@ function loadValues(values) {
     const status=by(key+'-state');
     if(status) status.textContent=content[key]?'Image ready.':'No image selected.';
   }
+  for(const [control,[card,field]] of Object.entries(fixedControls)) by(control).value=String(content.layout[card][field]);
+  supportingCards();
   entries();
   changed();
 }
@@ -140,6 +291,7 @@ function show(message,error=false) {
 
 function requireSignIn() {
   needsSignIn=true;
+  canvasPayload=undefined;
   updateControls();
   show('Your session expired. Your changes are still here.',true);
 }
@@ -192,6 +344,7 @@ async function request(path,options={}) {
 
 function refreshBadge(fresh) {
   publication=fresh.publication_id;
+  publishedRevision=fresh.published_revision;
   held=fresh.held;
 }
 
@@ -236,10 +389,12 @@ async function mutate(action,value) {
     if (error.status===401) {
       requireSignIn();
     } else if (error.status===409) {
+      retry=null;
       conflicted=true;
       by('compare').hidden=false;
       show(error.message,true);
     } else if (error.status===422) {
+      retry=null;
       errors(error.fields);
       show(error.message,true);
     } else {
@@ -256,6 +411,10 @@ async function mutate(action,value) {
 
 function newMutation(action) {
   updatePreview();
+  if(retry) {
+    if(retry.action!=='save'||action!=='save') return;
+    if(JSON.stringify(content)===JSON.stringify(retry.value.content)) return mutate('save',retry.value);
+  }
   const value={operationId:crypto.randomUUID()};
   if(action!=='unpublish') value.revision=revision;
   if(action!=='save') value.publicationId=publication;
@@ -268,7 +427,25 @@ form.addEventListener('submit',event=>{
   event.preventDefault();
   void newMutation('save');
 });
-by('publish').addEventListener('click',()=>{if(!dirty&&!conflicted) void newMutation('publish');});
+by('publish').addEventListener('click',()=>{
+  if(dirty||conflicted||retry) return;
+  const dialog=by('publish-dialog');
+  by('publish-confirmation').textContent='Publish saved revision '+revision+'? '+(held?'Your Home will remain held.':'Fans will see this version at your current Home link.');
+  dialog.returnValue='';
+  dialog.showModal();
+});
+by('publish-dialog').addEventListener('close',event=>{
+  if(event.target.returnValue==='publish'&&!dirty&&!conflicted) void newMutation('publish');
+});
+by('copy-home').addEventListener('click',async()=>{
+  try {
+    await navigator.clipboard.writeText(by('public-link').href);
+    show('Public link copied.');
+  } catch {
+    show('Copy from the Open home link.');
+    by('public-link').focus();
+  }
+});
 by('unpublish').addEventListener('click',()=>{
   const dialog=by('unpublish-dialog');
   dialog.returnValue='';
@@ -292,11 +469,23 @@ by('reconnect').querySelector('button').addEventListener('click',async()=>{
       conflicted=true;
       by('compare').hidden=false;
     }
-    updateControls();
+    changed();
     show('Editor reconnected. Review your changes before continuing.');
   } catch {show('Sign in again, then reconnect this editor.',true);}
 });
 function summarize(key,value) {
+  if(key==='layout') {
+    const {identity,spotlight,dock,supporting}=value;
+    return [
+      'Identity: '+[identity.size,identity.alignment,identity.avatarSize,identity.avatarPosition,identity.focalX+' / '+identity.focalY].join(' · '),
+      'Spotlight: '+spotlight.size,
+      'Channel Dock: '+dock.size,
+      ...supporting.map((card,index)=>[
+        (index+1)+'. '+(card.family==='schedule'?'Schedule':card.title||'Promo card'),
+        card.category,card.url,card.description,card.size,card.hidden?'Hidden':'Visible',
+      ].filter(Boolean).join(' · ')),
+    ].join('\n');
+  }
   if(key==='avatarId'||key==='coverId') return value?'An image is selected':'No image selected';
   if(!Array.isArray(value)) return value||'Not set';
   if(!value.length) return 'None';
@@ -359,18 +548,12 @@ by('compare-dialog').addEventListener('close',event=>{
   loadValues(merged);
   show('Comparison applied to the editor. Save your changes against the current revision.');
 });
-by('preview').addEventListener('click',()=>{
-  updatePreview();
+function submitPreview(target,width,payload,embedded=false) {
   const preview=document.createElement('form');
   preview.method='post';
   preview.action='/editor/preview';
-  const target=window.open('about:blank','lobby-private-preview');
-  if(!target) {
-    show('Allow pop-ups for LINB to open the private preview.');
-    return;
-  }
-  preview.target='lobby-private-preview';
-  for(const [name,value] of Object.entries({csrf,content:JSON.stringify(content)})) {
+  preview.target=target;
+  for(const [name,value] of Object.entries({csrf,width,content:payload,embedded:embedded?'1':'0'})) {
     const input=document.createElement('input');
     input.type='hidden';input.name=name;input.value=value;
     preview.append(input);
@@ -378,10 +561,21 @@ by('preview').addEventListener('click',()=>{
   document.body.append(preview);
   preview.submit();
   preview.remove();
+}
+
+for(const button of form.querySelectorAll('[data-preview]')) button.addEventListener('click',()=>{
+  updatePreview();
+  const targetName='lobby-private-preview-'+button.dataset.preview;
+  const target=window.open('about:blank',targetName);
+  if(!target) {
+    show('Allow pop-ups for LINB to open the private preview.');
+    return;
+  }
+  submitPreview(targetName,button.dataset.preview,JSON.stringify(content));
 });
 for(const button of form.querySelectorAll('[data-add]')) button.addEventListener('click',()=>{
   const key=button.dataset.add;
-  if(content[key].length>=capacities[key]) return;
+  if(key==='links'?supportingLinkCount()>=5:content[key].length>=capacities[key]) return;
   const entry=Object.fromEntries(layouts[key].map(([name])=>[name,name==='zone'?'UTC':'']));
   if(key!=='links') entry.id=crypto.randomUUID();
   content[key].push(entry);

@@ -47,7 +47,7 @@ export function mailbox(value: unknown) {
   return email.slice(0,at+1)+email.slice(at+1).toLowerCase();
 }
 
-function text(value: unknown, field: string, limit: number, required=false) {
+export function text(value: unknown, field: string, limit: number, required=false) {
   if (typeof value !== 'string') throw invalid(field,'Enter text.');
   const result=value.trim();
   if (result.length>limit || (required && !result)) {
@@ -56,7 +56,7 @@ function text(value: unknown, field: string, limit: number, required=false) {
   return result;
 }
 
-function https(value: unknown, field: string, required=false) {
+export function https(value: unknown, field: string, required=false) {
   const raw=text(value,field,2048,required);
   if (!raw) return raw;
   try {
@@ -66,12 +66,12 @@ function https(value: unknown, field: string, required=false) {
   throw invalid(field,'Enter a complete HTTPS address.');
 }
 
-function list(value: unknown, field: string, count: number) {
+export function list(value: unknown, field: string, count: number) {
   if (!Array.isArray(value) || value.length>count) throw invalid(field,'Use at most '+count+' entries.');
   return value;
 }
 
-function id(value: unknown, field: string) {
+export function id(value: unknown, field: string) {
   if (typeof value !== 'string' || !uuidPattern.test(value)) throw invalid(field,'The identifier is invalid.');
   return value.toLowerCase();
 }
@@ -127,9 +127,13 @@ export function normalize(value: any, old=emptyHome, now=Date.now(), preview=fal
   };
 }
 
-export function nextSession(content: HomeContent, now: number) {
+export function futureSessions(content: HomeContent, now: number) {
   return content.sessions.filter(s=>Date.parse(s.instant)>now)
-    .sort((a,b)=>Date.parse(a.instant)-Date.parse(b.instant)||a.id.localeCompare(b.id))[0];
+    .sort((a,b)=>Date.parse(a.instant)-Date.parse(b.instant)||a.id.localeCompare(b.id));
+}
+
+export function nextSession(content: HomeContent, now: number) {
+  return futureSessions(content,now)[0];
 }
 
 

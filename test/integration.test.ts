@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import { createHmac, generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import sharp from 'sharp';
 import { createApp } from '../src/app.ts';
-import { connect, migrate } from '../src/db.ts';
-import { digest, emptyHome } from '../src/domain.ts';
+import { connect, migrate, transaction } from '../src/db.ts';
+import { digest, emptyHome, normalize } from '../src/domain.ts';
 
 const database=process.env.LOBBY_TEST_DATABASE_URL;
 
@@ -79,6 +79,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const state=await (await get('/api/editor',creatorCookie)).json();
       id=state.id;
       assert.equal(state.draft_revision,0);
+      assert.equal((await pool.query('SELECT content FROM drafts WHERE home_id=$1',[id])).rows[0].content.schemaVersion,2);
       assert.equal((await get('/h/'+id)).status,404);
       assert.equal((await get('/api/editor')).status,401);
     });
@@ -113,7 +114,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const publicPage=await home.text();
       assert.match(publicPage,/og:title" content="A creator on LINB"/);
       assert.match(publicPage,/data-share/);
-      assert.match(publicPage,/Mira Vale.*Open stream on Twitch.*CURRENT GAME.*Surface route practice/s);
+      assert.match(publicPage,/Mira Vale.*Signature game: .*Hades II.*Open stream on Twitch.*Surface route practice/s);
       assert.doesNotMatch(publicPage,/Add to calendar/);
       const image=await get(imagePath);
       assert.equal(image.status,200);
@@ -133,7 +134,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal((await get(calendarPath)).status,410);
       assert.equal((await get(imagePath)).status,200);
       const quiet=await (await get('/h/'+id)).text();
-      assert.doesNotMatch(quiet,/NEXT SESSION/);
+      assert.doesNotMatch(quiet,/data-card="schedule"/);
       assert.doesNotMatch(quiet,/Add to calendar/);
     });
     await t.test('creator approves exact rich preview and fan submits a private report',async()=>{
@@ -310,6 +311,11 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const home=await (await request('/h/'+id)).text();
       assert.match(home,/A creator pick/);
       assert.doesNotMatch(home,/<iframe/);
+      const current=(await (await get('/api/editor',sid)).json()).publication_id;
+      const ordinaryPublish=await change('publish',{operationId:randomUUID(),revision:state.draft_revision,publicationId:current},sid);
+      assert.equal(ordinaryPublish.status,200);
+      assert.equal((await request(path)).status,200);
+      assert.match(await (await request('/h/'+id)).text(),/A creator pick/);
       subscriptionStatus='canceled';
       assert.equal((await event('evt_fixture_2')).status,200);
       assert.equal((await request(path)).status,410);
@@ -319,6 +325,107 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       subscriptionStatus='active';
       assert.equal((await event('evt_fixture_3')).status,200);
       assert.equal((await request(path)).status,410);
+    });
+    await t.test('retained Homes map to cards without changing their published revision',async()=>{
+      const homeId=randomUUID(), owner=randomUUID(), oldPublication=randomUUID();
+      const email='retained@example.test';
+      const old=normalize({...emptyHome,displayName:'LongExistingCreatorNameWithoutAnySpaces',intro:'A retained Home.',
+        game:'Hades II',streamUrl:'https://www.twitch.tv/retained',theme:'Hearth',
+        links:[
+          {label:'Official YouTube',url:'https://www.youtube.com/@retained'},
+          {label:'TikTok',url:'https://www.tiktok.com/@retained'},
+          {label:'Kick',url:'https://kick.com/retained'},
+          {label:'Archive video',url:'https://www.youtube.com/watch?v=example'},
+        ]});
+      await transaction(pool,async client=>{
+        await client.query('INSERT INTO creators VALUES ($1,$2)',[owner,email]);
+        await client.query('INSERT INTO homes(id,owner_id) VALUES ($1,$2)',[homeId,owner]);
+        await client.query('INSERT INTO drafts VALUES ($1,0,$2)',[homeId,old]);
+        await client.query('INSERT INTO publications(home_id,id,draft_revision,content) VALUES ($1,$2,0,$3)',[homeId,oldPublication,old]);
+        await client.query('UPDATE homes SET publication_id=$2 WHERE id=$1',[homeId,oldPublication]);
+      });
+      const cookie=await login(email);
+      const retained=await (await get('/api/editor',cookie)).json();
+      const stable=await (await get('/api/editor',cookie)).json();
+      assert.deepEqual(retained.content.layout,stable.content.layout);
+      const path='/h/'+homeId;
+      const before=await (await get(path)).text();
+      assert.match(before,/data-card="identity".*data-card="spotlight".*data-card="dock"/s);
+      assert.match(before,/Open stream on Twitch/);
+      assert.match(before,/data-platform="youtube"/);
+      assert.match(before,/<summary>More channels<\/summary>.*Archive video/s);
+      assert.doesNotMatch(before,/Watch live|viewers/);
+      assert.equal((await get('/assets/platforms/youtube.svg')).headers.get('content-type')?.split(';')[0],'image/svg+xml');
+      assert.equal((await get('/assets/platforms/unknown.svg')).status,404);
+
+      const next=structuredClone(retained.content);
+      next.intro='A private card draft.';
+      next.layout.identity.avatarPosition='banner-center';
+      next.layout.spotlight.size='expanded';
+      const promo={family:'promo',id:randomUUID(),hidden:false,size:'expanded',category:'Giveaway',
+        title:'Supporter giveaway',description:'Check the details.',url:'https://example.test/giveaway'};
+      next.layout.supporting.unshift(promo);
+      const phone=await post('/editor/preview',{csrf:csrf(cookie),width:'phone',content:JSON.stringify(next)},cookie);
+      assert.equal(phone.status,200,await phone.clone().text());
+      const phonePage=await phone.text();
+      assert.match(phonePage,/phone-preview/);
+      assert.match(phonePage,/data-card="spotlight".*data-size="expanded".*data-card="dock".*data-card="promo".*Supporter giveaway/s);
+      const embedded=await post('/editor/preview',{csrf:csrf(cookie),width:'phone',embedded:'1',content:JSON.stringify(next)},cookie);
+      assert.equal(embedded.status,200,await embedded.clone().text());
+      assert.equal(embedded.headers.get('x-frame-options'),'SAMEORIGIN');
+      assert.match(embedded.headers.get('content-security-policy')!,/frame-ancestors 'self'/);
+      assert.equal((await post('/editor/preview',{embedded:'1',content:JSON.stringify(next)})).status,401);
+
+      const firstSave={operationId:randomUUID(),revision:0,content:next};
+      const invalidLayout=structuredClone(next);
+      invalidLayout.layout.supporting.push({...invalidLayout.layout.supporting[1]});
+      assert.equal((await change('save',{...firstSave,content:invalidLayout},cookie)).status,422);
+      const overBudget=structuredClone(next);
+      overBudget.links.push({label:'Extra',url:'https://example.test/extra'});
+      assert.equal((await change('save',{...firstSave,content:overBudget},cookie)).status,422);
+      assert.equal((await change('save',firstSave,cookie)).status,200);
+      const stored=(await pool.query('SELECT content FROM drafts WHERE home_id=$1 ORDER BY revision',[homeId])).rows.map(row=>row.content);
+      assert.deepEqual(stored[0],old);
+      assert.equal(stored[1].schemaVersion,2);
+      assert.equal(stored[1].identity.id,retained.content.layout.identity.id);
+      assert.equal(stored[1].supporting[0].id,promo.id);
+      assert.equal((await get(path)).status,200);
+      assert.equal(await (await get(path)).text(),before);
+      assert.equal((await change('save',{...firstSave,operationId:randomUUID()},cookie)).status,409);
+      const publish={operationId:randomUUID(),revision:1,publicationId:oldPublication};
+      assert.equal((await change('publish',{...publish,publicationId:randomUUID()},cookie)).status,409);
+      await pool.query(`CREATE FUNCTION reject_fixture_publication() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'simulated publication failure'; END; $$;
+        CREATE TRIGGER reject_fixture_publication BEFORE INSERT ON publications
+        FOR EACH ROW EXECUTE PROCEDURE reject_fixture_publication()`);
+      try {
+        assert.equal((await change('publish',publish,cookie)).status,503);
+        assert.equal(await (await get(path)).text(),before);
+        const afterFailure=await (await get('/api/editor',cookie)).json();
+        assert.equal(afterFailure.draft_revision,1);
+        assert.equal(afterFailure.content.intro,next.intro);
+      } finally {
+        await pool.query('DROP TRIGGER reject_fixture_publication ON publications; DROP FUNCTION reject_fixture_publication()');
+      }
+      const paused=createApp({pool,origin,mail:async()=>{},readOnlyHomes:true});
+      assert.equal((await paused.request(origin+path)).status,200);
+      const blocked=await paused.request(origin+'/api/editor/publish',{method:'POST',
+        headers:{Cookie:cookie,Origin:origin,'X-CSRF-Token':csrf(cookie),'Content-Type':'application/json'},body:JSON.stringify(publish)});
+      assert.equal(blocked.status,503);
+      assert.equal((await blocked.json()).code,'home_writes_paused');
+      const done=await change('publish',publish,cookie);
+      assert.equal(done.status,200,await done.clone().text());
+      assert.equal((await done.json()).publicPath,path);
+      const after=await (await get(path)).text();
+      assert.match(after,/A private card draft.*Open stream.*Supporter giveaway/s);
+      assert.match(after,/data-avatar-position="banner-center"/);
+      const rows=(await pool.query('SELECT content FROM publications WHERE home_id=$1 ORDER BY draft_revision',[homeId])).rows;
+      assert.deepEqual(rows[0].content,old);
+      assert.equal(rows[1].content.schemaVersion,2);
+      const sparse={...next,streamUrl:'',links:[],layout:{...next.layout,supporting:next.layout.supporting.map(card=>({...card,hidden:true}))}};
+      const emptyPage=await (await post('/editor/preview',{csrf:csrf(cookie),content:JSON.stringify(sparse)},cookie)).text();
+      assert.match(emptyPage,/data-card="identity"/);
+      assert.doesNotMatch(emptyPage,/data-card="(?:spotlight|dock|promo|schedule)"/);
     });
   } finally {
     await pool.end();
