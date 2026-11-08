@@ -18,11 +18,11 @@ const art=html`<svg class="art" viewBox="0 0 920 380" preserveAspectRatio="xMidY
 <path d="m0 380 117-48 92 17 112-37 128 47 65-12 88 29 111-46 69 19 138-35v66Z" fill="#14182d"/>
 <g fill="#b7d9ff"><circle cx="170" cy="122" r="3"/><circle cx="342" cy="103" r="3"/><circle cx="803" cy="106" r="3"/><path d="M97 54v22m-11-11h22m679 158v19m-9-9h18" stroke="#b7d9ff" stroke-width="1.7"/></g></svg>`;
 
-function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;phone?:boolean;share?:boolean;player?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
+function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;editor?:boolean;phone?:boolean;share?:boolean;player?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.theme==='Hearth'||options.theme==='Grove'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=cards1">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=workspace2">
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
     ${options.metadata?html`<meta property="og:type" content="website"><meta property="og:url" content="${options.canonical}">
@@ -30,14 +30,14 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
       ${options.metadata.image?html`<meta property="og:image" content="${options.metadata.image}">`:''}`:''}
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js" defer></script>`:''}
-    ${options.script?html`<script src="/assets/editor.js?v=cards1" defer></script>`:''}
+    ${options.script?html`<script src="/assets/editor.js?v=workspace2" defer></script>`:''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
-    </head><body>${options.creator||options.standalone?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
+    </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
       <span class="top-label">${options.privatePage?'Creator workspace':'LINK IN BIO FOR STREAMERS'}</span>
       ${options.privatePage?html`<nav aria-label="Workspace"><a href="/editor">Editor</a><a href="/account">Account</a></nav>`:html`<a class="small-link" href="/sign-in">Creator sign-in <span aria-hidden="true">↗</span></a>`}
-    </header>`}<main class="${options.wide?'wide':options.phone?'shell phone-preview':'shell'}">${body}</main>
-    ${options.standalone?'':options.creator?html`<footer class="creator-credit"><a href="/">Made with LINB</a></footer>`:
+    </header>`}<main class="${options.editor?'editor-shell':options.wide?'wide':options.phone?'shell phone-preview':'shell'}">${body}</main>
+    ${options.standalone||options.editor?'':options.creator?html`<footer class="creator-credit"><a href="/">Made with LINB</a></footer>`:
       html`<footer class="footer"><span>${mark} LINB</span><span>linb.io · Built for streamers.</span></footer>`}
     </body></html>`;
 }
@@ -231,18 +231,77 @@ function editorSelect(id:string,label:string,options:readonly (readonly [string|
 
 const cardSizeOptions=[['compact','Compact'],['expanded','Expanded']] as const;
 
+function editorOutlineButton(key:string,title:string,detail:string,fixed=false) {
+  return html`<button type="button" class="editor-outline-row" data-edit-card="${key}" aria-pressed="false">
+    <span><strong>${title}</strong><small>${detail}</small></span>${fixed?html`<span class="editor-card-flag">Fixed</span>`:''}
+  </button>`;
+}
+
 export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twitchLogin?:string,proEnabled=false) {
-  return frame('Edit your home',html`<div class="workspace" id="workspace" data-content="${JSON.stringify(state.content)}"
+  return frame('Edit your home',html`<div class="workspace editor-workspace" id="workspace" data-content="${JSON.stringify(state.content)}"
     data-home="${state.id}" data-csrf="${csrf}" data-revision="${state.draft_revision}" data-publication="${state.publication_id??''}" data-published-revision="${state.published_revision??''}" data-held="${state.held}">
-    <header class="workspace-head"><div><p class="eyebrow">LINB / WORKSPACE</p><h1>${state.draft_revision?'Edit your home':'Make your first link page'}</h1><p>${state.draft_revision?'Give fans one place to find you.':'Start with your name, a short intro, and where fans can find you. You can add more later.'}</p></div>
-      <span id="availability" class="badge">${state.held?'Home held':state.publication_id?(state.published_revision===state.draft_revision?'Published':'Unpublished changes'):'Private draft'}</span></header>
-    <aside id="hold-note" class="status-note" ${state.held?'':raw('hidden')}>Home held—unavailable to the public. Publishing changes will not release the hold.
-      ${state.hold_reason?html`<p>Reason: ${state.hold_reason}. <a href="/account">Contact the review operator.</a></p>`:''}</aside>
-    ${proEnabled?html`<p><a href="/editor/pro">Preview Pro style and components</a></p>`:''}
-    ${state.notice&&!state.held?html`<p class="status-note">${state.notice}</p>`:''}
-    <div class="workspace-grid"><form id="home-form" class="panel">
+    <header class="editor-toolbar">
+      <div class="editor-toolbar-title">
+        <a class="editor-wordmark" href="/" aria-label="LINB home">${mark}<span>LINB</span></a>
+        <h1>Page editor</h1>
+        <span id="availability" class="editor-state">${state.held?'Home held':state.publication_id?(state.published_revision===state.draft_revision?'Published':'Unpublished changes'):'Private draft'}</span>
+      </div>
+      <div class="editor-toolbar-actions">
+        <button id="save" type="submit" form="home-form" class="secondary">Save draft</button>
+        <button type="button" id="publish" ${state.draft_revision===0?raw('disabled'):''}>Publish</button>
+        <a class="editor-account" href="/account">Account</a>
+      </div>
+    </header>
+    <div class="editor-messages">
+      <aside id="hold-note" class="status-note" ${state.held?'':raw('hidden')}>Home held. The page is unavailable to the public. Publishing a draft keeps it held.
+        ${state.hold_reason?html`<p>Reason: ${state.hold_reason}. <a href="/account">Contact the review operator.</a></p>`:''}</aside>
+      ${state.notice&&!state.held?html`<p class="status-note">${state.notice}</p>`:''}
       <div id="errors" class="notice error" tabindex="-1" hidden><strong>Review these fields</strong><ul></ul></div>
-      <section><h2>Creator Identity <small class="fixed-card">Fixed</small></h2>
+      <div class="editor-feedback">
+        <div class="notice" id="editor-status" role="status" hidden></div>
+        <button id="retry" type="button" class="secondary" hidden>Retry original attempt</button>
+        <button id="compare" type="button" class="secondary" hidden>Compare with saved draft</button>
+        <div id="reconnect" hidden><a href="/sign-in" target="_blank" rel="noopener">Sign in in a new tab</a>
+          <button type="button" class="secondary">Reconnect editor</button></div>
+      </div>
+    </div>
+    <div class="editor-layout">
+      <nav class="editor-outline editor-panel" aria-label="Home cards">
+        <p class="editor-kicker">WORKSPACE</p><h2>Home</h2><p class="editor-description">Arrange what fans see.</p>
+        <div class="editor-outline-list">
+          ${editorOutlineButton('identity','Creator Identity','Banner, avatar and games',true)}
+          ${editorOutlineButton('spotlight','Spotlight','Primary stream link',true)}
+          ${editorOutlineButton('dock','Channel Dock','Social and community links',true)}
+          <div id="card-outline-supporting" class="editor-outline-list"></div>
+        </div>
+        <button id="add-promo" type="button" class="secondary editor-add-card"><span aria-hidden="true">+</span> Add Promo card</button>
+        <p id="supporting-budget" class="editor-budget"></p>
+        <div class="editor-outline-settings">
+          ${editorOutlineButton('updates','Updates','Dated notes for fans')}
+          ${editorOutlineButton('skin','Skin',state.content.theme)}
+          ${editorOutlineButton('publishing','Publishing','Revision and public link')}
+        </div>
+      </nav>
+      <section class="editor-stage editor-panel" aria-label="Private preview">
+        <div class="editor-stage-head">
+          <div><p class="editor-kicker">PRIVATE PREVIEW</p><h2>Visitor view</h2></div>
+          <div class="editor-stage-controls">
+            <div class="editor-devices" role="group" aria-label="Preview size">
+              <button id="preview" type="button" data-device="phone" aria-label="Phone preview" aria-pressed="true">Phone</button>
+              <button id="preview-desktop" type="button" data-device="desktop" aria-label="Desktop preview" aria-pressed="false">Desktop</button>
+            </div>
+            <button id="preview-open" type="button" class="secondary">Open preview <span aria-hidden="true">↗</span></button>
+          </div>
+        </div>
+        <div class="editor-preview-stage" data-preview-size="phone">
+          <iframe id="editor-canvas" name="lobby-editor-canvas" title="Private Home canvas"></iframe>
+        </div>
+        <p class="editor-stage-note">Preview includes unsaved changes. Fans see the last published version.</p>
+      </section>
+      <aside class="editor-inspector editor-panel" aria-label="Card inspector">
+        <p class="editor-kicker">INSPECTOR</p>
+        <form id="home-form" novalidate>
+      <section data-inspector="identity"><h2>Creator Identity</h2><p class="editor-description">Introduce yourself with a banner, avatar and short bio.</p>
         ${twitchLogin?html`<p>Suggested by Twitch: <strong>${twitchLogin}</strong>. Use these values, edit them, or skip.</p>
           <button type="button" class="secondary" id="use-twitch-name" data-value="${twitchLogin}">Use Twitch name</button>
           <button type="button" class="secondary" id="use-twitch-link" data-value="https://www.twitch.tv/${twitchLogin}">Use Twitch link</button>`:''}
@@ -264,56 +323,53 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
           </div>`)}</div>`:html`<p class="dim">Image upload is unavailable in this environment.</p>`}
         </details>
       </section>
-      <section><h2>Spotlight <small class="fixed-card">Fixed</small></h2>
+      <section data-inspector="spotlight" hidden><h2>Spotlight</h2><p class="editor-description">Send visitors to your primary stream.</p>
         <p id="spotlight-empty" hidden>Add a stream destination to show Spotlight on your Home.</p>
         <label for="streamUrl">Stream destination <small>HTTPS address</small></label><input id="streamUrl" type="url" maxlength="2048" value="${state.content.streamUrl}">
         ${editorSelect('spotlight-size','Spotlight size',cardSizeOptions)}
       </section>
-      <section><h2>Channel Dock <small class="fixed-card">Fixed</small></h2>
+      <section data-inspector="dock" hidden><h2>Channel Dock</h2><p class="editor-description">Group your social and community links.</p>
         <p id="dock-empty" hidden>Add a supporting link to show the Channel Dock.</p>
         ${editorSelect('dock-size','Channel Dock size',cardSizeOptions)}
         <p>Move priority links to the top. The Dock and Promo cards share five supporting links.</p>
         <div id="links"></div><button type="button" class="secondary" data-add="links">Add a link</button>
       </section>
-      <section><h2>Supporting cards</h2><p>Move or hide these cards within this section.</p>
+      <section data-inspector="supporting" hidden><h2 id="supporting-title">Supporting card</h2><p class="editor-description">Move, resize or hide this card.</p>
         <div id="supporting" tabindex="-1"></div>
         <div id="schedule-fields" hidden>
           <div id="sessions"></div><button type="button" class="secondary" data-add="sessions">Add a session</button>
           <label for="scheduleRemoval">If you remove a scheduled stream and publish without a new time</label>
           <select id="scheduleRemoval"><option value="unknown">New time unknown</option><option value="cancelled">Cancelled</option></select>
         </div>
-        <button id="add-promo" type="button" class="secondary">Add Promo card</button>
         <p id="card-announcement" role="status" class="sr-only"></p>
       </section>
-      <section><h2>Updates</h2><p>Up to three updates. LINB adds the date when you first publish an update.</p>
+      <section data-inspector="updates" hidden><h2>Updates</h2><p>Up to three updates. LINB adds the date when you first publish an update.</p>
         <div id="updates"></div><button type="button" class="secondary" data-add="updates">Add an update</button>
       </section>
-      <section><h2>Skin</h2><fieldset><legend>Theme</legend><div class="theme-picker">${themeNames.map(theme=>html`<label>
+      <section data-inspector="skin" hidden><h2>Skin</h2><p class="editor-description">Choose how your Home looks to visitors.</p><fieldset><legend>Theme</legend><div class="theme-picker">${themeNames.map(theme=>html`<label>
         <input name="theme" type="radio" value="${theme}" ${state.content.theme===theme?raw('checked'):''}><span class="swatch" data-swatch="${theme}"></span>${theme}</label>`)}</div></fieldset>
       </section>
-      <div class="form-actions"><button id="save" type="submit">Save draft</button><button id="preview" type="button" class="secondary" data-preview="phone">Phone preview</button><button id="preview-desktop" type="button" class="secondary" data-preview="desktop">Desktop preview</button></div>
-    </form><aside class="workspace-side"><section class="panel"><p class="micro">PUBLISHING</p><h2>Public home</h2>
-       <p id="revision-label">Draft revision ${state.draft_revision}</p><p class="dim" id="publish-help">Save changes before you publish.</p>
-       <button type="button" id="publish" ${state.draft_revision===0?raw('disabled'):''}>Publish</button>
-       <a class="button secondary" id="public-link" href="/h/${state.id}" ${state.publication_id&&!state.held?'':raw('hidden')}>Open home ↗</a>
-       <button type="button" class="secondary" id="copy-home" ${state.publication_id&&!state.held?'':raw('hidden')}>Copy link</button>
-       <a class="button secondary" id="share-link" href="/editor/share" ${state.publication_id&&!state.held?'':raw('hidden')}>Share</a>
-       <button type="button" id="unpublish" class="secondary" ${state.publication_id?'':raw('hidden')}>Unpublish</button>
-       <div class="notice" id="editor-status" role="status" hidden></div><button id="retry" type="button" class="secondary" hidden>Retry original attempt</button>
-       <button id="compare" type="button" class="secondary" hidden>Compare with saved draft</button>
-       <div id="reconnect" class="form-actions" hidden><a href="/sign-in" target="_blank" rel="noopener">Sign in in a new tab</a>
-         <button type="button" class="secondary">Reconnect editor</button></div>
-      </section><section class="panel"><p class="micro">PRIVATE PREVIEW</p><h2>Home preview</h2>
-      <p class="dim">Preview includes unsaved changes. Fans see the last published version.</p>
-      <iframe id="editor-canvas" name="lobby-editor-canvas" title="Private Home canvas"></iframe>
-      </section></aside></div>
+        </form>
+        <section data-inspector="publishing" hidden><h2>Publishing</h2>
+          <p id="revision-label">Draft revision ${state.draft_revision}</p>
+          <p class="editor-description" id="publish-help">Save changes before you publish.</p>
+          <div class="editor-public-actions">
+            <a class="button secondary" id="public-link" href="/h/${state.id}" ${state.publication_id&&!state.held?'':raw('hidden')}>Open Home <span aria-hidden="true">↗</span></a>
+            <button type="button" class="secondary" id="copy-home" ${state.publication_id&&!state.held?'':raw('hidden')}>Copy link</button>
+            <a class="button secondary" id="share-link" href="/editor/share" ${state.publication_id&&!state.held?'':raw('hidden')}>Share settings</a>
+            <button type="button" id="unpublish" class="secondary" ${state.publication_id?'':raw('hidden')}>Unpublish</button>
+          </div>
+          ${proEnabled?html`<p><a href="/editor/pro">Preview Pro style and components</a></p>`:''}
+        </section>
+      </aside>
+    </div>
     <dialog id="compare-dialog"><h2>Compare drafts</h2><p>Choose which changes to keep in the editor. Uncheck a field to use its saved value.</p><div id="comparison"></div>
       <form method="dialog"><button value="cancel" class="secondary">Cancel</button><button value="reapply">Apply selected changes</button></form></dialog>
     <dialog id="publish-dialog" aria-labelledby="publish-title"><h2 id="publish-title">Publish your home?</h2><p id="publish-confirmation"></p>
       <form method="dialog"><button class="secondary" value="cancel">Cancel</button><button value="publish">Publish saved draft</button></form></dialog>
     <dialog id="unpublish-dialog"><h2>Unpublish your home?</h2><p>The public page and its shared images become unavailable. Your private draft stays in the editor.</p>
       <form method="dialog"><button class="secondary" value="cancel">Cancel</button><button value="unpublish">Unpublish</button></form></dialog>
-    </div>`,{wide:true,privatePage:true,script:true});
+    </div>`,{editor:true,privatePage:true,script:true});
 }
 
 function proNav(pro:ProContent,base:string,current?:string) {

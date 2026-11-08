@@ -35,6 +35,8 @@ let other = null;
 let needsSignIn = false;
 let canvasTimer;
 let canvasPayload;
+let previewDevice='phone';
+let selectedCard=revision?'spotlight':'identity';
 
 function updateControls() {
   const blocked=busy||uploading>0;
@@ -44,7 +46,7 @@ function updateControls() {
   by('reconnect').hidden=!needsSignIn;
   by('reconnect').querySelector('button').disabled=blocked;
   by('save').disabled=writesBlocked||conflicted||unresolvedPublication||unresolvedSave;
-  for(const button of form.querySelectorAll('[data-preview]')) button.disabled=writesBlocked;
+  for(const button of root.querySelectorAll('[data-device], #preview-open')) button.disabled=writesBlocked;
   by('publish').disabled=writesBlocked||conflicted||dirty||revision===0||Boolean(retry);
   for(const input of form.querySelectorAll('input, textarea, select, button[data-remove-image], .editor-entry button')) {
     input.disabled=blocked||input.dataset.boundary==='true';
@@ -64,7 +66,10 @@ function updateControls() {
     const key=button.dataset.add;
     button.disabled=blocked||(key==='links'?supportingLinkCount()>=5:content[key].length>=capacities[key]);
   }
-  by('add-promo').disabled=blocked||supportingLinkCount()>=5;
+  const linkCount=supportingLinkCount();
+  by('add-promo').disabled=blocked||linkCount>=5;
+  by('supporting-budget').textContent=linkCount+' of 5 supporting links';
+  root.querySelector('[data-edit-card=skin] small').textContent=content.theme;
 }
 
 function updatePreview() {
@@ -86,9 +91,10 @@ function changed() {
   clearTimeout(canvasTimer);
   canvasTimer=setTimeout(()=>{
     const payload=JSON.stringify(content);
-    if(needsSignIn||payload===canvasPayload) return;
-    canvasPayload=payload;
-    submitPreview(by('editor-canvas').name,'phone',payload,true);
+    const key=previewDevice+' '+payload;
+    if(needsSignIn||key===canvasPayload) return;
+    canvasPayload=key;
+    submitPreview(by('editor-canvas').name,previewDevice,payload,true);
   },400);
 }
 
@@ -202,6 +208,54 @@ function selectFor(id,label,options,value,onChange) {
   return container;
 }
 
+function supportingName(card) {
+  return card.family==='schedule'?'Schedule':card.title.trim()||'Promo card';
+}
+
+function selectInspector(key,scroll=false) {
+  const card=content.layout.supporting.find(item=>item.id===key);
+  const panel=card?'supporting':key;
+  const inspector=root.querySelector('[data-inspector="'+panel+'"]');
+  if(!inspector) return;
+  if(selectedCard!==key) inspector.closest('.editor-inspector').scrollTop=0;
+  selectedCard=key;
+  for(const section of root.querySelectorAll('[data-inspector]')) section.hidden=section!==inspector;
+  for(const entry of by('supporting').children) entry.hidden=entry.dataset.supportingCard!==key;
+  for(const button of root.querySelectorAll('[data-edit-card]')) {
+    button.setAttribute('aria-pressed',String(button.dataset.editCard===key));
+  }
+  if(card) by('supporting-title').textContent=supportingName(card);
+  if(scroll&&matchMedia('(max-width: 720px)').matches) {
+    inspector.closest('.editor-inspector').scrollIntoView({block:'nearest'});
+  }
+}
+
+function renderSupportingOutline() {
+  const rows=content.layout.supporting.map(card=>{
+    const button=document.createElement('button');
+    button.type='button';
+    button.className='editor-outline-row';
+    button.dataset.editCard=card.id;
+    button.id='outline-'+card.id;
+    const copy=document.createElement('span');
+    const title=document.createElement('strong');
+    const detail=document.createElement('small');
+    title.textContent=supportingName(card);
+    detail.textContent=card.hidden?'Hidden':card.family==='schedule'?'Upcoming streams':card.category+' · Promo card';
+    copy.append(title,detail);
+    button.append(copy);
+    return button;
+  });
+  by('card-outline-supporting').replaceChildren(...rows);
+  const retained=Array.from(root.querySelectorAll('[data-edit-card]')).some(button=>button.dataset.editCard===selectedCard);
+  selectInspector(retained?selectedCard:'spotlight');
+}
+
+root.querySelector('.editor-outline').addEventListener('click',event=>{
+  const button=event.target.closest('[data-edit-card]');
+  if(button) selectInspector(button.dataset.editCard,true);
+});
+
 function supportingCards() {
   const list=by('supporting');
   const schedule=by('schedule-fields');
@@ -210,10 +264,11 @@ function supportingCards() {
   cards.forEach((card,index)=>{
     const group=document.createElement('fieldset');
     group.className='editor-entry';
+    group.dataset.supportingCard=card.id;
     group.id=card.family==='schedule'?'schedule-card':'promo-'+card.id;
     group.tabIndex=-1;
     const title=document.createElement('legend');
-    title.textContent=(card.family==='schedule'?'Schedule':card.title.trim()||'Promo card')+(card.hidden?' · Hidden':'');
+    title.textContent=supportingName(card)+(card.hidden?' · Hidden':'');
     group.append(title);
     const name=card.family==='schedule'?'Schedule':'Promo card '+(index+1);
     addMoveButtons(group,cards,index,name,(next,delta)=>{
@@ -237,12 +292,18 @@ function supportingCards() {
       schedule.hidden=false;
       group.append(schedule);
     } else {
-      group.append(selectFor(group.id+'-category','Category',promoCategories.map(value=>[value,value]),card.category,value=>{card.category=value;}));
+      group.append(selectFor(group.id+'-category','Category',promoCategories.map(value=>[value,value]),card.category,value=>{card.category=value;
+        by('outline-'+card.id).querySelector('small').textContent=card.hidden?'Hidden':card.category+' · Promo card';
+      }));
       for(const [key,label,type,limit] of [['title','Headline','text',80],['url','HTTPS address','url',2048],['description','Expanded description','textarea',160]]) {
         const part=inputFor(type,group.id+'-'+key,card[key],limit,label);
         part.input.addEventListener('input',()=>{
           card[key]=part.input.value;
-          if(key==='title') title.textContent=(card.title.trim()||'Promo card')+(card.hidden?' · Hidden':'');
+          if(key==='title') {
+            title.textContent=supportingName(card)+(card.hidden?' · Hidden':'');
+            by('outline-'+card.id).querySelector('strong').textContent=supportingName(card);
+            if(selectedCard===card.id) by('supporting-title').textContent=supportingName(card);
+          }
           changed();
         });
         group.append(part.container);
@@ -256,6 +317,7 @@ function supportingCards() {
     }
     list.append(group);
   });
+  renderSupportingOutline();
 }
 
 by('add-promo').addEventListener('click',()=>{
@@ -263,6 +325,7 @@ by('add-promo').addEventListener('click',()=>{
   const card={id:crypto.randomUUID(),family:'promo',size:'compact',hidden:false,category:'Giveaway',title:'',url:'',description:''};
   content.layout.supporting.push(card);
   supportingCards();
+  selectInspector(card.id,true);
   changed();
   by('promo-'+card.id+'-title').focus();
 });
@@ -318,7 +381,15 @@ function errors(details) {
       const link=document.createElement('a');
       link.href='#'+key;
       link.textContent=message;
-      link.addEventListener('click',()=>field.focus());
+      link.addEventListener('click',event=>{
+        event.preventDefault();
+        const card=field.closest('[data-supporting-card]');
+        const panel=field.closest('[data-inspector]');
+        if(panel) selectInspector(card?.dataset.supportingCard??panel.dataset.inspector,true);
+        const disclosure=field.closest('details');
+        if(disclosure) disclosure.open=true;
+        field.focus();
+      });
       item.append(link);
     } else item.textContent=message;
     list.append(item);
@@ -563,15 +634,24 @@ function submitPreview(target,width,payload,embedded=false) {
   preview.remove();
 }
 
-for(const button of form.querySelectorAll('[data-preview]')) button.addEventListener('click',()=>{
+for(const button of root.querySelectorAll('[data-device]')) button.addEventListener('click',()=>{
+  previewDevice=button.dataset.device;
+  root.querySelector('.editor-preview-stage').dataset.previewSize=previewDevice;
+  for(const choice of root.querySelectorAll('[data-device]')) {
+    choice.setAttribute('aria-pressed',String(choice===button));
+  }
+  changed();
+});
+
+by('preview-open').addEventListener('click',()=>{
   updatePreview();
-  const targetName='lobby-private-preview-'+button.dataset.preview;
+  const targetName='lobby-private-preview-'+previewDevice;
   const target=window.open('about:blank',targetName);
   if(!target) {
     show('Allow pop-ups for LINB to open the private preview.');
     return;
   }
-  submitPreview(targetName,button.dataset.preview,JSON.stringify(content));
+  submitPreview(targetName,previewDevice,JSON.stringify(content));
 });
 for(const button of form.querySelectorAll('[data-add]')) button.addEventListener('click',()=>{
   const key=button.dataset.add;
