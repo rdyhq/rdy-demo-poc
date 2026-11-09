@@ -11,7 +11,8 @@ const heightOptions = optionsFrom('dock-minHeight');
 const minimumHeight = Number(heightOptions[1][0]);
 const heightStep = Number(heightOptions[2][0])-minimumHeight;
 const maximumHeight = Number(heightOptions.at(-1)[0]);
-const canvasInstructions = 'Drag the dots to reorder. Drag an edge or corner to resize. Choose the content variant in the inspector.';
+const canvasInstructions = 'Click a card to edit it. Drag a movable card to reorder it, or drag an edge or corner to resize.';
+const movableSurface = '[data-movable-card] > .canvas-select';
 const fixedControls = {
   'identity-size':['identity','size'], 'identity-alignment':['identity','alignment'],
   'identity-span':['identity','span'], 'spotlight-span':['spotlight','span'], 'dock-span':['dock','span'],
@@ -333,7 +334,7 @@ function syncEditLayout(article) {
       card.dataset.height=settings.minHeight;
     }
   }
-  const movable=Array.from(article.children).filter(card=>card.matches('.schedule-notice')||card.querySelector('.canvas-grip'));
+  const movable=Array.from(article.children).filter(card=>card.matches('.schedule-notice,[data-movable-card]'));
   if(movable.length) {
     const byKey=new Map(movable.map(card=>[card.dataset.canvasCard,card]));
     const order=movableOrder().map(key=>byKey.get(key)).filter(Boolean);
@@ -875,7 +876,8 @@ canvas.addEventListener('load',()=>{
 
 function installCanvasControls(article) {
   const doc=article.ownerDocument;
-  let suppressHandleClick=false;
+  let suppressPointerClick=false;
+  let touchCandidate;
 
   function commitDimensions(card,span,minHeight) {
     const key=card.dataset.canvasCard;
@@ -892,37 +894,39 @@ function installCanvasControls(article) {
   }
 
   article.addEventListener('click',event=>{
-    const control=event.target.closest('.canvas-select,.canvas-grip,[data-resize-edge]');
+    const control=event.target.closest('.canvas-select,[data-resize-edge]');
     if(!control) return;
-    if(suppressHandleClick&&event.detail>0&&!control.matches('.canvas-select')) return;
+    if(suppressPointerClick&&event.detail>0) return;
     const card=control.closest('[data-canvas-card]');
     const key=card.dataset.canvasCard;
     selectInspector(key,true);
-    if(control.matches('.canvas-grip')&&event.detail===0) {
-      const group=key==='dock'?by('dock-move'):by('supporting').querySelector('[data-supporting-card="'+key+'"]');
-      if(group) focusAfterMove(group,-1);
-    }
   });
 
-  article.addEventListener('pointerdown',event=>{
-    const handle=event.target.closest('.canvas-grip,[data-resize-edge]');
-    suppressHandleClick=false;
-    if(!handle||!event.isPrimary||event.button!==0||busy||uploading||needsSignIn||drag) return;
+  function prepareGesture(handle,x,y,pointer) {
+    if(busy||uploading||needsSignIn||drag) return false;
     const card=handle.closest('[data-canvas-card]');
     const settings=canvasCardSettings(card.dataset.canvasCard);
-    if(!settings) return;
+    if(!settings) return false;
     const resize=handle.dataset.resizeEdge;
-    const cards=Array.from(article.querySelectorAll('.canvas-grip'),button=>button.closest('[data-canvas-card]'));
-    if(!resize&&cards.length<2) return;
+    const cards=Array.from(article.querySelectorAll(':scope > [data-movable-card]'));
+    if(!resize&&cards.length<2) return false;
     const rect=card.getBoundingClientRect();
     drag={
-      handle,card,cards,resize,pointer:event.pointerId,startY:event.clientY,startX:event.clientX,y:event.clientY,x:event.clientX,
+      handle,card,cards,resize,pointer,startY:y,startX:x,y,x,
       initialSpan:settings.span,initialHeight:settings.minHeight,
-      offsetY:event.clientY-rect.top,offsetX:event.clientX-rect.left,index:cards.indexOf(card),
+      offsetY:y-rect.top,offsetX:x-rect.left,index:cards.indexOf(card),
       order:movableOrder(),
       active:false,
     };
-    handle.setPointerCapture(event.pointerId);
+    return true;
+  }
+
+  article.addEventListener('pointerdown',event=>{
+    if(!event.isPrimary||event.button!==0) return;
+    suppressPointerClick=false;
+    const handle=event.target.closest('[data-resize-edge],'+movableSurface);
+    if(!handle||event.pointerType==='touch'&&!handle.dataset.resizeEdge) return;
+    if(prepareGesture(handle,event.clientX,event.clientY,event.pointerId)) handle.setPointerCapture(event.pointerId);
   });
 
   function animatePositions(positions) {
@@ -963,6 +967,7 @@ function installCanvasControls(article) {
     const rect=card.getBoundingClientRect();
     current.peers=cards.filter(item=>item!==card);
     const scroll=doc.scrollingElement.scrollTop;
+    current.origin={left:rect.left,right:rect.right,top:rect.top+scroll,bottom:rect.bottom+scroll};
     current.targets=current.peers.map(item=>{
       const bounds=item.getBoundingClientRect();
       return {left:bounds.left,right:bounds.right,top:bounds.top+scroll,bottom:bounds.bottom+scroll};
@@ -983,12 +988,13 @@ function installCanvasControls(article) {
   }
 
   function dropSlot(current,centerY) {
-    const {targets,packed,x,y,startX,startY}=current;
+    const {targets,packed,x,y,startX,startY,origin,index}=current;
     if(!packed) {
       const next=targets.findIndex(target=>centerY<(target.top+target.bottom)/2);
       return next<0?targets.length:next;
     }
     const pointerY=y+doc.scrollingElement.scrollTop;
+    if(x>=origin.left&&x<=origin.right&&pointerY>=origin.top&&pointerY<=origin.bottom) return index;
     let nearest=0;
     let minimum=Infinity;
     targets.forEach((target,index)=>{
@@ -1058,10 +1064,9 @@ function installCanvasControls(article) {
     animatePositions(before);
   }
 
-  article.addEventListener('pointermove',event=>{
-    if(event.pointerId!==drag?.pointer) return;
-    drag.x=event.clientX;
-    drag.y=event.clientY;
+  function moveGesture(x,y) {
+    drag.x=x;
+    drag.y=y;
     const delta=drag.y-drag.startY;
     if(!drag.active) {
       if(Math.abs(delta)<6&&Math.abs(drag.x-drag.startX)<6) return;
@@ -1070,16 +1075,58 @@ function installCanvasControls(article) {
     }
     if(drag.resize) resizeCard(drag,drag.x-drag.startX,delta);
     else drawDrag(drag);
+  }
+
+  article.addEventListener('pointermove',event=>{
+    if(event.pointerId===drag?.pointer) moveGesture(event.clientX,event.clientY);
   });
+
+  // A touch swipe scrolls normally. Holding before moving reserves the gesture for reorder.
+  article.addEventListener('touchstart',event=>{
+    if(event.touches.length!==1) {
+      if(touchCandidate?.active) finishGesture(false);
+      touchCandidate=undefined;
+      return;
+    }
+    const handle=event.target.closest(movableSurface);
+    if(!handle) return;
+    const touch=event.touches[0];
+    touchCandidate={handle,id:touch.identifier,x:touch.clientX,y:touch.clientY,at:event.timeStamp};
+  },{passive:true});
+  article.addEventListener('touchmove',event=>{
+    if(!touchCandidate) return;
+    const {handle,id,x,y,at,active}=touchCandidate;
+    const touch=Array.from(event.touches).find(item=>item.identifier===id);
+    if(!touch||!event.cancelable) return;
+    if(!active) {
+      if(Math.hypot(touch.clientX-x,touch.clientY-y)<6) return;
+      if(event.timeStamp-at<300||!prepareGesture(handle,x,y)) {
+        touchCandidate=undefined;
+        return;
+      }
+      touchCandidate.active=true;
+    }
+    event.preventDefault();
+    moveGesture(touch.clientX,touch.clientY);
+  },{passive:false});
+  for(const type of ['touchend','touchcancel']) article.addEventListener(type,event=>{
+    if(!touchCandidate||!Array.from(event.changedTouches).some(touch=>touch.identifier===touchCandidate.id)) return;
+    if(touchCandidate.active&&drag) {
+      if(event.cancelable) event.preventDefault();
+      finishGesture(type==='touchend');
+    }
+    touchCandidate=undefined;
+  },{passive:false});
 
   function finishGesture(commit) {
     const current=drag;
     drag=null;
     const {card,cards,handle,pointer,slot,index,resize,active,x,y,initialSpan,initialHeight,placeholder}=current;
+    if(pointer===undefined) touchCandidate=undefined;
     cancelAnimationFrame(current.frame);
-    if(handle.hasPointerCapture(pointer)) handle.releasePointerCapture(pointer);
+    if(pointer!==undefined&&handle.hasPointerCapture(pointer)) handle.releasePointerCapture(pointer);
     if(!active) return;
-    suppressHandleClick=true;
+    suppressPointerClick=true;
     doc.documentElement.classList.remove('canvas-reordering','canvas-sizing');
     const bounds=canvas.getBoundingClientRect();
     const inside=document.elementFromPoint(bounds.left+(canvas.clientLeft+x)*previewScale,
@@ -1106,7 +1153,7 @@ function installCanvasControls(article) {
       } else changed();
       animatePositions(before);
     }
-    (resize?card.querySelector('.canvas-select'):handle).focus({preventScroll:true});
+    card.querySelector('.canvas-select').focus({preventScroll:true});
   }
 
   article.addEventListener('pointerup',event=>{

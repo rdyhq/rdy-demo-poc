@@ -22,7 +22,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.theme==='Hearth'||options.theme==='Grove'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas11">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas12">
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.newTabLinks?html`<base target="_blank">`:''}
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
@@ -32,7 +32,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js" defer></script>`:''}
     ${options.cardLayout?html`<script src="/assets/card-layout.js?v=1" defer></script>`:''}
-    ${options.script?html`<script src="/assets/editor.js?v=canvas11" defer></script>`:''}
+    ${options.script?html`<script src="/assets/editor.js?v=canvas12" defer></script>`:''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
@@ -157,7 +157,7 @@ const dimensionAttributes = ({span,minHeight}:FrameDimensions) => html` data-spa
 
 function editableCard(key:string,label:string,body:ReturnType<typeof html>,movable:boolean,editing?:boolean,alternate?:ReturnType<typeof html>,dimensions?:FrameDimensions) {
   if(!editing) return body;
-  return html`<div class="canvas-card" data-canvas-card="${key}"${dimensions?dimensionAttributes(dimensions):''}>
+  return html`<div class="canvas-card" data-canvas-card="${key}"${movable?raw(' data-movable-card'):''}${dimensions?dimensionAttributes(dimensions):''}>
     <div inert data-canvas-body>${body}</div>
     ${alternate?html`<template data-canvas-alternate>${alternate}</template>
       <span data-resize-edge="top" aria-hidden="true"></span>
@@ -165,13 +165,7 @@ function editableCard(key:string,label:string,body:ReturnType<typeof html>,movab
       <span data-resize-edge="left" aria-hidden="true"></span>
       <span data-resize-edge="right" aria-hidden="true"></span>
       <span data-resize-edge="bottom-right" aria-hidden="true"></span>`:''}
-    <button type="button" class="canvas-select" aria-pressed="false" aria-label="Edit ${label}"></button>
-    ${movable?html`<button type="button" class="canvas-grip" aria-label="Reorder ${label}" title="Drag to reorder">
-      <svg aria-hidden="true" width="16" height="20" viewBox="0 0 16 20" fill="currentColor">
-        <circle cx="5" cy="4" r="1.6"/><circle cx="11" cy="4" r="1.6"/>
-        <circle cx="5" cy="10" r="1.6"/><circle cx="11" cy="10" r="1.6"/>
-        <circle cx="5" cy="16" r="1.6"/><circle cx="11" cy="16" r="1.6"/>
-      </svg></button>`:''}
+    <button type="button" class="canvas-select" aria-pressed="false" aria-label="Edit ${label}" ${movable?raw('title="Click to edit or drag to reorder"'):''}></button>
   </div>`;
 }
 
@@ -347,7 +341,7 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
           <p id="preview-dimensions" class="editor-kicker preview-dimensions"></p>
           <iframe id="editor-canvas" name="lobby-editor-canvas" title="Private Home canvas"></iframe>
         </div>
-        <p class="editor-stage-note" id="canvas-note">Drag the dots to reorder. Drag an edge or corner to resize. Choose the content variant in the inspector.</p>
+        <p class="editor-stage-note" id="canvas-note">Click a card to edit it. Drag a movable card to reorder it, or drag an edge or corner to resize.</p>
         <p class="editor-stage-note">Fans see the last published version.</p>
       </section>
       <aside class="editor-inspector editor-panel" aria-label="Card inspector">

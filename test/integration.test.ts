@@ -392,7 +392,8 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
         assert.match(page,/data-card="identity".*data-card="spotlight".*data-card="promo".*data-card="dock"/s);
         assert.doesNotMatch(page,/data-card="schedule"/);
         if(mode==='edit') {
-          assert.match(page,/data-canvas-card="dock" data-span="6" data-height="176"[^>]*>\s*<div inert data-canvas-body>.*?<template data-canvas-alternate><section[^>]*data-size="expanded".*?data-resize-edge="bottom-right".*?aria-label="Reorder Channel Dock"/s);
+          assert.match(page,/data-canvas-card="dock" data-movable-card data-span="6" data-height="176"[^>]*>\s*<div inert data-canvas-body>.*?<template data-canvas-alternate><section[^>]*data-size="expanded".*?data-resize-edge="bottom-right".*?aria-label="Edit Channel Dock"/s);
+          assert.doesNotMatch(page,/data-canvas-card="(?:identity|spotlight)" data-movable-card|class="canvas-grip"/);
           assert.doesNotMatch(page,/aria-label="Reorder (Creator Identity|Spotlight)"/);
         } else {
           assert.doesNotMatch(page,/data-canvas-card=|data-canvas-alternate|data-resize-edge=/);
