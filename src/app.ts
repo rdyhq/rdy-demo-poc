@@ -13,13 +13,17 @@ import { assetBytes, maxUpload, upload, type Objects } from './assets.ts';
 import { Auth, type SendMail } from './auth.ts';
 import { AppError, digest, emptyHome, equalSecret, invalid, mailbox, scheduleChange, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
 import { invite, inviteList, revokeInvite } from './enrollment.ts';
-import { normalizeHome, platforms, readHome, type StoredHome } from './home-cards.ts';
+import { cardHeights, cardSpans, normalizeHome, platforms, readHome, type StoredHome } from './home-cards.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
 import { accountPage, billingPage, confirmation, editorPage, editorShare, invitesPage, landing, leaderboardDemo, message, proEditor, opsCase, opsPage, renderHome, reportPage, retiredCalendar, signIn } from './views.ts';
 
-const stylesheet=readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8');
+const stylesheet=[
+  readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8'),
+  ...cardSpans.map(span=>`.card-home > [data-span="${span}"] { --preferred-span:${span}; }`),
+  ...cardHeights.filter(Boolean).map(height=>`.card-home > [data-height="${height}"] { --card-height:${height}px; }`),
+].join('\n');
 const brandIcon=readFileSync(new URL('./public/linb.svg',import.meta.url),'utf8');
 const playerScript=readFileSync(new URL('./public/player.js',import.meta.url),'utf8');
 const shareScript=readFileSync(new URL('./public/share.js',import.meta.url),'utf8');

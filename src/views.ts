@@ -1,7 +1,7 @@
 import { html, raw } from 'hono/html';
 import { randomUUID } from 'node:crypto';
 import { futureSessions, nextSession, themeNames, type HomeContent, type ScheduleChange, type SessionSlot } from './domain.ts';
-import { channelPlatform, defaultLayout, platforms, type CardWidth, type EditableHome } from './home-cards.ts';
+import { channelPlatform, defaultLayout, platforms, cardSpans, cardHeights, type EditableHome } from './home-cards.ts';
 import { demoRanking } from './leaderboard.ts';
 import type { ProContent, ProDraft } from './pro.ts';
 import { discordSchedule, type Selection } from './sharing.ts';
@@ -22,7 +22,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.theme==='Hearth'||options.theme==='Grove'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas8">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas10">
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.newTabLinks?html`<base target="_blank">`:''}
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
@@ -31,7 +31,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
       ${options.metadata.image?html`<meta property="og:image" content="${options.metadata.image}">`:''}`:''}
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js" defer></script>`:''}
-    ${options.script?html`<script src="/assets/editor.js?v=canvas8" defer></script>`:''}
+    ${options.script?html`<script src="/assets/editor.js?v=canvas10" defer></script>`:''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
@@ -151,15 +151,19 @@ const promoActions={
 
 type CardSize = 'compact' | 'expanded';
 
-function editableCard(key:string,label:string,body:ReturnType<typeof html>,movable:boolean,editing?:boolean,alternate?:ReturnType<typeof html>,width?:CardWidth) {
+type FrameDimensions = {span:number;minHeight:number};
+const dimensionAttributes = ({span,minHeight}:FrameDimensions) => html` data-span="${span}" data-height="${minHeight}"`;
+
+function editableCard(key:string,label:string,body:ReturnType<typeof html>,movable:boolean,editing?:boolean,alternate?:ReturnType<typeof html>,dimensions?:FrameDimensions) {
   if(!editing) return body;
-  return html`<div class="canvas-card" data-canvas-card="${key}" ${width?html`data-width="${width}"`:''}>
+  return html`<div class="canvas-card" data-canvas-card="${key}"${dimensions?dimensionAttributes(dimensions):''}>
     <div inert data-canvas-body>${body}</div>
     ${alternate?html`<template data-canvas-alternate>${alternate}</template>
       <span data-resize-edge="top" aria-hidden="true"></span>
       <span data-resize-edge="bottom" aria-hidden="true"></span>
       <span data-resize-edge="left" aria-hidden="true"></span>
-      <span data-resize-edge="right" aria-hidden="true"></span>`:''}
+      <span data-resize-edge="right" aria-hidden="true"></span>
+      <span data-resize-edge="bottom-right" aria-hidden="true"></span>`:''}
     <button type="button" class="canvas-select" aria-pressed="false" aria-label="Edit ${label}"></button>
     ${movable?html`<button type="button" class="canvas-grip" aria-label="Reorder ${label}" title="Drag to reorder">
       <svg aria-hidden="true" width="16" height="20" viewBox="0 0 16 20" fill="currentColor">
@@ -198,18 +202,18 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
   const sessions=futureSessions(content,options.now);
   const card = (key:string,label:string,body:ReturnType<typeof html>,movable=false) =>
     editableCard(key,label,body,movable,options.editCanvas);
-  const sizedCard = (key:string,label:string,{size,width}:{size:CardSize;width:CardWidth},
+  const sizedCard = (key:string,label:string,settings:{size:CardSize}&FrameDimensions,
     render:(size:CardSize)=>ReturnType<typeof html>,movable=false) =>
-    editableCard(key,label,render(size),movable,options.editCanvas,
-      options.editCanvas?render(size==='compact'?'expanded':'compact'):undefined,width);
-  const halfWidth = (width:CardWidth) => !options.editCanvas&&width==='half'?raw(' data-width="half"'):'';
+    editableCard(key,label,render(settings.size),movable,options.editCanvas,
+      options.editCanvas?render(settings.size==='compact'?'expanded':'compact'):undefined,settings);
+  const publicDimensions = (settings:FrameDimensions) => options.editCanvas?'':dimensionAttributes(settings);
   const dock=content.links.length?sizedCard('dock','Channel Dock',layout.dock,size=>{
     const compact=size==='compact';
-    const visibleLinks=compact?content.links.slice(0,3):content.links;
-    const remainingLinks=compact?content.links.slice(3):[];
-    return html`<section class="home-card dock-card" data-card="dock" data-size="${size}"${halfWidth(layout.dock.width)}>
-      <h2>Find me</h2>${channelLinks(visibleLinks,compact)}
-      ${remainingLinks.length?html`<details><summary>More channels</summary>${channelLinks(remainingLinks)}</details>`:''}</section>`;
+    const visibleLinks=compact?content.links.slice(0,2):content.links;
+    const remainingLinks=compact?content.links.slice(2):[];
+    return html`<section class="home-card dock-card" data-card="dock" data-size="${size}"${publicDimensions(layout.dock)}>
+      <h2>Find me</h2><div class="dock-channels">${channelLinks(visibleLinks,compact)}
+      ${remainingLinks.length?html`<details><summary>More channels</summary>${channelLinks(remainingLinks)}</details>`:''}</div></section>`;
   },true):'';
   const notice=activeNotice(options.notice,options.now)?html`<aside class="home-card schedule-notice"><p class="micro">SCHEDULE CHANGE</p>
     <p>${scheduleCopy(options.notice!)}</p></aside>`:'';
@@ -217,27 +221,28 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
     if(item.hidden) return '';
     if(item.family==='promo') {
       if(!item.url||!item.title) return '';
-      return sizedCard(item.id,item.title,item,size=>html`<section class="home-card promo-card" data-card="promo" data-size="${size}"${halfWidth(item.width)}>
+      return sizedCard(item.id,item.title,item,size=>html`<section class="home-card promo-card" data-card="promo" data-size="${size}"${publicDimensions(item)}>
         <p class="micro">${item.category}</p><h2>${item.title}</h2>
         ${size==='expanded'&&item.description?html`<p>${item.description}</p>`:''}
         <a class="button" href="${item.url}">${promoActions[item.category]} <span aria-hidden="true">↗</span></a></section>`,true);
     }
     if(!sessions.length) return '';
-    return sizedCard(item.id,'Schedule',item,size=>html`<section class="home-card schedule-card" data-card="schedule" data-size="${size}"${halfWidth(item.width)}>
+    return sizedCard(item.id,'Schedule',item,size=>html`<section class="home-card schedule-card" data-card="schedule" data-size="${size}"${publicDimensions(item)}>
       <h2>${size==='compact'?'Next session':'Upcoming sessions'}</h2>
-      ${(size==='compact'?sessions.slice(0,1):sessions).map(scheduleSlot)}
+      ${sessions.slice(0,size==='compact'?1:3).map(scheduleSlot)}
+      ${size==='expanded'&&sessions.length>3?html`<details><summary>More sessions</summary>${sessions.slice(3).map(scheduleSlot)}</details>`:''}
       ${content.streamUrl?html`<a class="button secondary" href="${content.streamUrl}">Open channel</a>`:''}</section>`,true);
   });
   supporting.splice(layout.dockPosition,0,dock);
   // Keep the schedule-change notice near the lead, with the default Dock slot above it.
   supporting.splice(layout.dockPosition===0?1:0,0,notice);
   return frame(name,html`
-    ${options.preview&&!options.embedded?html`<aside class="status-note">Private preview · Unsaved values · ${options.phone?'Phone':'Desktop'}
+    ${options.preview&&!options.embedded?html`<aside class="status-note">Private preview · Unsaved values
       <button type="button" class="secondary" id="return-to-editor">Return to editor</button>
       <p class="dim">If this tab stays open, close it to return to your unsaved editor.</p></aside>`:''}
     ${options.review?html`<aside class="status-note">Restricted publication review · <a href="/ops">Back to cases</a></aside>`:''}
     <article class="creator card-home" data-flair="${pro?.appearance??'original'}" ${options.editCanvas?raw('data-edit-canvas'):''}>
-      ${sizedCard('identity','Creator Identity',identity,size=>html`<section class="home-card identity-card" data-card="identity" data-size="${size}"${halfWidth(identity.width)} data-align="${identity.alignment}"
+      ${sizedCard('identity','Creator Identity',identity,size=>html`<section class="home-card identity-card" data-card="identity" data-size="${size}"${publicDimensions(identity)} data-align="${identity.alignment}"
         data-avatar-size="${identity.avatarSize}" data-avatar-position="${identity.avatarPosition}">
         <div class="cover" data-focal-x="${identity.focalX}" data-focal-y="${identity.focalY}">${content.coverId?html`<img src="${options.asset(content.coverId)}" alt="" fetchpriority="high">`:options.demo?art:html`<div class="plain-cover"></div>`}</div>
         <div class="identity">
@@ -247,7 +252,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
           ${content.game?html`<p class="signature-game"><span class="sr-only">Signature game: </span>${content.game}</p>`:''}</div>
         </div>
       </section>`)}
-      ${content.streamUrl?sizedCard('spotlight','Spotlight',layout.spotlight,size=>html`<section class="home-card spotlight-card" data-card="spotlight" data-size="${size}"${halfWidth(layout.spotlight.width)} aria-label="Stream destination">
+      ${content.streamUrl?sizedCard('spotlight','Spotlight',layout.spotlight,size=>html`<section class="home-card spotlight-card" data-card="spotlight" data-size="${size}"${publicDimensions(layout.spotlight)} aria-label="Stream destination">
         <p class="micro">SPOTLIGHT</p><a class="button" href="${content.streamUrl}">${streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a></section>`):''}
       ${supporting}
       ${content.updates.length?card('updates','Updates',html`<section class="home-card updates" data-card="updates"><h2>Updates</h2>${content.updates.map(update=>html`
@@ -265,7 +270,8 @@ function editorSelect(id:string,label:string,options:readonly (readonly [string|
 }
 
 const cardSizeOptions=[['compact','Compact'],['expanded','Expanded']] as const;
-const cardWidthOptions=[['full','Full'],['half','Half']] as const;
+const cardSpanOptions=cardSpans.map(span=>[span,span===12?'Full width':span===6?'Half width':`${span} of 12 columns`] as const);
+const cardHeightOptions=cardHeights.map(height=>[height,height?`${height} px`:'Fit content'] as const);
 
 function editorOutlineButton(key:string,title:string,detail:string,fixed=false) {
   return html`<button type="button" class="editor-outline-row" data-edit-card="${key}" aria-pressed="false">
@@ -328,16 +334,19 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
               <button type="button" data-canvas-mode="visitor" aria-pressed="false">Visitor preview</button>
             </div>
             <div class="editor-devices" role="group" aria-label="Preview size">
-              <button id="preview" type="button" data-device="phone" aria-label="Phone preview" aria-pressed="true">Phone</button>
+              <button type="button" data-device="fit" aria-label="Fit available width" aria-pressed="true">Fit</button>
+              <button id="preview" type="button" data-device="phone" aria-label="Phone preview" aria-pressed="false">Phone</button>
+              <button type="button" data-device="tablet" aria-label="Tablet preview" aria-pressed="false">Tablet</button>
               <button id="preview-desktop" type="button" data-device="desktop" aria-label="Desktop preview" aria-pressed="false">Desktop</button>
             </div>
             <button id="preview-open" type="button" class="secondary">Open preview <span aria-hidden="true">↗</span></button>
           </div>
         </div>
-        <div class="editor-preview-stage" data-preview-size="phone">
+        <div class="editor-preview-stage">
+          <p id="preview-dimensions" class="editor-kicker preview-dimensions"></p>
           <iframe id="editor-canvas" name="lobby-editor-canvas" title="Private Home canvas"></iframe>
         </div>
-        <p class="editor-stage-note" id="canvas-note">Drag the dots to reorder. Drag the top or bottom edge for height, or a side edge in Desktop for width.</p>
+        <p class="editor-stage-note" id="canvas-note">Drag the dots to reorder. Drag an edge or corner to resize. Choose the content variant in the inspector.</p>
         <p class="editor-stage-note">Fans see the last published version.</p>
       </section>
       <aside class="editor-inspector editor-panel" aria-label="Card inspector">
@@ -353,8 +362,9 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
         <label for="game">Signature game</label><input id="game" maxlength="80" value="${state.content.game}">
         <details class="editor-extras"><summary>Identity appearance</summary>
           <div class="identity-options">
-            ${editorSelect('identity-size','Card size',cardSizeOptions)}
-            ${editorSelect('identity-width','Desktop width',cardWidthOptions)}
+            ${editorSelect('identity-size','Content variant',cardSizeOptions)}
+            ${editorSelect('identity-span','Preferred width',cardSpanOptions)}
+            ${editorSelect('identity-minHeight','Minimum height',cardHeightOptions)}
             ${editorSelect('identity-alignment','Text alignment',[['left','Left'],['center','Centered'],['right','Right']])}
             ${editorSelect('avatar-size','Avatar size',[['small','Small'],['medium','Medium'],['large','Large']])}
             ${editorSelect('avatar-position','Avatar position',[['edge','Banner edge'],['banner-center','Banner center']])}
@@ -370,13 +380,15 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
       <section data-inspector="spotlight" hidden><h2>Spotlight</h2><p class="editor-description">Send visitors to your primary stream.</p>
         <p id="spotlight-empty" hidden>Add a stream destination to show Spotlight on your Home.</p>
         <label for="streamUrl">Stream destination <small>HTTPS address</small></label><input id="streamUrl" type="url" maxlength="2048" value="${state.content.streamUrl}">
-        ${editorSelect('spotlight-size','Spotlight size',cardSizeOptions)}
-        ${editorSelect('spotlight-width','Desktop width',cardWidthOptions)}
+        ${editorSelect('spotlight-size','Content variant',cardSizeOptions)}
+        ${editorSelect('spotlight-span','Preferred width',cardSpanOptions)}
+        ${editorSelect('spotlight-minHeight','Minimum height',cardHeightOptions)}
       </section>
       <section data-inspector="dock" hidden><h2>Channel Dock</h2><p class="editor-description">Group your social and community links.</p>
         <p id="dock-empty" hidden>Add a supporting link to show the Channel Dock.</p>
-        ${editorSelect('dock-size','Channel Dock size',cardSizeOptions)}
-        ${editorSelect('dock-width','Desktop width',cardWidthOptions)}
+        ${editorSelect('dock-size','Content variant',cardSizeOptions)}
+        ${editorSelect('dock-span','Preferred width',cardSpanOptions)}
+        ${editorSelect('dock-minHeight','Minimum height',cardHeightOptions)}
         <div class="editor-entry" id="dock-move" tabindex="-1"></div>
         <p>Move priority links to the top. The Dock and Promo cards share five supporting links.</p>
         <div id="links"></div><button type="button" class="secondary" data-add="links">Add a link</button>

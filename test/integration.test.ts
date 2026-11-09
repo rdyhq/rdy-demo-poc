@@ -349,7 +349,8 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const stable=await (await get('/api/editor',cookie)).json();
       assert.deepEqual(retained.content.layout,stable.content.layout);
       assert.equal(retained.content.layout.dockPosition,0);
-      assert.equal(retained.content.layout.dock.width,'full');
+      assert.equal(retained.content.layout.dock.span,12);
+      assert.equal(retained.content.layout.dock.minHeight,0);
       const path='/h/'+homeId;
       const before=await (await get(path)).text();
       assert.match(before,/data-card="identity".*data-card="spotlight".*data-card="dock"/s);
@@ -378,8 +379,12 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.match(embedded.headers.get('content-security-policy')!,/frame-ancestors 'self'/);
       assert.equal((await post('/editor/preview',{embedded:'1',content:JSON.stringify(next)})).status,401);
       next.layout.dockPosition=2;
+      // Old editors can still submit their half-width setting.
+      delete next.layout.dock.span;
       next.layout.dock.width='half';
-      next.layout.supporting[0].width='half';
+      next.layout.dock.minHeight=176;
+      next.layout.supporting[0].span=5;
+      next.layout.supporting[0].minHeight=288;
       for(const [width,mode] of [['phone','edit'],['desktop','visitor']]) {
         const preview=await post('/editor/preview',{csrf:csrf(cookie),width,embedded:'1',mode,content:JSON.stringify(next)},cookie);
         assert.equal(preview.status,200,await preview.clone().text());
@@ -387,12 +392,12 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
         assert.match(page,/data-card="identity".*data-card="spotlight".*data-card="promo".*data-card="dock"/s);
         assert.doesNotMatch(page,/data-card="schedule"/);
         if(mode==='edit') {
-          assert.match(page,/data-canvas-card="dock" data-width="half"[^>]*>\s*<div inert data-canvas-body>.*?<template data-canvas-alternate><section[^>]*data-size="expanded".*?data-resize-edge="top".*?data-resize-edge="bottom".*?data-resize-edge="left".*?data-resize-edge="right".*?aria-label="Reorder Channel Dock"/s);
+          assert.match(page,/data-canvas-card="dock" data-span="6" data-height="176"[^>]*>\s*<div inert data-canvas-body>.*?<template data-canvas-alternate><section[^>]*data-size="expanded".*?data-resize-edge="bottom-right".*?aria-label="Reorder Channel Dock"/s);
           assert.doesNotMatch(page,/aria-label="Reorder (Creator Identity|Spotlight)"/);
         } else {
           assert.doesNotMatch(page,/data-canvas-card=|data-canvas-alternate|data-resize-edge=/);
           assert.match(page,/<base target="_blank">.*href="https:\/\/example.test\/giveaway"/s);
-          assert.match(page,/data-card="promo"[^>]*data-width="half".*data-card="dock"[^>]*data-width="half"/s);
+          assert.match(page,/data-card="promo"[^>]*data-span="5" data-height="288".*data-card="dock"[^>]*data-span="6" data-height="176"/s);
         }
       }
 
@@ -404,7 +409,10 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       invalidLayout.layout.dockPosition=3;
       assert.equal((await change('save',{...firstSave,content:invalidLayout},cookie)).status,422);
       invalidLayout.layout.dockPosition=2;
-      invalidLayout.layout.dock.width='quarter';
+      invalidLayout.layout.dock.span=13;
+      assert.equal((await change('save',{...firstSave,content:invalidLayout},cookie)).status,422);
+      invalidLayout.layout.dock.span=6;
+      invalidLayout.layout.dock.minHeight=177;
       assert.equal((await change('save',{...firstSave,content:invalidLayout},cookie)).status,422);
       const overBudget=structuredClone(next);
       overBudget.links.push({label:'Extra',url:'https://example.test/extra'});
@@ -415,8 +423,9 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal(stored[1].schemaVersion,2);
       assert.equal(stored[1].identity.id,retained.content.layout.identity.id);
       assert.equal(stored[1].dockPosition,2);
-      assert.equal(stored[1].dock.width,'half');
-      assert.equal(stored[1].supporting[0].width,'half');
+      assert.equal(stored[1].dock.span,6);
+      assert.equal(stored[1].dock.minHeight,176);
+      assert.equal(stored[1].supporting[0].span,5);
       assert.equal(stored[1].supporting[0].id,promo.id);
       assert.equal((await get(path)).status,200);
       assert.equal(await (await get(path)).text(),before);
@@ -450,7 +459,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.match(after,/A private card draft.*Open stream.*Supporter giveaway/s);
       assert.match(after,/data-avatar-position="banner-center"/);
       assert.match(after,/data-card="identity".*data-card="spotlight".*data-card="promo".*data-card="dock"/s);
-      assert.match(after,/data-card="promo"[^>]*data-width="half".*data-card="dock"[^>]*data-width="half"/s);
+      assert.match(after,/data-card="promo"[^>]*data-span="5" data-height="288".*data-card="dock"[^>]*data-span="6" data-height="176"/s);
       assert.doesNotMatch(after,/data-canvas-card=/);
       const rows=(await pool.query('SELECT content FROM publications WHERE home_id=$1 ORDER BY draft_revision',[homeId])).rows;
       assert.deepEqual(rows[0].content,old);

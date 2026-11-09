@@ -1,16 +1,18 @@
 import { digest, emptyHome, https, id, invalid, list, normalize, text, type HomeContent } from './domain.ts';
 
 const sizes = ['compact', 'expanded'] as const;
-const widths = ['full', 'half'] as const;
+export const cardSpans = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+export const cardHeights = [0, ...Array.from({length:39}, (_, index) => 96 + index * 16)];
 const alignments = ['left', 'center', 'right'] as const;
 const avatarSizes = ['small', 'medium', 'large'] as const;
 const avatarPositions = ['edge', 'banner-center'] as const;
 const promoCategories = ['Giveaway', 'Support', 'Merch', 'Sponsor', 'Community'] as const;
 
 type CardSize = typeof sizes[number];
-export type CardWidth = typeof widths[number];
-type CardSettings = { id: string; size: CardSize; width: CardWidth };
-type StoredSettings<T extends CardSettings> = Omit<T, 'width'> & { width?: CardWidth };
+type CardSpan = typeof cardSpans[number];
+type CardDimensions = { span: CardSpan; minHeight: number };
+type CardSettings = CardDimensions & { id: string; size: CardSize };
+type StoredSettings<T extends CardSettings> = Omit<T, keyof CardDimensions> & Partial<CardDimensions> & { width?: 'half' | 'full' };
 type IdentitySettings = CardSettings & {
   alignment: typeof alignments[number]; avatarSize: typeof avatarSizes[number];
   avatarPosition: typeof avatarPositions[number]; focalX: number; focalY: number;
@@ -48,7 +50,7 @@ function fixedId(homeId: string, role: string) {
 }
 
 export function defaultLayout(homeId: string): HomeLayout {
-  const fixed = (role: string):CardSettings => ({ id: fixedId(homeId, role), size: 'compact', width: 'full' });
+  const fixed = (role: string):CardSettings => ({ id: fixedId(homeId, role), size: 'compact', span: 12, minHeight: 0 });
   return {
     identity: { ...fixed('identity'), alignment: 'left', avatarSize: 'medium', avatarPosition: 'edge', focalX: 50, focalY: 50 },
     spotlight: fixed('spotlight'),
@@ -66,20 +68,25 @@ export function readHome(value: StoredHome, homeId: string): EditableHome {
   const { links, ...dock } = value.dock;
   const schedule = value.supporting.find(card => card.family === 'schedule');
   const supporting = value.supporting.map((card):ScheduleSettings | PromoCard => {
-    const width=card.width ?? 'full';
-    if (card.family === 'promo') return { ...card, width };
-    return { family: card.family, id: card.id, size: card.size, width, hidden: card.hidden };
+    if (card.family === 'promo') return readDimensions(card);
+    return readDimensions({family: card.family, id: card.id, size: card.size, hidden: card.hidden,
+      span:card.span, minHeight:card.minHeight, width:card.width});
   });
   return {
     schemaVersion: 1, displayName, intro, game, avatarId, coverId, theme: value.skin,
     streamUrl: url, links, sessions: schedule?.sessions ?? [], scheduleRemoval: schedule?.scheduleRemoval,
     updates: value.updates, layout: {
-      identity: { ...identity, width: identity.width ?? 'full' },
-      spotlight: { ...spotlight, width: spotlight.width ?? 'full' },
-      dock: { ...dock, width: dock.width ?? 'full' },
+      identity: readDimensions(identity),
+      spotlight: readDimensions(spotlight),
+      dock: readDimensions(dock),
       dockPosition: value.dockPosition ?? 0, supporting,
     },
   };
+}
+
+function readDimensions<T extends { width?: 'half' | 'full'; span?: CardSpan; minHeight?: number }>(card:T) {
+  const { width, ...settings } = card;
+  return { ...settings, span: card.span ?? (width==='half'?6:12), minHeight: card.minHeight ?? 0 };
 }
 
 export function writeHome(value: EditableHome): CardHome {
@@ -116,12 +123,19 @@ function settings(value: any, expected: CardSettings, field: string): CardSettin
   return {
     id: expected.id,
     size: choice(value.size, sizes, field),
-    width: cardWidth(value.width, expected.width, field.replace(/-size$/, '-width')),
+    ...normalizeDimensions(value, expected, field),
   };
 }
 
-function cardWidth(value: unknown, previous: CardWidth | undefined, field: string): CardWidth {
-  return value === undefined ? previous ?? 'full' : choice(value, widths, field);
+function normalizeDimensions(value:any, previous:CardDimensions|undefined, field:string):CardDimensions {
+  let span=value.span;
+  if(span===undefined&&value.width!==undefined) span=choice(value.width,['full','half'],field)==='half'?6:12;
+  span??=previous?.span??12;
+  const minHeight=value.minHeight===undefined?previous?.minHeight??0:value.minHeight;
+  if(value.span===null||!cardSpans.includes(span)||!cardHeights.includes(minHeight)) {
+    throw invalid(field, 'Choose a valid card width and minimum height.');
+  }
+  return {span,minHeight};
 }
 
 export function normalizeHome(value: any, old: EditableHome, now: number, preview = false): EditableHome {
@@ -151,7 +165,7 @@ export function normalizeHome(value: any, old: EditableHome, now: number, previe
     const previous = old.layout.supporting.find(item => item.id === cardId && item.family === 'promo');
     return {
       family: 'promo', id: cardId, hidden: card.hidden, size: choice(card.size, sizes, field),
-      width: cardWidth(card.width, previous?.width, field),
+      ...normalizeDimensions(card, previous, field),
       category: choice(card.category, promoCategories, field), title: text(card.title, field, 80, !preview),
       url: https(card.url, field, !preview), description: text(card.description, field, 160),
     };
