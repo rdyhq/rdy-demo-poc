@@ -274,7 +274,6 @@ function setCanvasSize(card,size) {
     body.replaceChildren(alternate.content.firstElementChild);
     alternate.content.replaceChildren(previous);
   }
-  card.querySelector('.canvas-resize').setAttribute('aria-pressed',String(size==='expanded'));
 }
 
 function canvasCardSettings(key) {
@@ -852,34 +851,31 @@ function installCanvasControls(article) {
       settings.family==='schedule'?'schedule-size':'promo-'+key+'-size');
     control.value=size;
     changed();
-    const label=card.querySelector('.canvas-resize').getAttribute('aria-label').slice('Resize '.length);
+    const label=card.querySelector('.canvas-select').getAttribute('aria-label').slice('Edit '.length);
     by('card-announcement').textContent=label+' is now '+size+'.';
   }
 
   article.addEventListener('click',event=>{
-    const control=event.target.closest('.canvas-select,.canvas-grip,.canvas-resize');
+    const control=event.target.closest('.canvas-select,.canvas-grip,[data-resize-edge]');
     if(!control) return;
     if(suppressHandleClick&&event.detail>0&&!control.matches('.canvas-select')) return;
     const card=control.closest('[data-canvas-card]');
     const key=card.dataset.canvasCard;
-    const resize=control.matches('.canvas-resize');
-    selectInspector(key,!resize);
-    if(resize&&!busy&&!uploading&&!needsSignIn) {
-      commitSize(card,canvasCardSettings(key).size==='compact'?'expanded':'compact');
-    } else if(control.matches('.canvas-grip')&&event.detail===0) {
+    selectInspector(key,true);
+    if(control.matches('.canvas-grip')&&event.detail===0) {
       const group=key==='dock'?by('dock-move'):by('supporting').querySelector('[data-supporting-card="'+key+'"]');
       if(group) focusAfterMove(group,-1);
     }
   });
 
   article.addEventListener('pointerdown',event=>{
-    const handle=event.target.closest('.canvas-grip,.canvas-resize');
+    const handle=event.target.closest('.canvas-grip,[data-resize-edge]');
     suppressHandleClick=false;
     if(!handle||!event.isPrimary||event.button!==0||busy||uploading||needsSignIn||drag) return;
     const card=handle.closest('[data-canvas-card]');
     const settings=canvasCardSettings(card.dataset.canvasCard);
     if(!settings) return;
-    const resize=handle.matches('.canvas-resize');
+    const resize=handle.dataset.resizeEdge;
     const cards=Array.from(article.querySelectorAll('.canvas-grip'),button=>button.closest('[data-canvas-card]'));
     if(!resize&&cards.length<2) return;
     const rect=card.getBoundingClientRect();
@@ -972,7 +968,8 @@ function installCanvasControls(article) {
       if(!drag.resize) drag.frame=requestAnimationFrame(scrollDrag);
     }
     if(drag.resize) {
-      const size=delta>20?'expanded':delta<-20?'compact':drag.initialSize;
+      const outward=drag.resize==='top'?-delta:delta;
+      const size=outward>20?'expanded':outward<-20?'compact':drag.initialSize;
       setCanvasSize(drag.card,size);
     } else drawDrag(drag);
   });
@@ -1009,7 +1006,7 @@ function installCanvasControls(article) {
       } else changed();
       animatePositions(before);
     }
-    handle.focus({preventScroll:true});
+    (resize?card.querySelector('.canvas-select'):handle).focus({preventScroll:true});
   }
 
   article.addEventListener('pointerup',event=>{
@@ -1036,7 +1033,7 @@ for(const button of root.querySelectorAll('[data-canvas-mode]')) button.addEvent
   canvasMode=button.dataset.canvasMode;
   const editing=canvasMode==='edit';
   by('canvas-heading').textContent=editing?'Edit canvas':'Visitor preview';
-  by('canvas-note').textContent=editing?'Select a card to edit it. Drag to reorder or resize.':'Test links with your unsaved changes at either width.';
+  by('canvas-note').textContent=editing?'Drag the dots to reorder or a top or bottom edge to resize.':'Test links with your unsaved changes at either width.';
   for(const choice of root.querySelectorAll('[data-canvas-mode]')) {
     choice.setAttribute('aria-pressed',String(choice===button));
   }

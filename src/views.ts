@@ -22,7 +22,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.theme==='Hearth'||options.theme==='Grove'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas4">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas5">
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.newTabLinks?html`<base target="_blank">`:''}
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
@@ -31,7 +31,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
       ${options.metadata.image?html`<meta property="og:image" content="${options.metadata.image}">`:''}`:''}
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js" defer></script>`:''}
-    ${options.script?html`<script src="/assets/editor.js?v=canvas4" defer></script>`:''}
+    ${options.script?html`<script src="/assets/editor.js?v=canvas5" defer></script>`:''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
@@ -156,10 +156,8 @@ function editableCard(key:string,label:string,body:ReturnType<typeof html>,movab
   return html`<div class="canvas-card" data-canvas-card="${key}">
     <div inert data-canvas-body>${body}</div>
     ${alternate?html`<template data-canvas-alternate>${alternate}</template>
-      <button type="button" class="canvas-resize" aria-label="Resize ${label}" title="Drag up to compact, down to expand, or click to switch">
-        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M4 14 14 4M8 14H4v-4m6-6h4v4"/>
-        </svg></button>`:''}
+      <span data-resize-edge="top" aria-hidden="true"></span>
+      <span data-resize-edge="bottom" aria-hidden="true"></span>`:''}
     <button type="button" class="canvas-select" aria-pressed="false" aria-label="Edit ${label}"></button>
     ${movable?html`<button type="button" class="canvas-grip" aria-label="Reorder ${label}" title="Drag to reorder">
       <svg aria-hidden="true" width="16" height="20" viewBox="0 0 16 20" fill="currentColor">
@@ -334,7 +332,7 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
         <div class="editor-preview-stage" data-preview-size="phone">
           <iframe id="editor-canvas" name="lobby-editor-canvas" title="Private Home canvas"></iframe>
         </div>
-        <p class="editor-stage-note" id="canvas-note">Select a card to edit it. Drag to reorder or resize.</p>
+        <p class="editor-stage-note" id="canvas-note">Drag the dots to reorder or a top or bottom edge to resize.</p>
         <p class="editor-stage-note">Fans see the last published version.</p>
       </section>
       <aside class="editor-inspector editor-panel" aria-label="Card inspector">
