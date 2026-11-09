@@ -43,7 +43,6 @@ let retry = null;
 let other = null;
 let needsSignIn = false;
 let canvasTimer;
-let canvasPayload;
 let canvasSubmission;
 let canvasRequest;
 let renderedEditKey;
@@ -54,11 +53,9 @@ let canvasMode='edit';
 let selectedCard=revision?'spotlight':'identity';
 const canvas=by('editor-canvas');
 const viewport=canvas.parentElement;
-const stage=viewport.parentElement;
 const actualSizeButton=by('preview-actual-size');
 const deviceWidths={phone:390,tablet:768,desktop:1024};
 const dockOutline=by('card-outline-supporting').querySelector('[data-edit-card=dock]');
-let canvasScroll=0;
 let drag;
 
 function updateControls() {
@@ -114,12 +111,15 @@ function fitCanvas() {
   previewScale=needsScaling&&!previewActualSize?available/width:1;
   actualSizeButton.hidden=!needsScaling;
   actualSizeButton.setAttribute('aria-pressed',String(previewActualSize));
-  canvas.style.setProperty('--preview-width',width+'px');
-  canvas.style.setProperty('--preview-scale',String(previewScale));
-  by('preview-dimensions').textContent=width+' px'+(previewScale<1?' · '+Math.round(previewScale*100)+'%':'');
+  const widthValue=width+'px', scaleValue=String(previewScale);
+  if(canvas.style.getPropertyValue('--preview-width')!==widthValue) canvas.style.setProperty('--preview-width',widthValue);
+  if(canvas.style.getPropertyValue('--preview-scale')!==scaleValue) canvas.style.setProperty('--preview-scale',scaleValue);
+  const dimensions=by('preview-dimensions');
+  const label=width+' px'+(previewScale<1?' · '+Math.round(previewScale*100)+'%':'');
+  if(dimensions.textContent!==label) dimensions.textContent=label;
 }
 
-new ResizeObserver(fitCanvas).observe(stage);
+new ResizeObserver(fitCanvas).observe(viewport);
 actualSizeButton.addEventListener('click',()=>{
   previewActualSize=!previewActualSize;
   viewport.scrollLeft=0;
@@ -130,7 +130,7 @@ function changed() {
   updatePreview();
   dirty=JSON.stringify(content)!==JSON.stringify(saved);
   updateControls();
-  const article=editCanvas();
+  const article=canvasArticle();
   if(article&&!drag) {
     article.closest('main').classList.toggle('phone-preview',previewDevice==='phone');
     syncEditLayout(article);
@@ -139,8 +139,15 @@ function changed() {
   canvasTimer=setTimeout(refreshCanvas,400);
 }
 
-function editCanvas() {
-  return canvasMode==='edit'?canvas.contentDocument?.querySelector('[data-edit-canvas]'):null;
+function canvasArticle() {
+  return canvas.contentDocument?.querySelector('[data-edit-canvas]');
+}
+
+function syncCanvasMode(article) {
+  const editing=canvasMode==='edit';
+  article.dataset.canvasMode=canvasMode;
+  for(const body of article.querySelectorAll('[data-canvas-body]')) body.inert=editing;
+  article.ownerDocument.querySelector('.creator-credit').hidden=editing;
 }
 
 function editContentKey(value) {
@@ -156,14 +163,10 @@ function editContentKey(value) {
 async function refreshCanvas() {
   if(needsSignIn||drag||canvasSubmission) return;
   const payload=JSON.stringify(content);
-  const article=editCanvas();
+  const article=canvasArticle();
   if(!article) {
-    const key=previewDevice+' '+canvasMode+' '+payload;
-    if(key===canvasPayload) return;
-    canvasPayload=key;
     canvasSubmission={editKey:editContentKey(content)};
-    canvasScroll=canvas.contentDocument?.scrollingElement?.scrollTop??0;
-    submitPreview(canvas.name,previewDevice,payload,canvasMode);
+    submitPreview(canvas.name,previewDevice,payload,'edit');
     return;
   }
   const key=editContentKey(content);
@@ -175,7 +178,7 @@ async function refreshCanvas() {
       csrf,width:previewDevice,content:payload,embedded:'1',mode:'edit',
     })});
     const html=await response.text();
-    if(canvasRequest!==request||drag||article!==editCanvas()||key!==editContentKey(content)) return;
+    if(canvasRequest!==request||drag||article!==canvasArticle()||key!==editContentKey(content)) return;
     if(response.status===401) {
       requireSignIn();
       return;
@@ -188,6 +191,7 @@ async function refreshCanvas() {
     article.ownerDocument.documentElement.dataset.theme=fresh.documentElement.dataset.theme;
     article.ownerDocument.title=fresh.title;
     renderedEditKey=key;
+    syncCanvasMode(article);
     syncEditLayout(article);
     syncCanvasSelection();
   } catch {
@@ -404,6 +408,7 @@ function supportingName(card) {
 }
 
 function syncCanvasSelection(reveal=false) {
+  if(canvasMode!=='edit') return;
   const doc=canvas.contentDocument;
   for(const card of doc?.querySelectorAll('[data-canvas-card]')??[]) {
     const selected=card.dataset.canvasCard===selectedCard;
@@ -563,7 +568,6 @@ function show(message,error=false) {
 
 function requireSignIn() {
   needsSignIn=true;
-  canvasPayload=undefined;
   updateControls();
   show('Your session expired. Your changes are still here.',true);
 }
@@ -853,14 +857,13 @@ canvas.addEventListener('load',()=>{
   canvasSubmission=null;
   const doc=canvas.contentDocument;
   if(!doc?.scrollingElement||!submission) return;
-  doc.scrollingElement.scrollTop=canvasScroll;
   const article=doc.querySelector('[data-edit-canvas]');
-  if(article) {
-    renderedEditKey=submission.editKey;
-    formatCanvasTimes(article);
-    installCanvasControls(article);
-    syncCanvasSelection();
-  }
+  if(!article) return;
+  renderedEditKey=submission.editKey;
+  formatCanvasTimes(article);
+  installCanvasControls(article);
+  syncCanvasMode(article);
+  syncCanvasSelection();
   changed();
 });
 
@@ -895,7 +898,7 @@ function installCanvasControls(article) {
   });
 
   function prepareGesture(handle,x,y,pointer) {
-    if(busy||uploading||needsSignIn||drag) return false;
+    if(canvasMode!=='edit'||busy||uploading||needsSignIn||drag) return false;
     const card=handle.closest('[data-canvas-card]');
     const settings=canvasCardSettings(card.dataset.canvasCard);
     if(!settings) return false;
@@ -1183,6 +1186,7 @@ for(const button of root.querySelectorAll('[data-device]')) button.addEventListe
 });
 
 for(const button of root.querySelectorAll('[data-canvas-mode]')) button.addEventListener('click',()=>{
+  if(drag) return;
   canvasMode=button.dataset.canvasMode;
   const editing=canvasMode==='edit';
   by('canvas-heading').textContent=editing?'Edit canvas':'Visitor preview';
@@ -1190,7 +1194,9 @@ for(const button of root.querySelectorAll('[data-canvas-mode]')) button.addEvent
   for(const choice of root.querySelectorAll('[data-canvas-mode]')) {
     choice.setAttribute('aria-pressed',String(choice===button));
   }
-  changed();
+  const article=canvasArticle();
+  if(article) syncCanvasMode(article);
+  syncCanvasSelection();
 });
 
 by('preview-open').addEventListener('click',()=>{

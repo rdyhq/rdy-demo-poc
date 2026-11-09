@@ -72,6 +72,8 @@ label,legend{display:block;font-weight:720;margin:11px 0 4px}label small{color:v
 .home-card .micro { margin:0 0 8px; }
 .home-card .button { min-width:44px; }
 [data-edit-canvas] { position:relative; }
+html:has(.editor-shell,[data-edit-canvas]) { scrollbar-gutter:stable; }
+[data-edit-canvas][data-canvas-mode=visitor] :is(.canvas-select,[data-resize-edge]) { display:none; }
 .canvas-card { position:relative; min-width:0; }
 .canvas-card .canvas-select { position:absolute; inset:0; width:100%; border:0; border-radius:12px; background:transparent; }
 .canvas-card .canvas-select:hover { outline:1px solid var(--accent); }
@@ -324,6 +326,7 @@ label,legend{display:block;font-weight:720;margin:11px 0 4px}label small{color:v
 .editor-outline-settings { margin-top:12px; padding-top:12px; border-top:1px solid var(--editor-edge); }
 .editor-stage { padding:12px; }
 .editor-stage-head { justify-content:space-between; flex-wrap:wrap; gap:9px; margin:0 1px 10px; }
+.editor-stage-head > :first-child { min-inline-size:8rem; }
 .editor-stage-controls { flex-wrap:wrap; gap:7px; }
 .editor-stage-controls button { font-size:.75rem; padding-inline:9px; }
 .editor-devices { display:flex; padding:2px; border:1px solid var(--editor-edge); border-radius:7px; background:var(--editor-control); }
