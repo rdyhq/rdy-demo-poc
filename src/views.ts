@@ -22,7 +22,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.theme==='Hearth'||options.theme==='Grove'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas14">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas15">
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.newTabLinks?html`<base target="_blank">`:''}
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
@@ -30,9 +30,9 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
       <meta property="og:title" content="${options.metadata.title}"><meta property="og:description" content="${options.metadata.description}">
       ${options.metadata.image?html`<meta property="og:image" content="${options.metadata.image}">`:''}`:''}
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
-    ${options.share?html`<script src="/assets/share.js" defer></script>`:''}
+    ${options.share?html`<script src="/assets/share.js?v=2" defer></script>`:''}
     ${options.cardLayout?html`<script src="/assets/card-layout.js?v=1" defer></script>`:''}
-    ${options.script?html`<script src="/assets/editor.js?v=canvas14" defer></script>`:''}
+    ${options.script?html`<script src="/assets/editor.js?v=canvas15" defer></script>`:''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
@@ -144,6 +144,10 @@ function channelLinks(links: HomeContent['links']) {
   })}</ul>`;
 }
 
+function cardDisclosure(label:string,body:ReturnType<typeof html>) {
+  return html`<details><summary>${label}</summary>${body}</details>`;
+}
+
 const promoActions={
   Giveaway:'See giveaway', Support:'Support the creator', Merch:'Shop merch',
   Sponsor:'See sponsor offer', Community:'Join the community',
@@ -167,11 +171,10 @@ function editableCard(key:string,label:string,body:ReturnType<typeof html>,movab
 }
 
 function scheduleSlot(slot:SessionSlot) {
-  return html`<div class="schedule-slot"><h3>${slot.title}</h3><dl>
+  return html`<div class="schedule-slot"><h3>${slot.title}</h3><p hidden data-fan-time="${slot.instant}"></p><dl>
     <div><dt>Creator date</dt><dd>${slot.local.slice(0,10)}</dd></div>
     <div><dt>Creator time</dt><dd>${slot.local.slice(11)}</dd></div>
-    <div><dt>Time zone</dt><dd>${slot.zone} (${slot.offset})</dd></div></dl>
-    <p hidden data-fan-time="${slot.instant}"></p></div>`;
+    <div><dt>Time zone</dt><dd>${slot.zone} (${slot.offset})</dd></div></dl></div>`;
 }
 
 export function renderHome(content:HomeContent|EditableHome,options:{now:number;asset:(id:string)=>string;canonical?:string;
@@ -192,39 +195,43 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
   const initials=name.split(/\s+/).slice(0,2).map(word=>[...word][0]).join('').toUpperCase();
   const identity=layout.identity;
   const sessions=futureSessions(content,options.now);
-  const card = (key:string,label:string,body:ReturnType<typeof html>,dimensions?:FrameDimensions,movable=false) =>
-    editableCard(key,label,body,movable,options.editCanvas,dimensions);
-  const publicDimensions = (settings:FrameDimensions) => options.editCanvas?'':dimensionAttributes(settings);
+  // Keep the card frame and editor controls shared. Each family supplies only its content.
+  const card = (family:string,key:string,label:string,body:ReturnType<typeof html>,dimensions?:FrameDimensions,
+    movable=false,attributes?:ReturnType<typeof html>) =>
+    editableCard(key,label,html`<section class="home-card ${family==='updates'?family:family+'-card'}" data-card="${family}"${dimensions&&!options.editCanvas?dimensionAttributes(dimensions):''}${attributes??''}>
+      ${body}</section>`,movable,options.editCanvas,dimensions);
   const remainingLinks=content.links.slice(2);
-  const dock=content.links.length?card('dock','Channel Dock',html`<section class="home-card dock-card" data-card="dock"${publicDimensions(layout.dock)}>
+  const dock=content.links.length?card('dock','dock','Channel Dock',html`
     <h2>Find me</h2><div class="dock-content">
       <div class="dock-summary">${channelLinks(content.links.slice(0,2))}
-        ${remainingLinks.length?html`<details><summary>More channels</summary>${channelLinks(remainingLinks)}</details>`:''}</div>
+        ${remainingLinks.length?cardDisclosure('More channels',channelLinks(remainingLinks)):''}</div>
       <div class="dock-full">${channelLinks(content.links)}</div>
-    </div></section>`,layout.dock,true):'';
+    </div>`,layout.dock,true):'';
   const notice=activeNotice(options.notice,options.now)?html`<aside class="home-card schedule-notice"><p class="micro">SCHEDULE CHANGE</p>
     <p>${scheduleCopy(options.notice!)}</p></aside>`:'';
   const supporting=layout.supporting.map(item=>{
     if(item.hidden) return '';
     if(item.family==='promo') {
       if(!item.url||!item.title) return '';
-      return card(item.id,item.title,html`<section class="home-card promo-card" data-card="promo"${publicDimensions(item)}>
-        <div class="promo-content"><div><p class="micro">${item.category}</p><h2>${item.title}</h2>
+      return card('promo',item.id,item.title,html`
+        <div class="card-action-layout promo-content"><div class="promo-copy"><p class="micro">${item.category}</p><h2>${item.title}</h2>
         ${item.description?html`<p class="promo-description">${item.description}</p>`:''}</div>
-        <a class="button" href="${item.url}">${promoActions[item.category]} <span aria-hidden="true">↗</span></a></div></section>`,item,true);
+        <a class="button" href="${item.url}">${promoActions[item.category]} <span aria-hidden="true">↗</span></a></div>`,item,true);
     }
     if(!sessions.length) return '';
     const moreSessions=(start:number)=>sessions.length>start
-      ?html`<details><summary>More sessions</summary>${sessions.slice(start).map(scheduleSlot)}</details>`:'';
-    return card(item.id,'Schedule',html`<section class="home-card schedule-card" data-card="schedule"${publicDimensions(item)}>
+      ?cardDisclosure('More sessions',html`${sessions.slice(start).map(scheduleSlot)}`):'';
+    return card('schedule',item.id,'Schedule',html`
       <h2>Upcoming sessions</h2>
       <div class="schedule-content">
         <div class="schedule-slots">${scheduleSlot(sessions[0])}
-          ${sessions.slice(1,3).map(slot=>html`<div class="schedule-extra">${scheduleSlot(slot)}</div>`)}</div>
+          ${sessions[1]?html`<div class="schedule-second">${scheduleSlot(sessions[1])}</div>`:''}
+          ${sessions[2]?html`<div class="schedule-third">${scheduleSlot(sessions[2])}</div>`:''}</div>
         <div class="schedule-summary">${moreSessions(1)}</div>
-        <div class="schedule-full">${moreSessions(3)}</div>
+        <div class="schedule-more-after-two">${moreSessions(2)}</div>
+        <div class="schedule-more-after-three">${moreSessions(3)}</div>
       </div>
-      ${content.streamUrl?html`<a class="button secondary" href="${content.streamUrl}">Open channel</a>`:''}</section>`,item,true);
+      ${content.streamUrl?html`<a class="button secondary" href="${content.streamUrl}">Open channel</a>`:''}`,item,true);
   });
   supporting.splice(layout.dockPosition,0,dock);
   // Keep the schedule-change notice near the lead, with the default Dock slot above it.
@@ -235,8 +242,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
       <p class="dim">If this tab stays open, close it to return to your unsaved editor.</p></aside>`:''}
     ${options.review?html`<aside class="status-note">Restricted publication review · <a href="/ops">Back to cases</a></aside>`:''}
     <article class="creator card-home" data-flair="${pro?.appearance??'original'}" ${options.editCanvas?raw('data-edit-canvas'):''}>
-      ${card('identity','Creator Identity',html`<section class="home-card identity-card" data-card="identity"${publicDimensions(identity)} data-align="${identity.alignment}"
-        data-avatar-size="${identity.avatarSize}" data-avatar-position="${identity.avatarPosition}">
+      ${card('identity','identity','Creator Identity',html`
         <div class="cover" data-focal-x="${identity.focalX}" data-focal-y="${identity.focalY}">${content.coverId?html`<img src="${options.asset(content.coverId)}" alt="" fetchpriority="high">`:options.demo?art:html`<div class="plain-cover"></div>`}</div>
         <div class="identity">
           ${content.avatarId?html`<img class="avatar" src="${options.asset(content.avatarId)}" alt="">`:
@@ -244,13 +250,14 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
           <div class="identity-text"><h1>${name}</h1>${content.intro?html`<p>${content.intro}</p>`:''}
           ${content.game?html`<p class="signature-game"><span class="sr-only">Signature game: </span>${content.game}</p>`:''}</div>
         </div>
-      </section>`,identity)}
-      ${content.streamUrl?card('spotlight','Spotlight',html`<section class="home-card spotlight-card" data-card="spotlight"${publicDimensions(layout.spotlight)} aria-label="Stream destination">
-        <div class="spotlight-content"><p class="micro">SPOTLIGHT</p><a class="button" href="${content.streamUrl}">${streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a></div></section>`,layout.spotlight):''}
+      `,identity,false,html` data-align="${identity.alignment}" data-avatar-size="${identity.avatarSize}" data-avatar-position="${identity.avatarPosition}"`)}
+      ${content.streamUrl?card('spotlight','spotlight','Spotlight',html`
+        <div class="card-action-layout"><p class="micro">SPOTLIGHT</p><a class="button" href="${content.streamUrl}">${streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a></div>`,
+        layout.spotlight,false,html` aria-label="Stream destination"`):''}
       ${supporting}
-      ${content.updates.length?card('updates','Updates',html`<section class="home-card updates" data-card="updates"><h2>Updates</h2>${content.updates.map(update=>html`
+      ${content.updates.length?card('updates','updates','Updates',html`<h2>Updates</h2>${content.updates.map(update=>html`
         <article>${update.firstPublishedAt?html`<time datetime="${update.firstPublishedAt}">${update.firstPublishedAt.slice(0,10)} UTC</time>`:
-          options.preview?html`<small>Date added when published.</small>`:''}<p>${update.text}</p></article>`)}</section>`):''}
+          options.preview?html`<small>Date added when published.</small>`:''}<p>${update.text}</p></article>`)}`):''}
       ${nav||pro?html`<section class="home-card">${nav}${module}</section>`:''}
       ${options.preview||options.review?'':html`<div class="fan-tools"><p class="bookmark">Save this home in your browser.</p>
         ${options.canonical?shareControl(options.canonical):''}
@@ -335,8 +342,13 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
           </div>
         </div>
         <div class="editor-preview-stage">
-          <p id="preview-dimensions" class="editor-kicker preview-dimensions"></p>
-          <iframe id="editor-canvas" name="lobby-editor-canvas" title="Private Home canvas"></iframe>
+          <div class="preview-size-bar">
+            <p id="preview-dimensions" class="editor-kicker preview-dimensions"></p>
+            <button type="button" class="secondary" id="preview-actual-size" aria-pressed="false" hidden>Actual size</button>
+          </div>
+          <div class="editor-preview-viewport">
+            <iframe id="editor-canvas" name="lobby-editor-canvas" title="Private Home canvas"></iframe>
+          </div>
         </div>
         <p class="editor-stage-note" id="canvas-note">Click a card to edit it. Drag a movable card to reorder it, or drag an edge or corner to resize.</p>
         <p class="editor-stage-note">Fans see the last published version.</p>

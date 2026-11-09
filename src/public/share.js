@@ -30,7 +30,7 @@ for (const group of document.querySelectorAll('[data-share]')) {
 
 for (const target of document.querySelectorAll('[data-fan-time]')) {
   try {
-    const formatted=new Intl.DateTimeFormat(undefined,{dateStyle:'full',timeStyle:'long'});
+    const formatted=new Intl.DateTimeFormat(undefined,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
     if (!formatted.resolvedOptions().timeZone) continue;
     target.textContent='Your time: '+formatted.format(new Date(target.dataset.fanTime));
     target.hidden=false;

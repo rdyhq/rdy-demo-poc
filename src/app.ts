@@ -27,8 +27,7 @@ const stylesheet=[
   // Use the requested minimum height, so revealed content cannot trigger its own breakpoint.
   ...[
     [160, '--dock-summary:none; --dock-full:block;'],
-    [224, '--promo-description:block;'],
-    [416, '--schedule-summary:none; --schedule-extra:block;'],
+    [416, '--schedule-summary:none; --schedule-two:block; --schedule-three:block; --schedule-tall-after-two:none;'],
   ].map(([minimum, rules]) => `${cardHeights.filter(height=>height>=Number(minimum))
     .map(height=>`.card-home > [data-height="${height}"]`).join(', ')} { ${rules} }`),
 ].join('\n');

@@ -49,10 +49,13 @@ let canvasRequest;
 let renderedEditKey;
 let previewDevice='fit';
 let previewScale=1;
+let previewActualSize=false;
 let canvasMode='edit';
 let selectedCard=revision?'spotlight':'identity';
 const canvas=by('editor-canvas');
-const stage=canvas.parentElement;
+const viewport=canvas.parentElement;
+const stage=viewport.parentElement;
+const actualSizeButton=by('preview-actual-size');
 const deviceWidths={phone:390,tablet:768,desktop:1024};
 const dockOutline=by('card-outline-supporting').querySelector('[data-edit-card=dock]');
 let canvasScroll=0;
@@ -105,16 +108,23 @@ function updatePreview() {
 }
 
 function fitCanvas() {
-  const style=getComputedStyle(stage);
-  const available=Math.max(1,Math.floor(stage.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)));
+  const available=Math.max(1,viewport.clientWidth);
   const width=deviceWidths[previewDevice]??available;
-  previewScale=Math.min(1,available/width);
+  const needsScaling=width>available;
+  previewScale=needsScaling&&!previewActualSize?available/width:1;
+  actualSizeButton.hidden=!needsScaling;
+  actualSizeButton.setAttribute('aria-pressed',String(previewActualSize));
   canvas.style.setProperty('--preview-width',width+'px');
   canvas.style.setProperty('--preview-scale',String(previewScale));
   by('preview-dimensions').textContent=width+' px'+(previewScale<1?' · '+Math.round(previewScale*100)+'%':'');
 }
 
 new ResizeObserver(fitCanvas).observe(stage);
+actualSizeButton.addEventListener('click',()=>{
+  previewActualSize=!previewActualSize;
+  viewport.scrollLeft=0;
+  fitCanvas();
+});
 
 function changed() {
   updatePreview();
@@ -301,7 +311,7 @@ function placeCanvasNodes(article,nodes,anchor=null) {
 }
 
 function formatCanvasTimes(article) {
-  const formatter=new Intl.DateTimeFormat(undefined,{dateStyle:'full',timeStyle:'long'});
+  const formatter=new Intl.DateTimeFormat(undefined,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
   if(!formatter.resolvedOptions().timeZone) return;
   for(const target of article.querySelectorAll('[data-fan-time]')) {
     target.textContent='Your time: '+formatter.format(new Date(target.dataset.fanTime));
