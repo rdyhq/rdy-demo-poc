@@ -20,7 +20,10 @@ const fixedControls = {
   'avatar-size':['identity','avatarSize'], 'avatar-position':['identity','avatarPosition'],
   'cover-x':['identity','focalX'], 'cover-y':['identity','focalY'],
 };
-const promoCategories = ['Giveaway','Support','Merch','Sponsor','Community'];
+const blockPicker=by('block-picker');
+const blockSearch=by('block-search');
+const blockOptions=Array.from(blockPicker.querySelectorAll('[data-block]'));
+const promoCategories=blockOptions.filter(button=>button.dataset.block==='promo').map(button=>button.dataset.category);
 const fieldNames = {layout:'Card layout and supporting cards',scheduleRemoval:'Schedule removal notice',displayName:'Display name',intro:'Intro',game:'Current game',streamUrl:'Stream destination',theme:'Theme',avatarId:'Avatar',coverId:'Cover image'};
 const layouts = {
   sessions:[['title','Session title','text',80],['local','Local date and time','datetime-local'],['zone','IANA time zone','text',90],['offset','UTC offset if the local time repeats','text',6]],
@@ -83,11 +86,11 @@ function updateControls() {
   for(const input of form.querySelectorAll('input[type=file]')) input.disabled=writesBlocked;
   by('retry').disabled=writesBlocked;
   for(const button of form.querySelectorAll('[data-add]')) {
-    const key=button.dataset.add;
-    button.disabled=blocked||(key==='links'?supportingLinkCount()>=5:content[key].length>=capacities[key]);
+    button.disabled=blocked||!canAddBlock(button.dataset.add);
   }
   const linkCount=supportingLinkCount();
-  by('add-promo').disabled=blocked||linkCount>=5;
+  by('add-block').disabled=blocked;
+  if(blockPicker.open) filterBlockPicker();
   by('supporting-budget').textContent=linkCount+' of 5 supporting links';
   root.querySelector('[data-edit-card=skin] small').textContent=content.theme;
 }
@@ -267,6 +270,10 @@ function entries() {
 
 function supportingLinkCount() {
   return content.links.length+content.layout.supporting.filter(card=>card.family==='promo').length;
+}
+
+function canAddBlock(key) {
+  return key==='links'||key==='promo'?supportingLinkCount()<capacities.links:content[key].length<capacities[key];
 }
 
 function actionButton(label,onClick) {
@@ -526,7 +533,7 @@ function supportingCards() {
         cards.splice(index,1);
         supportingCards();
         changed();
-        by('add-promo').focus();
+        by('add-block').focus();
       }));
     }
     list.append(group);
@@ -534,14 +541,70 @@ function supportingCards() {
   renderSupportingOutline();
 }
 
-by('add-promo').addEventListener('click',()=>{
-  if(supportingLinkCount()>=5) return;
-  const card={id:crypto.randomUUID(),family:'promo',size:'compact',span:12,minHeight:0,hidden:false,category:'Giveaway',title:'',url:'',description:''};
+function addPromo(category,url='') {
+  const card={id:crypto.randomUUID(),family:'promo',size:'compact',span:12,minHeight:0,hidden:false,category,title:'',url,description:''};
   content.layout.supporting.push(card);
   supportingCards();
   selectInspector(card.id,true);
   changed();
   by('promo-'+card.id+'-title').focus();
+}
+
+function filterBlockPicker() {
+  const query=blockSearch.value.trim().toLowerCase();
+  const linkInput=/^https?:/i.test(query);
+  let url;
+  if(linkInput) {
+    try {
+      const parsed=new URL(blockSearch.value.trim());
+      if(parsed.protocol==='https:'&&!parsed.username&&!parsed.password) url=parsed;
+    } catch {}
+  }
+  const status=by('block-picker-status');
+  let matching=0;
+  let available=0;
+  for(const button of blockOptions) {
+    const key=button.dataset.block;
+    const matches=linkInput?key==='links'||key==='promo':button.textContent.toLowerCase().includes(query);
+    button.hidden=!matches;
+    button.disabled=busy||uploading>0||!canAddBlock(key)||(linkInput&&!url);
+    if(matches) {
+      matching++;
+      if(!button.disabled) available++;
+    }
+  }
+  let message='';
+  if(linkInput&&!url) message='Enter a complete HTTPS address.';
+  else if(!matching) message='No blocks match that search.';
+  else if(!available) message=linkInput?'Your Home has reached its supporting link limit.':'These blocks have reached their limits.';
+  else if(linkInput) message='Choose where to use this link.';
+  status.hidden=!message;
+  status.textContent=message;
+  return url;
+}
+
+by('add-block').addEventListener('click',()=>{
+  blockSearch.value='';
+  filterBlockPicker();
+  blockPicker.showModal();
+});
+blockSearch.addEventListener('input',filterBlockPicker);
+for(const button of blockOptions) button.addEventListener('click',()=>{
+  const url=filterBlockPicker();
+  if(button.disabled||button.hidden) return;
+  const key=button.dataset.block;
+  blockPicker.close();
+  if(key==='promo') {
+    addPromo(button.dataset.category,url?.href);
+    return;
+  }
+  const schedule=key==='sessions'?content.layout.supporting.find(card=>card.family==='schedule'):null;
+  if(schedule?.hidden) {
+    schedule.hidden=false;
+    supportingCards();
+  }
+  selectInspector(schedule?.id??(key==='links'?'dock':'updates'),true);
+  appendEntry(key,url);
 });
 
 function loadValues(values) {
@@ -1209,16 +1272,20 @@ by('preview-open').addEventListener('click',()=>{
   }
   submitPreview(targetName,previewDevice,JSON.stringify(content));
 });
-for(const button of form.querySelectorAll('[data-add]')) button.addEventListener('click',()=>{
-  const key=button.dataset.add;
-  if(key==='links'?supportingLinkCount()>=5:content[key].length>=capacities[key]) return;
+function appendEntry(key,url) {
+  if(!canAddBlock(key)) return;
   const entry=Object.fromEntries(layouts[key].map(([name])=>[name,name==='zone'?'UTC':'']));
   if(key!=='links') entry.id=crypto.randomUUID();
+  if(key==='links'&&url) {
+    entry.url=url.href;
+    entry.label=url.hostname.replace(/^www\./,'').slice(0,32);
+  }
   content[key].push(entry);
   entries();
   changed();
   by(key+'.'+(content[key].length-1)+'.'+layouts[key][0][0]).focus();
-});
+}
+for(const button of form.querySelectorAll('[data-add]')) button.addEventListener('click',()=>appendEntry(button.dataset.add));
 for(const key of ['avatarId','coverId']) {
   const input=by(key);
   if(!input) continue;

@@ -1,7 +1,7 @@
 import { html, raw } from 'hono/html';
 import { randomUUID } from 'node:crypto';
 import { futureSessions, nextSession, themeNames, type HomeContent, type ScheduleChange, type SessionSlot } from './domain.ts';
-import { channelPlatform, defaultLayout, platforms, cardSpans, cardHeights, type EditableHome } from './home-cards.ts';
+import { channelPlatform, defaultLayout, platforms, cardSpans, cardHeights, promoCategories, type EditableHome } from './home-cards.ts';
 import { demoRanking } from './leaderboard.ts';
 import type { ProContent, ProDraft } from './pro.ts';
 import { discordSchedule, type Selection } from './sharing.ts';
@@ -22,7 +22,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.theme==='Hearth'||options.theme==='Grove'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas16">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas17">
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.newTabLinks?html`<base target="_blank">`:''}
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
@@ -32,7 +32,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js?v=2" defer></script>`:''}
     ${options.cardLayout?html`<script src="/assets/card-layout.js?v=1" defer></script>`:''}
-    ${options.script?html`<script src="/assets/editor.js?v=canvas16" defer></script>`:''}
+    ${options.script?html`<script src="/assets/editor.js?v=canvas17" defer></script>`:''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
@@ -316,7 +316,7 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
             ${editorOutlineButton('dock','Channel Dock','Social and community links')}
           </div>
         </div>
-        <button id="add-promo" type="button" class="secondary editor-add-card"><span aria-hidden="true">+</span> Add Promo card</button>
+        <button id="add-block" type="button" class="secondary editor-add-card" aria-haspopup="dialog"><span aria-hidden="true">+</span> Add block</button>
         <p id="supporting-budget" class="editor-budget"></p>
         <div class="editor-outline-settings">
           ${editorOutlineButton('updates','Updates','Dated notes for fans')}
@@ -422,6 +422,20 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
         </section>
       </aside>
     </div>
+    <dialog id="block-picker" aria-labelledby="block-picker-title">
+      <h2 id="block-picker-title">Add a block</h2>
+      <label for="block-search">Search blocks or paste an HTTPS link</label>
+      <input id="block-search" type="text" autocomplete="off" autofocus maxlength="2048">
+      <p id="block-picker-status" class="dim" role="status" hidden></p>
+      <div class="block-picker-options">
+        <button type="button" class="secondary" data-block="links"><strong>Channel link</strong><small>Add a social or community link to the Dock.</small></button>
+        <button type="button" class="secondary" data-block="sessions"><strong>Stream session</strong><small>Add an upcoming stream to your Schedule.</small></button>
+        <button type="button" class="secondary" data-block="updates"><strong>Update</strong><small>Post a dated note for fans.</small></button>
+        ${promoCategories.map(category=>html`<button type="button" class="secondary" data-block="promo" data-category="${category}">
+          <strong>${category}</strong><small>${promoActions[category]}</small></button>`)}
+      </div>
+      <form method="dialog"><button class="secondary" value="cancel">Cancel</button></form>
+    </dialog>
     <dialog id="compare-dialog"><h2>Compare drafts</h2><p>Choose which changes to keep in the editor. Uncheck a field to use its saved value.</p><div id="comparison"></div>
       <form method="dialog"><button value="cancel" class="secondary">Cancel</button><button value="reapply">Apply selected changes</button></form></dialog>
     <dialog id="publish-dialog" aria-labelledby="publish-title"><h2 id="publish-title">Publish your home?</h2><p id="publish-confirmation"></p>

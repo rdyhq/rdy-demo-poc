@@ -8,7 +8,7 @@ export const cardHeights = [0, ...Array.from({length:39}, (_, index) => 96 + ind
 const alignments = ['left', 'center', 'right'] as const;
 const avatarSizes = ['small', 'medium', 'large'] as const;
 const avatarPositions = ['edge', 'banner-center'] as const;
-const promoCategories = ['Giveaway', 'Support', 'Merch', 'Sponsor', 'Community'] as const;
+export const promoCategories = ['Giveaway', 'Support', 'Merch', 'Sponsor', 'Community'] as const;
 
 type LegacySize = typeof legacySizes[number];
 type CardSpan = typeof cardSpans[number];

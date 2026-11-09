@@ -322,6 +322,9 @@ html:has(.editor-shell,[data-edit-canvas]) { scrollbar-gutter:stable; }
 .editor-outline-row small { margin-top:3px; color:var(--muted); font-size:.72rem; font-weight:500; }
 .editor-card-flag { align-self:start; color:#c4d2ea; font:600 .61rem/1.4 ui-monospace,monospace; }
 .editor-add-card { width:100%; margin-top:9px; font-size:.81rem; }
+.block-picker-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr)); gap:8px; margin:12px 0; }
+.block-picker-options button { display:grid; align-content:start; gap:4px; text-align:start; }
+.block-picker-options small { color:var(--muted); font-weight:400; }
 .editor-budget, .editor-stage-note { margin:7px 0 0; color:var(--muted); font-size:.73rem; }
 .editor-outline-settings { margin-top:12px; padding-top:12px; border-top:1px solid var(--editor-edge); }
 .editor-stage { padding:12px; }
