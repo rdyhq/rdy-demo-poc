@@ -13,7 +13,7 @@ import { assetBytes, maxUpload, upload, type Objects } from './assets.ts';
 import { Auth, type SendMail } from './auth.ts';
 import { AppError, digest, emptyHome, equalSecret, invalid, mailbox, scheduleChange, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
 import { invite, inviteList, revokeInvite } from './enrollment.ts';
-import { cardHeights, cardSpans, normalizeHome, platforms, readHome, type StoredHome } from './home-cards.ts';
+import { cardColumns, cardHeights, cardSpans, normalizeHome, platforms, readHome, type StoredHome } from './home-cards.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
@@ -22,6 +22,7 @@ import { accountPage, billingPage, confirmation, editorPage, editorShare, invite
 const stylesheet=[
   readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8'),
   ...cardSpans.map(span=>`.card-home > [data-span="${span}"] { --preferred-span:${span}; }`),
+  ...cardColumns.map(column=>`.card-home > [data-column="${column}"] { --resolved-column:min(${column},13 - var(--resolved-span)); }`),
   ...cardHeights.filter(Boolean).map(height=>`.card-home > [data-height="${height}"] { --card-height:${height}px; }`),
   // Use the requested minimum height, so revealed content cannot trigger its own breakpoint.
   ...[

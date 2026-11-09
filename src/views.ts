@@ -22,7 +22,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.theme==='Hearth'||options.theme==='Grove'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas13">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas14">
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.newTabLinks?html`<base target="_blank">`:''}
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
@@ -32,7 +32,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js" defer></script>`:''}
     ${options.cardLayout?html`<script src="/assets/card-layout.js?v=1" defer></script>`:''}
-    ${options.script?html`<script src="/assets/editor.js?v=canvas13" defer></script>`:''}
+    ${options.script?html`<script src="/assets/editor.js?v=canvas14" defer></script>`:''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
@@ -135,13 +135,12 @@ function streamLabel(link:string) {
   return 'Open stream';
 }
 
-function channelLinks(links: HomeContent['links'], shortcuts = false) {
+function channelLinks(links: HomeContent['links']) {
   return html`<ul class="dock-links">${links.map(link=>{
     const platform=channelPlatform(link.url);
     const label=platform&&link.label.toLowerCase()!==platforms[platform].toLowerCase()?`${platforms[platform]}: ${link.label}`:link.label;
-    return html`<li><a class="button secondary" href="${link.url}" aria-label="${label}" title="${link.label}">
-      ${platform?html`<span class="platform-icon" data-platform="${platform}" aria-hidden="true"></span>`:''}
-      ${!platform||!shortcuts?link.label:''}</a></li>`;
+    return html`<li><a class="button secondary${platform?' dock-platform':''}" href="${link.url}" aria-label="${label}" title="${label}">${platform
+      ?html`<span class="platform-icon" data-platform="${platform}" aria-hidden="true"></span>`:link.label}</a></li>`;
   })}</ul>`;
 }
 
@@ -150,8 +149,9 @@ const promoActions={
   Sponsor:'See sponsor offer', Community:'Join the community',
 };
 
-type FrameDimensions = {span:number;minHeight:number};
-const dimensionAttributes = ({span,minHeight}:FrameDimensions) => html` data-span="${span}" data-height="${minHeight}"`;
+type FrameDimensions = {span:number;minHeight:number;column?:number};
+const dimensionAttributes = ({span,minHeight,column}:FrameDimensions) =>
+  html` data-span="${span}" data-height="${minHeight}"${column===undefined?'':html` data-column="${column}"`}`;
 
 function editableCard(key:string,label:string,body:ReturnType<typeof html>,movable:boolean,editing?:boolean,dimensions?:FrameDimensions) {
   if(!editing) return body;
@@ -162,7 +162,7 @@ function editableCard(key:string,label:string,body:ReturnType<typeof html>,movab
       <span data-resize-edge="left" aria-hidden="true"></span>
       <span data-resize-edge="right" aria-hidden="true"></span>
       <span data-resize-edge="bottom-right" aria-hidden="true"></span>`:''}
-    <button type="button" class="canvas-select" aria-pressed="false" aria-label="Edit ${label}" ${movable?raw('title="Click to edit or drag to reorder"'):''}></button>
+    <button type="button" class="canvas-select" aria-pressed="false" aria-label="Edit ${label}"></button>
   </div>`;
 }
 
@@ -198,7 +198,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
   const remainingLinks=content.links.slice(2);
   const dock=content.links.length?card('dock','Channel Dock',html`<section class="home-card dock-card" data-card="dock"${publicDimensions(layout.dock)}>
     <h2>Find me</h2><div class="dock-content">
-      <div class="dock-summary">${channelLinks(content.links.slice(0,2),true)}
+      <div class="dock-summary">${channelLinks(content.links.slice(0,2))}
         ${remainingLinks.length?html`<details><summary>More channels</summary>${channelLinks(remainingLinks)}</details>`:''}</div>
       <div class="dock-full">${channelLinks(content.links)}</div>
     </div></section>`,layout.dock,true):'';

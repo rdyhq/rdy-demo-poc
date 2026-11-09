@@ -356,6 +356,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.match(before,/data-card="identity".*data-card="spotlight".*data-card="dock"/s);
       assert.match(before,/Open stream on Twitch/);
       assert.match(before,/data-platform="youtube"/);
+      assert.match(before,/<a class="button secondary dock-platform"[^>]*aria-label="YouTube[^"]*"[^>]*><span class="platform-icon" data-platform="youtube" aria-hidden="true"><\/span><\/a>/);
       assert.match(before,/<summary>More channels<\/summary>.*Archive video/s);
       assert.doesNotMatch(before,/Watch live|viewers/);
       assert.equal((await get('/assets/platforms/youtube.svg')).headers.get('content-type')?.split(';')[0],'image/svg+xml');
@@ -388,6 +389,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       delete next.layout.dock.span;
       next.layout.dock.width='half';
       next.layout.dock.minHeight=176;
+      next.layout.dock.column=7;
       next.layout.supporting[0].span=5;
       next.layout.supporting[0].minHeight=288;
       for(const [width,mode] of [['phone','edit'],['desktop','visitor']]) {
@@ -397,14 +399,14 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
         assert.match(page,/data-card="identity".*data-card="spotlight".*data-card="promo".*data-card="dock"/s);
         assert.doesNotMatch(page,/data-card="schedule"/);
         if(mode==='edit') {
-          assert.match(page,/data-canvas-card="dock" data-movable-card data-span="6" data-height="176"[^>]*>\s*<div inert data-canvas-body>.*?class="dock-summary".*?<summary>More channels<\/summary>.*?class="dock-full".*?data-resize-edge="bottom-right".*?aria-label="Edit Channel Dock"/s);
+          assert.match(page,/data-canvas-card="dock" data-movable-card data-span="6" data-height="176" data-column="7">\s*<div inert data-canvas-body>.*?class="dock-summary".*?<summary>More channels<\/summary>.*?class="dock-full".*?data-resize-edge="bottom-right".*?aria-label="Edit Channel Dock"/s);
           assert.doesNotMatch(page,/data-canvas-alternate|data-size=/);
           assert.doesNotMatch(page,/data-canvas-card="(?:identity|spotlight)" data-movable-card|class="canvas-grip"/);
           assert.doesNotMatch(page,/aria-label="Reorder (Creator Identity|Spotlight)"/);
         } else {
           assert.doesNotMatch(page,/data-canvas-card=|data-canvas-alternate|data-resize-edge=/);
           assert.match(page,/<base target="_blank">.*href="https:\/\/example.test\/giveaway"/s);
-          assert.match(page,/data-card="promo"[^>]*data-span="5" data-height="288".*data-card="dock"[^>]*data-span="6" data-height="176"/s);
+          assert.match(page,/data-card="promo"[^>]*data-span="5" data-height="288".*data-card="dock"[^>]*data-span="6" data-height="176" data-column="7"/s);
         }
       }
 
@@ -421,6 +423,9 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       invalidLayout.layout.dock.span=6;
       invalidLayout.layout.dock.minHeight=177;
       assert.equal((await change('save',{...firstSave,content:invalidLayout},cookie)).status,422);
+      invalidLayout.layout.dock.minHeight=176;
+      invalidLayout.layout.dock.column=10;
+      assert.equal((await change('save',{...firstSave,content:invalidLayout},cookie)).status,422);
       const overBudget=structuredClone(next);
       overBudget.links.push({label:'Extra',url:'https://example.test/extra'});
       assert.equal((await change('save',{...firstSave,content:overBudget},cookie)).status,422);
@@ -432,6 +437,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal(stored[1].dockPosition,2);
       assert.equal(stored[1].dock.span,6);
       assert.equal(stored[1].dock.minHeight,176);
+      assert.equal(stored[1].dock.column,7);
       assert.equal(stored[1].supporting[0].span,5);
       assert.equal(stored[1].supporting[0].id,promo.id);
       assert.equal((await get(path)).status,200);
@@ -466,7 +472,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.match(after,/A private card draft.*Open stream.*Supporter giveaway/s);
       assert.match(after,/data-avatar-position="banner-center"/);
       assert.match(after,/data-card="identity".*data-card="spotlight".*data-card="promo".*data-card="dock"/s);
-      assert.match(after,/data-card="promo"[^>]*data-span="5" data-height="288".*data-card="dock"[^>]*data-span="6" data-height="176"/s);
+      assert.match(after,/data-card="promo"[^>]*data-span="5" data-height="288".*data-card="dock"[^>]*data-span="6" data-height="176" data-column="7"/s);
       assert.doesNotMatch(after,/data-canvas-card=/);
       const rows=(await pool.query('SELECT content FROM publications WHERE home_id=$1 ORDER BY draft_revision',[homeId])).rows;
       assert.deepEqual(rows[0].content,old);

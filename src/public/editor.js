@@ -136,7 +136,7 @@ function editCanvas() {
 function editContentKey(value) {
   // Order and dimensions can be applied to the existing DOM. Other fields need the shared Home renderer.
   const {identity,spotlight,dock,supporting}=value.layout;
-  const withoutDimensions=({size,span,minHeight,...card})=>card;
+  const withoutDimensions=({size,span,minHeight,column,...card})=>card;
   return JSON.stringify({...value,layout:{
     identity:withoutDimensions(identity),spotlight:withoutDimensions(spotlight),dock:withoutDimensions(dock),
     supporting:supporting.map(withoutDimensions).sort((a,b)=>a.id.localeCompare(b.id)),
@@ -316,6 +316,8 @@ function syncEditLayout(article) {
     if(settings) {
       card.dataset.span=settings.span;
       card.dataset.height=settings.minHeight;
+      if(settings.column===undefined) delete card.dataset.column;
+      else card.dataset.column=settings.column;
     }
   }
   const movable=Array.from(article.children).filter(card=>card.matches('.schedule-notice,[data-movable-card]'));
@@ -355,6 +357,7 @@ function patchEditCanvas(article,fresh) {
 }
 
 function moveCard(order,key) {
+  delete canvasCardSettings(key).column;
   const cards=new Map(content.layout.supporting.map(card=>[card.id,card]));
   content.layout.dockPosition=order.indexOf('dock');
   content.layout.supporting=order.filter(id=>id!=='dock').map(id=>cards.get(id));
@@ -743,7 +746,8 @@ by('reconnect').querySelector('button').addEventListener('click',async()=>{
 function summarize(key,value) {
   if(key==='layout') {
     const {identity,spotlight,dock,supporting}=value;
-    const dimensions=card=>[card.span+' / 12 columns',card.minHeight?card.minHeight+' px minimum':'Fit content'];
+    const dimensions=card=>[card.span+' / 12 columns',card.column?'Starts at column '+card.column:'Automatic placement',
+      card.minHeight?card.minHeight+' px minimum':'Fit content'];
     const movable=supporting.map(card=>[
       card.family==='schedule'?'Schedule':card.title||'Promo card',
       card.category,card.url,card.description,...dimensions(card),card.hidden?'Hidden':'Visible',
@@ -855,10 +859,12 @@ function installCanvasControls(article) {
   let suppressPointerClick=false;
   let touchCandidate;
 
-  function commitDimensions(card,span,minHeight) {
+  function commitDimensions(card,span,minHeight,column) {
     const key=card.dataset.canvasCard;
     const settings=canvasCardSettings(key);
     Object.assign(settings,{span,minHeight});
+    if(column===undefined) delete settings.column;
+    else settings.column=column;
     const prefix=['identity','spotlight','dock'].includes(key)?key:
       settings.family==='schedule'?'schedule':'promo-'+key;
     by(prefix+'-span').value=span;
@@ -889,7 +895,7 @@ function installCanvasControls(article) {
     const rect=card.getBoundingClientRect();
     drag={
       handle,card,cards,resize,pointer,startY:y,startX:x,y,x,
-      initialSpan:settings.span,initialHeight:settings.minHeight,
+      initialSpan:settings.span,initialHeight:settings.minHeight,initialColumn:settings.column,
       offsetY:y-rect.top,offsetX:x-rect.left,index:cards.indexOf(card),
       order:movableOrder(),
       active:false,
@@ -932,6 +938,7 @@ function installCanvasControls(article) {
       const gap=parseFloat(doc.defaultView.getComputedStyle(article).columnGap);
       current.track=(article.clientWidth+gap)/12;
       current.startSpan=Math.round((bounds.width+gap)/current.track);
+      current.startColumn=1+Math.round((bounds.left-article.getBoundingClientRect().left)/current.track);
       current.minimumSpan=Number(doc.defaultView.getComputedStyle(card).getPropertyValue('--minimum-span'));
       current.startHeight=bounds.height;
       card.dataset.height='0';
@@ -953,6 +960,7 @@ function installCanvasControls(article) {
     const placeholder=doc.createElement('div');
     placeholder.className='canvas-placeholder';
     placeholder.dataset.span=card.dataset.span;
+    if(card.dataset.column) placeholder.dataset.column=card.dataset.column;
     placeholder.setAttribute('aria-hidden','true');
     placeholder.style.height=rect.height+'px';
     article.insertBefore(placeholder,card);
@@ -997,6 +1005,8 @@ function installCanvasControls(article) {
     const slot=dropSlot(current,centerY);
     if(slot===current.slot) return;
     const before=positionsOf(peers);
+    if(slot===current.index&&card.dataset.column) placeholder.dataset.column=card.dataset.column;
+    else delete placeholder.dataset.column;
     article.insertBefore(placeholder,peers[slot]??peers.at(-1).nextElementSibling);
     current.slot=slot;
     animatePositions(before);
@@ -1016,13 +1026,19 @@ function installCanvasControls(article) {
   }
 
   function resizeCard(current,deltaX,deltaY) {
-    const {card,resize,startSpan,minimumSpan,track,startHeight,naturalHeight,initialHeight,initialSpan}=current;
+    const {card,resize,startSpan,startColumn,minimumSpan,track,startHeight,naturalHeight,initialHeight,initialSpan,initialColumn}=current;
     let span=initialSpan;
     let minHeight=initialHeight;
+    let column=initialColumn;
     if(resize==='left'||resize.includes('right')) {
-      const outward=resize==='left'?-deltaX:deltaX;
-      const nextSpan=Math.max(minimumSpan,Math.min(12,startSpan+Math.round(outward/track)));
-      if(nextSpan!==startSpan) span=nextSpan;
+      const fromLeft=resize==='left';
+      const outward=fromLeft?-deltaX:deltaX;
+      const maximumSpan=fromLeft?startColumn+startSpan-1:13-startColumn;
+      const nextSpan=Math.max(minimumSpan,Math.min(maximumSpan,startSpan+Math.round(outward/track)));
+      if(nextSpan!==startSpan) {
+        span=nextSpan;
+        column=span===12?undefined:startColumn+(fromLeft?startSpan-span:0);
+      }
     }
     if(resize==='top'||resize.includes('bottom')) {
       const outward=resize==='top'?-deltaY:deltaY;
@@ -1033,10 +1049,13 @@ function installCanvasControls(article) {
         minHeight=candidate>naturalHeight?candidate:0;
       }
     }
-    if(span===Number(card.dataset.span)&&minHeight===Number(card.dataset.height)) return;
+    const columnAttribute=column===undefined?undefined:String(column);
+    if(span===Number(card.dataset.span)&&minHeight===Number(card.dataset.height)&&columnAttribute===card.dataset.column) return;
     const before=positionsOf(Array.from(article.children).filter(item=>item!==card));
     card.dataset.span=span;
     card.dataset.height=minHeight;
+    if(column===undefined) delete card.dataset.column;
+    else card.dataset.column=column;
     animatePositions(before);
   }
 
@@ -1097,7 +1116,7 @@ function installCanvasControls(article) {
   function finishGesture(commit) {
     const current=drag;
     drag=null;
-    const {card,cards,handle,pointer,slot,index,resize,active,x,y,initialSpan,initialHeight,placeholder}=current;
+    const {card,cards,handle,pointer,slot,index,resize,active,x,y,initialSpan,initialHeight,initialColumn,placeholder}=current;
     if(pointer===undefined) touchCandidate=undefined;
     cancelAnimationFrame(current.frame);
     if(pointer!==undefined&&handle.hasPointerCapture(pointer)) handle.releasePointerCapture(pointer);
@@ -1112,7 +1131,8 @@ function installCanvasControls(article) {
     if(resize) {
       const span=Number(card.dataset.span);
       const minHeight=Number(card.dataset.height);
-      if(canCommit&&(span!==initialSpan||minHeight!==initialHeight)) commitDimensions(card,span,minHeight);
+      const column=card.dataset.column===undefined?undefined:Number(card.dataset.column);
+      if(canCommit&&(span!==initialSpan||minHeight!==initialHeight||column!==initialColumn)) commitDimensions(card,span,minHeight,column);
       else changed();
     } else {
       const before=positionsOf(cards);

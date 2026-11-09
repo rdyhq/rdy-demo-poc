@@ -3,6 +3,7 @@ import { digest, emptyHome, https, id, invalid, list, normalize, text, type Home
 // Retain saved and wire values for older editors. Rendering uses only frame dimensions.
 const legacySizes = ['compact', 'expanded'] as const;
 export const cardSpans = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+export const cardColumns = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 export const cardHeights = [0, ...Array.from({length:39}, (_, index) => 96 + index * 16)];
 const alignments = ['left', 'center', 'right'] as const;
 const avatarSizes = ['small', 'medium', 'large'] as const;
@@ -11,7 +12,7 @@ const promoCategories = ['Giveaway', 'Support', 'Merch', 'Sponsor', 'Community']
 
 type LegacySize = typeof legacySizes[number];
 type CardSpan = typeof cardSpans[number];
-type CardDimensions = { span: CardSpan; minHeight: number };
+type CardDimensions = { span: CardSpan; minHeight: number; column?: typeof cardColumns[number] };
 type CardSettings = CardDimensions & { id: string; size: LegacySize };
 type StoredSettings<T extends CardSettings> = Omit<T, keyof CardDimensions> & Partial<CardDimensions> & { width?: 'half' | 'full' };
 type IdentitySettings = CardSettings & {
@@ -71,7 +72,7 @@ export function readHome(value: StoredHome, homeId: string): EditableHome {
   const supporting = value.supporting.map((card):ScheduleSettings | PromoCard => {
     if (card.family === 'promo') return readDimensions(card);
     return readDimensions({family: card.family, id: card.id, size: card.size, hidden: card.hidden,
-      span:card.span, minHeight:card.minHeight, width:card.width});
+      span:card.span, minHeight:card.minHeight, width:card.width, column:card.column});
   });
   return {
     schemaVersion: 1, displayName, intro, game, avatarId, coverId, theme: value.skin,
@@ -136,7 +137,9 @@ function normalizeDimensions(value:any, previous:CardDimensions|undefined, field
   if(value.span===null||!cardSpans.includes(span)||!cardHeights.includes(minHeight)) {
     throw invalid(field, 'Choose a valid card width and minimum height.');
   }
-  return {span,minHeight};
+  const column=value.column;
+  if(column!==undefined&&!cardColumns.includes(column)) throw invalid(field, 'Choose a valid card column.');
+  return column===undefined?{span,minHeight}:{span,minHeight,column};
 }
 
 export function normalizeHome(value: any, old: EditableHome, now: number, preview = false): EditableHome {
