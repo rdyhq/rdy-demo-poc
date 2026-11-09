@@ -35,13 +35,15 @@ let other = null;
 let needsSignIn = false;
 let canvasTimer;
 let canvasPayload;
+let canvasSubmission;
+let canvasRequest;
+let renderedEditKey;
 let previewDevice='phone';
 let canvasMode='edit';
 let selectedCard=revision?'spotlight':'identity';
 const canvas=by('editor-canvas');
 const dockOutline=by('card-outline-supporting').querySelector('[data-edit-card=dock]');
 let canvasScroll=0;
-let canvasFocus;
 let drag;
 
 function updateControls() {
@@ -94,15 +96,71 @@ function changed() {
   updatePreview();
   dirty=JSON.stringify(content)!==JSON.stringify(saved);
   updateControls();
+  const article=editCanvas();
+  if(article&&!drag) {
+    article.closest('main').classList.toggle('phone-preview',previewDevice==='phone');
+    syncEditLayout(article);
+  }
   clearTimeout(canvasTimer);
-  canvasTimer=setTimeout(()=>{
-    const payload=JSON.stringify(content);
+  canvasTimer=setTimeout(refreshCanvas,400);
+}
+
+function editCanvas() {
+  return canvasMode==='edit'?canvas.contentDocument?.querySelector('[data-edit-canvas]'):null;
+}
+
+function editContentKey(value) {
+  // Order and size can be applied to the existing DOM. Other fields need the shared Home renderer.
+  const {identity,spotlight,dock,supporting}=value.layout;
+  const withoutSize=({size,...card})=>card;
+  return JSON.stringify({...value,layout:{
+    identity:withoutSize(identity),spotlight:withoutSize(spotlight),dock:withoutSize(dock),
+    supporting:supporting.map(withoutSize).sort((a,b)=>a.id.localeCompare(b.id)),
+  }});
+}
+
+async function refreshCanvas() {
+  if(needsSignIn||drag||canvasSubmission) return;
+  const payload=JSON.stringify(content);
+  const article=editCanvas();
+  if(!article) {
     const key=previewDevice+' '+canvasMode+' '+payload;
-    if(needsSignIn||drag||key===canvasPayload) return;
+    if(key===canvasPayload) return;
     canvasPayload=key;
+    canvasSubmission={editKey:editContentKey(content)};
     canvasScroll=canvas.contentDocument?.scrollingElement?.scrollTop??0;
     submitPreview(canvas.name,previewDevice,payload,canvasMode);
-  },400);
+    return;
+  }
+  const key=editContentKey(content);
+  if(key===renderedEditKey||canvasRequest?.key===key) return;
+  const request={key};
+  canvasRequest=request;
+  try {
+    const response=await fetch('/editor/preview',{method:'POST',body:new URLSearchParams({
+      csrf,width:previewDevice,content:payload,embedded:'1',mode:'edit',
+    })});
+    const html=await response.text();
+    if(canvasRequest!==request||drag||article!==editCanvas()||key!==editContentKey(content)) return;
+    if(response.status===401) {
+      requireSignIn();
+      return;
+    }
+    if(!response.ok) return;
+    const fresh=new DOMParser().parseFromString(html,'text/html');
+    const next=fresh.querySelector('[data-edit-canvas]');
+    if(!next) return;
+    patchEditCanvas(article,next);
+    article.ownerDocument.documentElement.dataset.theme=fresh.documentElement.dataset.theme;
+    article.ownerDocument.title=fresh.title;
+    renderedEditKey=key;
+    syncEditLayout(article);
+    syncCanvasSelection();
+  } catch {
+    // A failed preview update leaves the last valid canvas and the draft intact.
+  } finally {
+    if(canvasRequest===request) canvasRequest=null;
+  }
 }
 
 function inputFor(type,id,value,limit,label) {
@@ -205,6 +263,87 @@ function movableOrder(layout=content.layout) {
   const order=layout.supporting.map(card=>card.id);
   order.splice(layout.dockPosition,0,'dock');
   return order;
+}
+
+function setCanvasSize(card,size) {
+  const alternate=card.querySelector('[data-canvas-alternate]');
+  if(!alternate) return;
+  const body=card.querySelector('[data-canvas-body]');
+  if(body.firstElementChild.dataset.size!==size) {
+    const previous=body.firstElementChild;
+    body.replaceChildren(alternate.content.firstElementChild);
+    alternate.content.replaceChildren(previous);
+  }
+  card.querySelector('.canvas-resize').setAttribute('aria-pressed',String(size==='expanded'));
+}
+
+function canvasCardSettings(key) {
+  return content.layout[key]??content.layout.supporting.find(card=>card.id===key);
+}
+
+function placeCanvasNodes(article,nodes,anchor=null) {
+  for(const node of nodes.slice().reverse()) {
+    if(node.parentElement!==article||node.nextElementSibling!==anchor) article.insertBefore(node,anchor);
+    anchor=node;
+  }
+}
+
+function formatCanvasTimes(article) {
+  const formatter=new Intl.DateTimeFormat(undefined,{dateStyle:'full',timeStyle:'long'});
+  if(!formatter.resolvedOptions().timeZone) return;
+  const templates=Array.from(article.querySelectorAll('template[data-canvas-alternate]'),template=>template.content);
+  for(const root of [article,...templates]) {
+    for(const target of root.querySelectorAll('[data-fan-time]')) {
+      target.textContent='Your time: '+formatter.format(new Date(target.dataset.fanTime));
+      target.hidden=false;
+    }
+  }
+}
+
+function syncEditLayout(article) {
+  const cards=Array.from(article.querySelectorAll(':scope > [data-canvas-card]'));
+  for(const card of cards) {
+    const settings=canvasCardSettings(card.dataset.canvasCard);
+    if(settings) setCanvasSize(card,settings.size);
+  }
+  const movable=Array.from(article.children).filter(card=>card.matches('.schedule-notice')||card.querySelector('.canvas-grip'));
+  if(!movable.length) return;
+  const byKey=new Map(movable.map(card=>[card.dataset.canvasCard,card]));
+  const order=movableOrder().map(key=>byKey.get(key)).filter(Boolean);
+  const notice=byKey.get(undefined);
+  if(notice) order.splice(content.layout.dockPosition===0&&byKey.has('dock')?1:0,0,notice);
+  const anchor=movable.at(-1).nextElementSibling;
+  for(const card of movable) if(!order.includes(card)) card.remove();
+  placeCanvasNodes(article,order,anchor);
+}
+
+function patchEditCanvas(article,fresh) {
+  formatCanvasTimes(fresh);
+  const key=node=>node.dataset.canvasCard??'notice';
+  const current=new Map(Array.from(article.children,node=>[key(node),node]));
+  const nodes=Array.from(fresh.children,next=>{
+    const previous=current.get(key(next));
+    current.delete(key(next));
+    if(!next.dataset.canvasCard) return previous?.isEqualNode(next)?previous:next;
+    if(!previous) return next;
+    const nextBody=next.querySelector('[data-canvas-body]');
+    setCanvasSize(previous,nextBody.firstElementChild.dataset.size);
+    const previousBody=previous.querySelector('[data-canvas-body]');
+    if(!previousBody.isEqualNode(nextBody)) previousBody.replaceChildren(...nextBody.childNodes);
+    const alternate=previous.querySelector('[data-canvas-alternate]');
+    const nextAlternate=next.querySelector('[data-canvas-alternate]');
+    if(alternate&&!alternate.content.isEqualNode(nextAlternate.content)) {
+      alternate.content.replaceChildren(...nextAlternate.content.childNodes);
+    }
+    for(const control of previous.querySelectorAll(':scope > button')) {
+      control.setAttribute('aria-label',next.querySelector('.'+control.classList[0]).getAttribute('aria-label'));
+    }
+    return previous;
+  });
+  const focused=article.ownerDocument.activeElement;
+  for(const remaining of current.values()) remaining.remove();
+  placeCanvasNodes(article,nodes);
+  if(focused?.isConnected&&article.contains(focused)) focused.focus({preventScroll:true});
 }
 
 function moveCard(order,key) {
@@ -684,131 +823,205 @@ function submitPreview(target,width,payload,mode) {
 }
 
 canvas.addEventListener('load',()=>{
-  if(drag) {
-    cancelAnimationFrame(drag.frame);
-    drag=null;
-  }
+  cancelAnimationFrame(drag?.frame);
+  drag=null;
+  const submission=canvasSubmission;
+  canvasSubmission=null;
   const doc=canvas.contentDocument;
-  if(!doc?.scrollingElement) return;
+  if(!doc?.scrollingElement||!submission) return;
   doc.scrollingElement.scrollTop=canvasScroll;
-  if(!doc.querySelector('[data-canvas-card]')) return;
-  syncCanvasSelection();
-  let suppressGripClick=false;
-  if(canvasFocus) {
-    const focused=Array.from(doc.querySelectorAll('[data-canvas-card]')).find(card=>card.dataset.canvasCard===canvasFocus);
-    focused?.querySelector('.canvas-grip').focus();
-    canvasFocus=null;
+  const article=doc.querySelector('[data-edit-canvas]');
+  if(article) {
+    renderedEditKey=submission.editKey;
+    formatCanvasTimes(article);
+    installCanvasControls(article);
+    syncCanvasSelection();
+  }
+  changed();
+});
+
+function installCanvasControls(article) {
+  const doc=article.ownerDocument;
+  let suppressHandleClick=false;
+
+  function commitSize(card,size) {
+    const key=card.dataset.canvasCard;
+    const settings=canvasCardSettings(key);
+    settings.size=size;
+    const control=by(['identity','spotlight','dock'].includes(key)?key+'-size':
+      settings.family==='schedule'?'schedule-size':'promo-'+key+'-size');
+    control.value=size;
+    changed();
+    const label=card.querySelector('.canvas-resize').getAttribute('aria-label').slice('Resize '.length);
+    by('card-announcement').textContent=label+' is now '+size+'.';
   }
 
-  doc.addEventListener('click',event=>{
-    const control=event.target.closest('.canvas-select,.canvas-grip');
+  article.addEventListener('click',event=>{
+    const control=event.target.closest('.canvas-select,.canvas-grip,.canvas-resize');
     if(!control) return;
-    if(suppressGripClick&&event.detail>0&&control.matches('.canvas-grip')) return;
-    const key=control.closest('[data-canvas-card]').dataset.canvasCard;
-    selectInspector(key,true);
-    if(control.matches('.canvas-grip')&&event.detail===0) {
+    if(suppressHandleClick&&event.detail>0&&!control.matches('.canvas-select')) return;
+    const card=control.closest('[data-canvas-card]');
+    const key=card.dataset.canvasCard;
+    const resize=control.matches('.canvas-resize');
+    selectInspector(key,!resize);
+    if(resize&&!busy&&!uploading&&!needsSignIn) {
+      commitSize(card,canvasCardSettings(key).size==='compact'?'expanded':'compact');
+    } else if(control.matches('.canvas-grip')&&event.detail===0) {
       const group=key==='dock'?by('dock-move'):by('supporting').querySelector('[data-supporting-card="'+key+'"]');
       if(group) focusAfterMove(group,-1);
     }
   });
 
-  doc.addEventListener('pointerdown',event=>{
-    const grip=event.target.closest('.canvas-grip');
-    suppressGripClick=false;
-    if(!grip||!event.isPrimary||event.button!==0||busy||uploading||needsSignIn||drag) return;
-    const card=grip.closest('[data-canvas-card]');
-    const cards=Array.from(doc.querySelectorAll('.canvas-grip'),button=>button.closest('[data-canvas-card]'));
-    const index=cards.indexOf(card);
-    const order=movableOrder();
-    if(cards.some(item=>!order.includes(item.dataset.canvasCard))||cards.length<2) return;
-    drag={grip,card,cards,index,order,pointer:event.pointerId,startY:event.clientY,y:event.clientY,x:event.clientX,slot:index,active:false};
-    grip.setPointerCapture(event.pointerId);
+  article.addEventListener('pointerdown',event=>{
+    const handle=event.target.closest('.canvas-grip,.canvas-resize');
+    suppressHandleClick=false;
+    if(!handle||!event.isPrimary||event.button!==0||busy||uploading||needsSignIn||drag) return;
+    const card=handle.closest('[data-canvas-card]');
+    const settings=canvasCardSettings(card.dataset.canvasCard);
+    if(!settings) return;
+    const resize=handle.matches('.canvas-resize');
+    const cards=Array.from(article.querySelectorAll('.canvas-grip'),button=>button.closest('[data-canvas-card]'));
+    if(!resize&&cards.length<2) return;
+    const rect=card.getBoundingClientRect();
+    drag={
+      handle,card,cards,resize,pointer:event.pointerId,startY:event.clientY,startX:event.clientX,y:event.clientY,x:event.clientX,
+      initialSize:settings.size,
+      offsetY:event.clientY-rect.top,offsetX:event.clientX-rect.left,index:cards.indexOf(card),
+      order:movableOrder(),
+      active:false,
+    };
+    handle.setPointerCapture(event.pointerId);
   });
 
-  function markDrop() {
-    const {card,cards,index,y}=drag;
-    const peers=cards.filter(item=>item!==card);
-    const next=peers.findIndex(item=>{
-      const rect=item.getBoundingClientRect();
-      return y<rect.top+rect.height/2;
+  function animatePositions(positions) {
+    const reduceMotion=doc.defaultView.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    for(const [element,before] of positions) {
+      element.getAnimations().forEach(animation=>animation.cancel());
+      const after=element.getBoundingClientRect();
+      const dx=before.left-after.left, dy=before.top-after.top;
+      if(!reduceMotion&&(dx||dy)) {
+        element.animate([{transform:'translate('+dx+'px,'+dy+'px)'},{transform:'none'}],{duration:160,easing:'ease-out'});
+      }
+    }
+  }
+
+  function positionsOf(elements) {
+    return elements.map(element=>[element,element.getBoundingClientRect()]);
+  }
+
+  function startGesture(current) {
+    current.active=true;
+    const {card,cards,resize,index}=current;
+    selectInspector(card.dataset.canvasCard);
+    doc.documentElement.classList.add(resize?'canvas-sizing':'canvas-reordering');
+    if(resize) return;
+    const rect=card.getBoundingClientRect();
+    current.peers=cards.filter(item=>item!==card);
+    current.midpoints=current.peers.map(peer=>{
+      const bounds=peer.getBoundingClientRect();
+      return bounds.top+bounds.height/2+doc.scrollingElement.scrollTop;
     });
-    drag.slot=next<0?peers.length:next;
-    for(const item of cards) item.classList.remove('drop-before','drop-after');
-    if(drag.slot===index) return;
-    if(next<0) peers.at(-1).classList.add('drop-after');
-    else peers[next].classList.add('drop-before');
+    current.slot=index;
+    const placeholder=doc.createElement('div');
+    placeholder.className='canvas-placeholder';
+    placeholder.setAttribute('aria-hidden','true');
+    placeholder.style.height=rect.height+'px';
+    article.insertBefore(placeholder,card);
+    current.placeholder=placeholder;
+    current.height=rect.height;
+    card.style.width=rect.width+'px';
+    card.classList.add('canvas-dragging');
+  }
+
+  function drawDrag(current) {
+    const {card,peers,placeholder,midpoints,offsetY,offsetX,height,x,y}=current;
+    const origin=article.getBoundingClientRect();
+    card.style.left=(x-offsetX-origin.left)+'px';
+    card.style.top=(y-offsetY-origin.top)+'px';
+    const center=y-offsetY+height/2+doc.scrollingElement.scrollTop;
+    const next=midpoints.findIndex(midpoint=>center<midpoint);
+    const slot=next<0?peers.length:next;
+    if(slot===current.slot) return;
+    const before=positionsOf(peers);
+    article.insertBefore(placeholder,peers[slot]??peers.at(-1).nextElementSibling);
+    current.slot=slot;
+    animatePositions(before);
   }
 
   function scrollDrag() {
+    const {y}=drag;
     const height=doc.documentElement.clientHeight;
-    if(drag.y>=0&&drag.y<=height) {
-      const step=drag.y<45?-Math.ceil((45-drag.y)/3):Math.ceil(Math.max(0,drag.y-height+45)/3);
+    if(y>=0&&y<=height) {
+      const step=y<45?-Math.ceil((45-y)/3):Math.ceil(Math.max(0,y-height+45)/3);
       if(step) {
         doc.scrollingElement.scrollTop+=step;
-        markDrop();
+        drawDrag(drag);
       }
     }
     drag.frame=requestAnimationFrame(scrollDrag);
   }
 
-  doc.addEventListener('pointermove',event=>{
+  article.addEventListener('pointermove',event=>{
     if(event.pointerId!==drag?.pointer) return;
     drag.x=event.clientX;
     drag.y=event.clientY;
+    const delta=drag.y-drag.startY;
     if(!drag.active) {
-      if(Math.abs(drag.y-drag.startY)<6) return;
-      drag.active=true;
-      drag.card.classList.add('canvas-dragging');
-      doc.documentElement.classList.add('canvas-reordering');
-      selectInspector(drag.card.dataset.canvasCard);
-      drag.frame=requestAnimationFrame(scrollDrag);
+      if(Math.abs(delta)<6&&Math.abs(drag.x-drag.startX)<6) return;
+      startGesture(drag);
+      if(!drag.resize) drag.frame=requestAnimationFrame(scrollDrag);
     }
-    markDrop();
+    if(drag.resize) {
+      const size=delta>20?'expanded':delta<-20?'compact':drag.initialSize;
+      setCanvasSize(drag.card,size);
+    } else drawDrag(drag);
   });
 
-  function finishDrag(commit) {
+  function finishGesture(commit) {
     const current=drag;
-    if(!current) return;
     drag=null;
-    const {card,cards,index,grip,order,pointer,slot,active,x,y}=current;
+    const {card,cards,handle,pointer,slot,index,resize,active,x,y,initialSize,placeholder}=current;
     cancelAnimationFrame(current.frame);
-    if(grip.hasPointerCapture(pointer)) grip.releasePointerCapture(pointer);
-    card.classList.remove('canvas-dragging');
-    doc.documentElement.classList.remove('canvas-reordering');
-    for(const item of cards) item.classList.remove('drop-before','drop-after');
-    suppressGripClick=active;
-    const lead=doc.querySelector('[data-canvas-card=spotlight]')??doc.querySelector('[data-canvas-card=identity]');
+    if(handle.hasPointerCapture(pointer)) handle.releasePointerCapture(pointer);
+    if(!active) return;
+    suppressHandleClick=true;
+    doc.documentElement.classList.remove('canvas-reordering','canvas-sizing');
     const bounds=canvas.getBoundingClientRect();
     const inside=document.elementFromPoint(bounds.left+canvas.clientLeft+x,bounds.top+canvas.clientTop+y)===canvas;
-    const belowLead=!lead||y>=lead.getBoundingClientRect().bottom;
-    if(commit&&active&&inside&&belowLead&&slot!==index&&!busy&&!uploading&&!needsSignIn&&
-        order.join()===movableOrder().join()) {
-      const key=card.dataset.canvasCard;
-      const visibleOrder=cards.map(item=>item.dataset.canvasCard);
-      const visibleKeys=new Set(visibleOrder);
-      visibleOrder.splice(index,1);
-      visibleOrder.splice(slot,0,key);
-      canvasFocus=key;
-      moveCard(order.map(id=>visibleKeys.has(id)?visibleOrder.shift():id),key);
-    } else if(active) {
-      grip.focus({preventScroll:true});
-      changed();
+    const key=card.dataset.canvasCard;
+    const canCommit=commit&&inside&&!busy&&!uploading&&!needsSignIn&&canvasCardSettings(key);
+    if(resize) {
+      const size=card.querySelector('[data-size]').dataset.size;
+      if(canCommit&&size!==initialSize) commitSize(card,size);
+      else changed();
+    } else {
+      const before=positionsOf(cards);
+      placeholder.remove();
+      card.classList.remove('canvas-dragging');
+      for(const property of ['left','top','width']) card.style.removeProperty(property);
+      const lead=article.querySelector('[data-canvas-card=spotlight]')??article.querySelector('[data-canvas-card=identity]');
+      if(canCommit&&y>=lead.getBoundingClientRect().bottom&&slot!==index&&current.order.join()===movableOrder().join()) {
+        const visibleOrder=cards.map(item=>item.dataset.canvasCard);
+        const visibleKeys=new Set(visibleOrder);
+        visibleOrder.splice(index,1);
+        visibleOrder.splice(slot,0,key);
+        moveCard(current.order.map(id=>visibleKeys.has(id)?visibleOrder.shift():id),key);
+      } else changed();
+      animatePositions(before);
     }
+    handle.focus({preventScroll:true});
   }
 
-  doc.addEventListener('pointerup',event=>{
-    if(event.pointerId===drag?.pointer) finishDrag(true);
+  article.addEventListener('pointerup',event=>{
+    if(event.pointerId===drag?.pointer) finishGesture(true);
   });
-  doc.addEventListener('pointercancel',event=>{
-    if(event.pointerId===drag?.pointer) finishDrag(false);
-  });
-  doc.addEventListener('lostpointercapture',event=>{
-    if(event.pointerId===drag?.pointer) finishDrag(false);
+  for(const type of ['pointercancel','lostpointercapture']) article.addEventListener(type,event=>{
+    if(event.pointerId===drag?.pointer) finishGesture(false);
   });
   doc.addEventListener('keydown',event=>{
-    if(event.key==='Escape'&&drag) finishDrag(false);
+    if(event.key==='Escape'&&drag) finishGesture(false);
   });
-});
+}
 
 for(const button of root.querySelectorAll('[data-device]')) button.addEventListener('click',()=>{
   previewDevice=button.dataset.device;
@@ -823,7 +1036,7 @@ for(const button of root.querySelectorAll('[data-canvas-mode]')) button.addEvent
   canvasMode=button.dataset.canvasMode;
   const editing=canvasMode==='edit';
   by('canvas-heading').textContent=editing?'Edit canvas':'Visitor preview';
-  by('canvas-note').textContent=editing?'Select a card to edit it. Drag a handle to change the order.':'Test links with your unsaved changes at either width.';
+  by('canvas-note').textContent=editing?'Select a card to edit it. Drag to reorder or resize.':'Test links with your unsaved changes at either width.';
   for(const choice of root.querySelectorAll('[data-canvas-mode]')) {
     choice.setAttribute('aria-pressed',String(choice===button));
   }

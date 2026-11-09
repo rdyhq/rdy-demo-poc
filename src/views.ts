@@ -22,7 +22,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.theme==='Hearth'||options.theme==='Grove'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas2">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas4">
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.newTabLinks?html`<base target="_blank">`:''}
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
@@ -31,7 +31,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
       ${options.metadata.image?html`<meta property="og:image" content="${options.metadata.image}">`:''}`:''}
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js" defer></script>`:''}
-    ${options.script?html`<script src="/assets/editor.js?v=canvas2" defer></script>`:''}
+    ${options.script?html`<script src="/assets/editor.js?v=canvas4" defer></script>`:''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
@@ -149,10 +149,17 @@ const promoActions={
   Sponsor:'See sponsor offer', Community:'Join the community',
 };
 
-function editableCard(key:string,label:string,body:ReturnType<typeof html>,movable:boolean,editing?:boolean) {
+type CardSize = 'compact' | 'expanded';
+
+function editableCard(key:string,label:string,body:ReturnType<typeof html>,movable:boolean,editing?:boolean,alternate?:ReturnType<typeof html>) {
   if(!editing) return body;
   return html`<div class="canvas-card" data-canvas-card="${key}">
-    <div inert>${body}</div>
+    <div inert data-canvas-body>${body}</div>
+    ${alternate?html`<template data-canvas-alternate>${alternate}</template>
+      <button type="button" class="canvas-resize" aria-label="Resize ${label}" title="Drag up to compact, down to expand, or click to switch">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M4 14 14 4M8 14H4v-4m6-6h4v4"/>
+        </svg></button>`:''}
     <button type="button" class="canvas-select" aria-pressed="false" aria-label="Edit ${label}"></button>
     ${movable?html`<button type="button" class="canvas-grip" aria-label="Reorder ${label}" title="Drag to reorder">
       <svg aria-hidden="true" width="16" height="20" viewBox="0 0 16 20" fill="currentColor">
@@ -189,29 +196,34 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
   const initials=name.split(/\s+/).slice(0,2).map(word=>[...word][0]).join('').toUpperCase();
   const identity=layout.identity;
   const sessions=futureSessions(content,options.now);
-  const compactDock=layout.dock.size==='compact';
-  const visibleLinks=compactDock?content.links.slice(0,3):content.links;
-  const remainingLinks=compactDock?content.links.slice(3):[];
   const card = (key:string,label:string,body:ReturnType<typeof html>,movable=false) =>
     editableCard(key,label,body,movable,options.editCanvas);
-  const dock=content.links.length?card('dock','Channel Dock',html`<section class="home-card dock-card" data-card="dock" data-size="${layout.dock.size}">
-    <h2>Find me</h2>${channelLinks(visibleLinks,compactDock)}
-    ${remainingLinks.length?html`<details><summary>More channels</summary>${channelLinks(remainingLinks)}</details>`:''}</section>`,true):'';
+  const sizedCard = (key:string,label:string,size:CardSize,render:(size:CardSize)=>ReturnType<typeof html>,movable=false) =>
+    editableCard(key,label,render(size),movable,options.editCanvas,
+      options.editCanvas?render(size==='compact'?'expanded':'compact'):undefined);
+  const dock=content.links.length?sizedCard('dock','Channel Dock',layout.dock.size,size=>{
+    const compact=size==='compact';
+    const visibleLinks=compact?content.links.slice(0,3):content.links;
+    const remainingLinks=compact?content.links.slice(3):[];
+    return html`<section class="home-card dock-card" data-card="dock" data-size="${size}">
+      <h2>Find me</h2>${channelLinks(visibleLinks,compact)}
+      ${remainingLinks.length?html`<details><summary>More channels</summary>${channelLinks(remainingLinks)}</details>`:''}</section>`;
+  },true):'';
   const notice=activeNotice(options.notice,options.now)?html`<aside class="home-card schedule-notice"><p class="micro">SCHEDULE CHANGE</p>
     <p>${scheduleCopy(options.notice!)}</p></aside>`:'';
   const supporting=layout.supporting.map(item=>{
     if(item.hidden) return '';
     if(item.family==='promo') {
       if(!item.url||!item.title) return '';
-      return card(item.id,item.title,html`<section class="home-card promo-card" data-card="promo" data-size="${item.size}">
+      return sizedCard(item.id,item.title,item.size,size=>html`<section class="home-card promo-card" data-card="promo" data-size="${size}">
         <p class="micro">${item.category}</p><h2>${item.title}</h2>
-        ${item.size==='expanded'&&item.description?html`<p>${item.description}</p>`:''}
+        ${size==='expanded'&&item.description?html`<p>${item.description}</p>`:''}
         <a class="button" href="${item.url}">${promoActions[item.category]} <span aria-hidden="true">↗</span></a></section>`,true);
     }
     if(!sessions.length) return '';
-    return card(item.id,'Schedule',html`<section class="home-card schedule-card" data-card="schedule" data-size="${item.size}">
-      <h2>${item.size==='compact'?'Next session':'Upcoming sessions'}</h2>
-      ${(item.size==='compact'?sessions.slice(0,1):sessions).map(scheduleSlot)}
+    return sizedCard(item.id,'Schedule',item.size,size=>html`<section class="home-card schedule-card" data-card="schedule" data-size="${size}">
+      <h2>${size==='compact'?'Next session':'Upcoming sessions'}</h2>
+      ${(size==='compact'?sessions.slice(0,1):sessions).map(scheduleSlot)}
       ${content.streamUrl?html`<a class="button secondary" href="${content.streamUrl}">Open channel</a>`:''}</section>`,true);
   });
   supporting.splice(layout.dockPosition,0,dock);
@@ -222,8 +234,8 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
       <button type="button" class="secondary" id="return-to-editor">Return to editor</button>
       <p class="dim">If this tab stays open, close it to return to your unsaved editor.</p></aside>`:''}
     ${options.review?html`<aside class="status-note">Restricted publication review · <a href="/ops">Back to cases</a></aside>`:''}
-    <article class="creator card-home" data-flair="${pro?.appearance??'original'}">
-      ${card('identity','Creator Identity',html`<section class="home-card identity-card" data-card="identity" data-size="${identity.size}" data-align="${identity.alignment}"
+    <article class="creator card-home" data-flair="${pro?.appearance??'original'}" ${options.editCanvas?raw('data-edit-canvas'):''}>
+      ${sizedCard('identity','Creator Identity',identity.size,size=>html`<section class="home-card identity-card" data-card="identity" data-size="${size}" data-align="${identity.alignment}"
         data-avatar-size="${identity.avatarSize}" data-avatar-position="${identity.avatarPosition}">
         <div class="cover" data-focal-x="${identity.focalX}" data-focal-y="${identity.focalY}">${content.coverId?html`<img src="${options.asset(content.coverId)}" alt="" fetchpriority="high">`:options.demo?art:html`<div class="plain-cover"></div>`}</div>
         <div class="identity">
@@ -233,7 +245,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
           ${content.game?html`<p class="signature-game"><span class="sr-only">Signature game: </span>${content.game}</p>`:''}</div>
         </div>
       </section>`)}
-      ${content.streamUrl?card('spotlight','Spotlight',html`<section class="home-card spotlight-card" data-card="spotlight" data-size="${layout.spotlight.size}" aria-label="Stream destination">
+      ${content.streamUrl?sizedCard('spotlight','Spotlight',layout.spotlight.size,size=>html`<section class="home-card spotlight-card" data-card="spotlight" data-size="${size}" aria-label="Stream destination">
         <p class="micro">SPOTLIGHT</p><a class="button" href="${content.streamUrl}">${streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a></section>`):''}
       ${supporting}
       ${content.updates.length?card('updates','Updates',html`<section class="home-card updates" data-card="updates"><h2>Updates</h2>${content.updates.map(update=>html`
@@ -243,7 +255,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
       ${options.preview||options.review?'':html`<div class="fan-tools"><p class="bookmark">Save this home in your browser.</p>
         ${options.canonical?shareControl(options.canonical):''}
         ${options.report?html`<a class="dim" href="${options.report}">Report this page</a>`:''}</div>`}
-    </article>`,{theme:content.theme,preview:options.preview&&!options.embedded,phone:options.phone,creator:true,standalone:options.editCanvas,newTabLinks:options.embedded&&!options.editCanvas,player:Boolean(pro?.video),canonical:options.canonical,share:!options.review,metadata:options.metadata});
+    </article>`,{theme:content.theme,preview:options.preview&&!options.embedded,phone:options.phone,creator:true,standalone:options.editCanvas,newTabLinks:options.embedded&&!options.editCanvas,player:Boolean(pro?.video),canonical:options.canonical,share:!options.review&&!options.editCanvas,metadata:options.metadata});
 }
 
 function editorSelect(id:string,label:string,options:readonly (readonly [string|number,string])[]) {
@@ -322,7 +334,7 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
         <div class="editor-preview-stage" data-preview-size="phone">
           <iframe id="editor-canvas" name="lobby-editor-canvas" title="Private Home canvas"></iframe>
         </div>
-        <p class="editor-stage-note" id="canvas-note">Select a card to edit it. Drag a handle to change the order.</p>
+        <p class="editor-stage-note" id="canvas-note">Select a card to edit it. Drag to reorder or resize.</p>
         <p class="editor-stage-note">Fans see the last published version.</p>
       </section>
       <aside class="editor-inspector editor-panel" aria-label="Card inspector">
