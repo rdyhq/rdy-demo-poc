@@ -28,6 +28,7 @@ const brandIcon=readFileSync(new URL('./public/linb.svg',import.meta.url),'utf8'
 const playerScript=readFileSync(new URL('./public/player.js',import.meta.url),'utf8');
 const shareScript=readFileSync(new URL('./public/share.js',import.meta.url),'utf8');
 const editorScript=readFileSync(new URL('./public/editor.js',import.meta.url),'utf8');
+const cardLayoutScript=readFileSync(new URL('./public/card-layout.js',import.meta.url),'utf8');
 const previewScript=readFileSync(new URL('./public/preview.js',import.meta.url),'utf8');
 const verifyScript=readFileSync(new URL('./public/verify.js',import.meta.url),'utf8');
 const platformIcons=new Map(Object.keys(platforms).map(name=>[
@@ -173,6 +174,7 @@ export function createApp(config:Configuration={}) {
   app.get('/assets/player.js',c=>c.text(playerScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/share.js',c=>c.text(shareScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/editor.js',c=>c.text(editorScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
+  app.get('/assets/card-layout.js',c=>c.text(cardLayoutScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/preview.js',c=>c.text(previewScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/verify.js',c=>c.text(verifyScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/',c=>c.html(landing(Boolean(auth),Boolean(config.demo),origin?origin+'/':undefined)));

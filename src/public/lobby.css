@@ -52,6 +52,8 @@ label,legend{display:block;font-weight:720;margin:11px 0 4px}label small{color:v
   --resolved-span:max(var(--minimum-span),var(--preferred-span,12));
   grid-column:span var(--resolved-span);
 }
+.card-home[data-packed] { grid-auto-rows:4px; row-gap:0; }
+.card-home[data-packed] > :not(.canvas-dragging) { grid-row-end:span var(--card-rows,1); }
 @container home-layout (min-width:320px) { .card-home > [data-span] { --minimum-span:11; } }
 @container home-layout (min-width:365px) { .card-home > [data-span] { --minimum-span:10; } }
 @container home-layout (min-width:415px) { .card-home > [data-span] { --minimum-span:9; } }

@@ -334,14 +334,16 @@ function syncEditLayout(article) {
     }
   }
   const movable=Array.from(article.children).filter(card=>card.matches('.schedule-notice')||card.querySelector('.canvas-grip'));
-  if(!movable.length) return;
-  const byKey=new Map(movable.map(card=>[card.dataset.canvasCard,card]));
-  const order=movableOrder().map(key=>byKey.get(key)).filter(Boolean);
-  const notice=byKey.get(undefined);
-  if(notice) order.splice(content.layout.dockPosition===0&&byKey.has('dock')?1:0,0,notice);
-  const anchor=movable.at(-1).nextElementSibling;
-  for(const card of movable) if(!order.includes(card)) card.remove();
-  placeCanvasNodes(article,order,anchor);
+  if(movable.length) {
+    const byKey=new Map(movable.map(card=>[card.dataset.canvasCard,card]));
+    const order=movableOrder().map(key=>byKey.get(key)).filter(Boolean);
+    const notice=byKey.get(undefined);
+    if(notice) order.splice(content.layout.dockPosition===0&&byKey.has('dock')?1:0,0,notice);
+    const anchor=movable.at(-1).nextElementSibling;
+    for(const card of movable) if(!order.includes(card)) card.remove();
+    placeCanvasNodes(article,order,anchor);
+  }
+  article.dispatchEvent(new Event('pack-cards'));
 }
 
 function patchEditCanvas(article,fresh) {
@@ -924,6 +926,7 @@ function installCanvasControls(article) {
   });
 
   function animatePositions(positions) {
+    article.dispatchEvent(new Event('pack-cards'));
     const reduceMotion=doc.defaultView.matchMedia('(prefers-reduced-motion: reduce)').matches;
     for(const [element,before] of positions) {
       element.getAnimations().forEach(animation=>animation.cancel());
@@ -960,20 +963,11 @@ function installCanvasControls(article) {
     const rect=card.getBoundingClientRect();
     current.peers=cards.filter(item=>item!==card);
     const scroll=doc.scrollingElement.scrollTop;
-    const fullWidth=article.clientWidth;
-    const rows=[];
-    for(const item of cards) {
+    current.targets=current.peers.map(item=>{
       const bounds=item.getBoundingClientRect();
-      const top=bounds.top+scroll;
-      let row=rows.at(-1);
-      if(!row||Math.abs(row.top-top)>1) {
-        row={top,bottom:top,split:bounds.width<fullWidth*.75,centers:[]};
-        rows.push(row);
-      }
-      row.bottom=Math.max(row.bottom,bounds.bottom+scroll);
-      if(item!==card) row.centers.push(bounds.left+bounds.width/2);
-    }
-    current.rows=rows.filter(row=>row.centers.length);
+      return {left:bounds.left,right:bounds.right,top:bounds.top+scroll,bottom:bounds.bottom+scroll};
+    });
+    current.packed=article.hasAttribute('data-packed');
     current.slot=index;
     const placeholder=doc.createElement('div');
     placeholder.className='canvas-placeholder';
@@ -985,27 +979,40 @@ function installCanvasControls(article) {
     current.height=rect.height;
     card.style.width=rect.width+'px';
     card.classList.add('canvas-dragging');
+    article.dispatchEvent(new Event('pack-cards'));
   }
 
-  function dropSlot(rows,x,y) {
-    let start=0;
-    for(const row of rows) {
-      if(row.split) {
-        if(y<row.top) return start;
-        if(y<=row.bottom) return start+row.centers.filter(center=>x>=center).length;
-      } else if(y<(row.top+row.bottom)/2) return start;
-      start+=row.centers.length;
+  function dropSlot(current,centerY) {
+    const {targets,packed,x,y,startX,startY}=current;
+    if(!packed) {
+      const next=targets.findIndex(target=>centerY<(target.top+target.bottom)/2);
+      return next<0?targets.length:next;
     }
-    return start;
+    const pointerY=y+doc.scrollingElement.scrollTop;
+    let nearest=0;
+    let minimum=Infinity;
+    targets.forEach((target,index)=>{
+      const dx=Math.max(target.left-x,0,x-target.right);
+      const dy=Math.max(target.top-pointerY,0,pointerY-target.bottom);
+      const distance=dx*dx+dy*dy;
+      if(distance<minimum) {
+        minimum=distance;
+        nearest=index;
+      }
+    });
+    const target=targets[nearest];
+    const sideways=target.right-target.left<article.clientWidth*.75&&Math.abs(x-startX)>Math.abs(y-startY);
+    const after=sideways?x>=(target.left+target.right)/2:pointerY>=(target.top+target.bottom)/2;
+    return nearest+Number(after);
   }
 
   function drawDrag(current) {
-    const {card,peers,placeholder,rows,offsetY,offsetX,height,x,y}=current;
+    const {card,peers,placeholder,offsetY,offsetX,height,x,y}=current;
     const origin=article.getBoundingClientRect();
     card.style.left=(x-offsetX-origin.left)+'px';
     card.style.top=(y-offsetY-origin.top)+'px';
     const centerY=y-offsetY+height/2+doc.scrollingElement.scrollTop;
-    const slot=dropSlot(rows,x,centerY);
+    const slot=dropSlot(current,centerY);
     if(slot===current.slot) return;
     const before=positionsOf(peers);
     article.insertBefore(placeholder,peers[slot]??peers.at(-1).nextElementSibling);

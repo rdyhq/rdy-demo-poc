@@ -18,11 +18,11 @@ const art=html`<svg class="art" viewBox="0 0 920 380" preserveAspectRatio="xMidY
 <path d="m0 380 117-48 92 17 112-37 128 47 65-12 88 29 111-46 69 19 138-35v66Z" fill="#14182d"/>
 <g fill="#b7d9ff"><circle cx="170" cy="122" r="3"/><circle cx="342" cy="103" r="3"/><circle cx="803" cy="106" r="3"/><path d="M97 54v22m-11-11h22m679 158v19m-9-9h18" stroke="#b7d9ff" stroke-width="1.7"/></g></svg>`;
 
-function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;editor?:boolean;phone?:boolean;share?:boolean;player?:boolean;newTabLinks?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
+function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;editor?:boolean;cardLayout?:boolean;phone?:boolean;share?:boolean;player?:boolean;newTabLinks?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.theme==='Hearth'||options.theme==='Grove'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas10">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas11">
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.newTabLinks?html`<base target="_blank">`:''}
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
@@ -31,7 +31,8 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
       ${options.metadata.image?html`<meta property="og:image" content="${options.metadata.image}">`:''}`:''}
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js" defer></script>`:''}
-    ${options.script?html`<script src="/assets/editor.js?v=canvas10" defer></script>`:''}
+    ${options.cardLayout?html`<script src="/assets/card-layout.js?v=1" defer></script>`:''}
+    ${options.script?html`<script src="/assets/editor.js?v=canvas11" defer></script>`:''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
@@ -262,7 +263,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
       ${options.preview||options.review?'':html`<div class="fan-tools"><p class="bookmark">Save this home in your browser.</p>
         ${options.canonical?shareControl(options.canonical):''}
         ${options.report?html`<a class="dim" href="${options.report}">Report this page</a>`:''}</div>`}
-    </article>`,{theme:content.theme,preview:options.preview&&!options.embedded,phone:options.phone,creator:true,standalone:options.editCanvas,newTabLinks:options.embedded&&!options.editCanvas,player:Boolean(pro?.video),canonical:options.canonical,share:!options.review&&!options.editCanvas,metadata:options.metadata});
+    </article>`,{theme:content.theme,preview:options.preview&&!options.embedded,phone:options.phone,creator:true,standalone:options.editCanvas,cardLayout:true,newTabLinks:options.embedded&&!options.editCanvas,player:Boolean(pro?.video),canonical:options.canonical,share:!options.review&&!options.editCanvas,metadata:options.metadata});
 }
 
 function editorSelect(id:string,label:string,options:readonly (readonly [string|number,string])[]) {
