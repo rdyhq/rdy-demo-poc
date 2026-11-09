@@ -23,6 +23,13 @@ const stylesheet=[
   readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8'),
   ...cardSpans.map(span=>`.card-home > [data-span="${span}"] { --preferred-span:${span}; }`),
   ...cardHeights.filter(Boolean).map(height=>`.card-home > [data-height="${height}"] { --card-height:${height}px; }`),
+  // Use the requested minimum height, so revealed content cannot trigger its own breakpoint.
+  ...[
+    [160, '--dock-summary:none; --dock-full:block;'],
+    [224, '--promo-description:block;'],
+    [416, '--schedule-summary:none; --schedule-extra:block;'],
+  ].map(([minimum, rules]) => `${cardHeights.filter(height=>height>=Number(minimum))
+    .map(height=>`.card-home > [data-height="${height}"]`).join(', ')} { ${rules} }`),
 ].join('\n');
 const brandIcon=readFileSync(new URL('./public/linb.svg',import.meta.url),'utf8');
 const playerScript=readFileSync(new URL('./public/player.js',import.meta.url),'utf8');

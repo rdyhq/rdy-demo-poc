@@ -372,7 +372,12 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal(phone.status,200,await phone.clone().text());
       const phonePage=await phone.text();
       assert.match(phonePage,/phone-preview/);
-      assert.match(phonePage,/data-card="spotlight".*data-size="expanded".*data-card="dock".*data-card="promo".*Supporter giveaway/s);
+      assert.match(phonePage,/data-card="spotlight".*data-card="dock".*data-card="promo".*Supporter giveaway.*class="promo-description">Check the details/s);
+      const sameFrame=structuredClone(next);
+      sameFrame.layout.spotlight.size='compact';
+      sameFrame.layout.supporting[0].size='compact';
+      assert.equal(await (await post('/editor/preview',{csrf:csrf(cookie),width:'phone',content:JSON.stringify(sameFrame)},cookie)).text(),phonePage);
+      assert.doesNotMatch(await (await get('/editor',cookie)).text(),/Content variant/);
       const embedded=await post('/editor/preview',{csrf:csrf(cookie),width:'phone',embedded:'1',content:JSON.stringify(next)},cookie);
       assert.equal(embedded.status,200,await embedded.clone().text());
       assert.equal(embedded.headers.get('x-frame-options'),'SAMEORIGIN');
@@ -392,7 +397,8 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
         assert.match(page,/data-card="identity".*data-card="spotlight".*data-card="promo".*data-card="dock"/s);
         assert.doesNotMatch(page,/data-card="schedule"/);
         if(mode==='edit') {
-          assert.match(page,/data-canvas-card="dock" data-movable-card data-span="6" data-height="176"[^>]*>\s*<div inert data-canvas-body>.*?<template data-canvas-alternate><section[^>]*data-size="expanded".*?data-resize-edge="bottom-right".*?aria-label="Edit Channel Dock"/s);
+          assert.match(page,/data-canvas-card="dock" data-movable-card data-span="6" data-height="176"[^>]*>\s*<div inert data-canvas-body>.*?class="dock-summary".*?<summary>More channels<\/summary>.*?class="dock-full".*?data-resize-edge="bottom-right".*?aria-label="Edit Channel Dock"/s);
+          assert.doesNotMatch(page,/data-canvas-alternate|data-size=/);
           assert.doesNotMatch(page,/data-canvas-card="(?:identity|spotlight)" data-movable-card|class="canvas-grip"/);
           assert.doesNotMatch(page,/aria-label="Reorder (Creator Identity|Spotlight)"/);
         } else {

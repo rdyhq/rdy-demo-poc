@@ -1,6 +1,7 @@
 import { digest, emptyHome, https, id, invalid, list, normalize, text, type HomeContent } from './domain.ts';
 
-const sizes = ['compact', 'expanded'] as const;
+// Retain saved and wire values for older editors. Rendering uses only frame dimensions.
+const legacySizes = ['compact', 'expanded'] as const;
 export const cardSpans = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 export const cardHeights = [0, ...Array.from({length:39}, (_, index) => 96 + index * 16)];
 const alignments = ['left', 'center', 'right'] as const;
@@ -8,10 +9,10 @@ const avatarSizes = ['small', 'medium', 'large'] as const;
 const avatarPositions = ['edge', 'banner-center'] as const;
 const promoCategories = ['Giveaway', 'Support', 'Merch', 'Sponsor', 'Community'] as const;
 
-type CardSize = typeof sizes[number];
+type LegacySize = typeof legacySizes[number];
 type CardSpan = typeof cardSpans[number];
 type CardDimensions = { span: CardSpan; minHeight: number };
-type CardSettings = CardDimensions & { id: string; size: CardSize };
+type CardSettings = CardDimensions & { id: string; size: LegacySize };
 type StoredSettings<T extends CardSettings> = Omit<T, keyof CardDimensions> & Partial<CardDimensions> & { width?: 'half' | 'full' };
 type IdentitySettings = CardSettings & {
   alignment: typeof alignments[number]; avatarSize: typeof avatarSizes[number];
@@ -122,7 +123,7 @@ function settings(value: any, expected: CardSettings, field: string): CardSettin
   if (value?.id !== expected.id) throw invalid(field, 'Keep the existing card ID.');
   return {
     id: expected.id,
-    size: choice(value.size, sizes, field),
+    size: choice(value.size, legacySizes, field),
     ...normalizeDimensions(value, expected, field),
   };
 }
@@ -164,7 +165,7 @@ export function normalizeHome(value: any, old: EditableHome, now: number, previe
     const field = 'promo-' + cardId;
     const previous = old.layout.supporting.find(item => item.id === cardId && item.family === 'promo');
     return {
-      family: 'promo', id: cardId, hidden: card.hidden, size: choice(card.size, sizes, field),
+      family: 'promo', id: cardId, hidden: card.hidden, size: choice(card.size, legacySizes, field),
       ...normalizeDimensions(card, previous, field),
       category: choice(card.category, promoCategories, field), title: text(card.title, field, 80, !preview),
       url: https(card.url, field, !preview), description: text(card.description, field, 160),

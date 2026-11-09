@@ -133,8 +133,10 @@ label,legend{display:block;font-weight:720;margin:11px 0 4px}label small{color:v
   border:2px dashed var(--accent); border-radius:12px;
   background:color-mix(in srgb,var(--accent) 12%,transparent);
 }
-.identity-card { --cover-height:clamp(84px,26cqw,154px); --avatar-size:56px; padding:0; overflow:hidden; }
-.identity-card[data-size=expanded] { --cover-height:clamp(110px,34cqw,218px); }
+.identity-card { --avatar-size:56px; padding:0; overflow:hidden; }
+.identity-card :is(.cover,.identity) {
+  --cover-height:clamp(84px,max(26cqw,calc(var(--card-height,0px) * .52)),218px);
+}
 .identity-card[data-avatar-size=small] { --avatar-size:44px; }
 .identity-card[data-avatar-size=large] { --avatar-size:72px; }
 .identity-card .cover { height:var(--cover-height); aspect-ratio:auto; }
@@ -157,29 +159,41 @@ label,legend{display:block;font-weight:720;margin:11px 0 4px}label small{color:v
 .identity-card[data-avatar-position=edge] .avatar { margin-top:-22px; }
 .identity-card[data-avatar-position=banner-center] .avatar { position:absolute; left:50%; top:calc((var(--cover-height) + var(--avatar-size)) / -2); transform:translateX(-50%); }
 .identity-card .signature-game { display:inline-block; margin-top:8px; padding:2px 6px; background:var(--page); border:1px solid var(--border); border-radius:4px; }
-.spotlight-card { background:color-mix(in srgb,var(--surface) 87%,var(--accent)); }
-.spotlight-card[data-size=expanded] { padding-block:22px; }
-.spotlight-card, .promo-card { display:flex; flex-direction:column; }
+.spotlight-card { display:grid; align-items:center; background:color-mix(in srgb,var(--surface) 87%,var(--accent)); }
+.promo-card, .promo-content { display:flex; flex-direction:column; }
+.promo-content { flex:1; gap:8px; }
 :is(.spotlight-card,.promo-card) .button { display:flex; justify-content:space-between; width:100%; margin-top:auto; }
-.promo-card[data-size=expanded] { padding-block:22px; }
+.promo-description { display:var(--promo-description,none); margin:0; }
 .dock-links {
   display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,88px),1fr));
   gap:8px; padding:0; margin:0; list-style:none;
 }
 .dock-links li { min-width:0; }
 .dock-links .button { width:100%; padding-inline:8px; overflow-wrap:anywhere; }
-.dock-card[data-size=compact] .dock-channels:has(details:not([open])) {
-  display:grid; grid-template-columns:minmax(0,2fr) minmax(88px,1fr); gap:8px;
+.dock-summary { display:var(--dock-summary,grid); gap:8px; }
+.dock-full { display:var(--dock-full,none); }
+@container home-card (min-width:246px) {
+  .dock-summary:has(details:not([open])) { grid-template-columns:minmax(0,2fr) minmax(88px,1fr); }
 }
-.dock-card[data-size=compact] .dock-links { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.dock-summary .dock-links { grid-template-columns:repeat(auto-fit,minmax(min(100%,68px),1fr)); }
 .dock-card summary {
   min-height:44px; padding:6px 10px; align-content:center; cursor:pointer;
   background:var(--page); border:1px solid var(--border); border-radius:6px;
 }
-.dock-card details[open] { margin-top:8px; }
 .dock-card details[open] .dock-links { margin-top:8px; }
-@container home-card (max-width:245px) {
-  .dock-card[data-size=compact] .dock-channels:has(details:not([open])) { grid-template-columns:1fr; }
+@container home-card (min-width:360px) {
+  .spotlight-content { display:grid; grid-template-columns:auto minmax(0,1fr); gap:16px; align-items:center; }
+  .spotlight-content .micro { margin:0; }
+}
+@container home-card (min-width:400px) {
+  .dock-content { --dock-summary:none; --dock-full:block; }
+  .promo-content { --promo-description:block; }
+}
+@container home-card (min-width:500px) {
+  .schedule-content { --schedule-summary:none; --schedule-extra:block; }
+  .schedule-slots { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr)); gap:8px; }
+  .promo-content { flex-direction:row; align-items:center; justify-content:space-between; gap:16px; }
+  .promo-content .button { width:auto; min-width:max-content; gap:12px; margin:0; }
 }
 .platform-icon { display:inline-block; flex:none; width:24px; height:24px; background:currentColor; mask:var(--platform) center / 24px 24px no-repeat; }
 .platform-icon[data-platform=twitch] { --platform:url('/assets/platforms/twitch.svg'); }
@@ -189,12 +203,15 @@ label,legend{display:block;font-weight:720;margin:11px 0 4px}label small{color:v
 .platform-icon[data-platform=kick] { --platform:url('/assets/platforms/kick.svg'); }
 .platform-icon[data-platform=instagram] { --platform:url('/assets/platforms/instagram.svg'); }
 .schedule-slot { background:var(--page); border-radius:8px; padding:10px; margin-bottom:8px; }
+.schedule-summary { display:var(--schedule-summary,block); }
+.schedule-extra, .schedule-full { display:var(--schedule-extra,none); }
 .schedule-card details summary { cursor:pointer; min-height:44px; align-content:center; }
 .schedule-card .button { margin-top:6px; }
 .schedule-slot h3 { margin:0 0 4px; font-size:1rem; }
-.schedule-slot dl { display:flex; flex-wrap:wrap; gap:6px 16px; margin:0 0 10px; }
+.schedule-slot dl { display:flex; flex-wrap:wrap; gap:4px 12px; margin:0 0 6px; font-size:.875rem; }
 .schedule-slot dt { color:var(--muted); font-size:.83rem; }
 .schedule-slot dd { margin:0; }
+.schedule-slot p { margin:0; font-size:.875rem; }
 .schedule-notice p:last-child { margin:0; }
 .card-home .updates, .card-home .feature-video { margin:0; }
 .fan-tools { padding:0 10px; }

@@ -14,12 +14,11 @@ const maximumHeight = Number(heightOptions.at(-1)[0]);
 const canvasInstructions = 'Click a card to edit it. Drag a movable card to reorder it, or drag an edge or corner to resize.';
 const movableSurface = '[data-movable-card] > .canvas-select';
 const fixedControls = {
-  'identity-size':['identity','size'], 'identity-alignment':['identity','alignment'],
+  'identity-alignment':['identity','alignment'],
   'identity-span':['identity','span'], 'spotlight-span':['spotlight','span'], 'dock-span':['dock','span'],
   'identity-minHeight':['identity','minHeight'], 'spotlight-minHeight':['spotlight','minHeight'], 'dock-minHeight':['dock','minHeight'],
   'avatar-size':['identity','avatarSize'], 'avatar-position':['identity','avatarPosition'],
   'cover-x':['identity','focalX'], 'cover-y':['identity','focalY'],
-  'spotlight-size':['spotlight','size'], 'dock-size':['dock','size'],
 };
 const promoCategories = ['Giveaway','Support','Merch','Sponsor','Community'];
 const fieldNames = {layout:'Card layout and supporting cards',scheduleRemoval:'Schedule removal notice',displayName:'Display name',intro:'Intro',game:'Current game',streamUrl:'Stream destination',theme:'Theme',avatarId:'Avatar',coverId:'Cover image'};
@@ -290,17 +289,6 @@ function movableOrder(layout=content.layout) {
   return order;
 }
 
-function setCanvasSize(card,size) {
-  const alternate=card.querySelector('[data-canvas-alternate]');
-  if(!alternate) return;
-  const body=card.querySelector('[data-canvas-body]');
-  if(body.firstElementChild.dataset.size!==size) {
-    const previous=body.firstElementChild;
-    body.replaceChildren(alternate.content.firstElementChild);
-    alternate.content.replaceChildren(previous);
-  }
-}
-
 function canvasCardSettings(key) {
   return content.layout[key]??content.layout.supporting.find(card=>card.id===key);
 }
@@ -315,12 +303,9 @@ function placeCanvasNodes(article,nodes,anchor=null) {
 function formatCanvasTimes(article) {
   const formatter=new Intl.DateTimeFormat(undefined,{dateStyle:'full',timeStyle:'long'});
   if(!formatter.resolvedOptions().timeZone) return;
-  const templates=Array.from(article.querySelectorAll('template[data-canvas-alternate]'),template=>template.content);
-  for(const root of [article,...templates]) {
-    for(const target of root.querySelectorAll('[data-fan-time]')) {
-      target.textContent='Your time: '+formatter.format(new Date(target.dataset.fanTime));
-      target.hidden=false;
-    }
+  for(const target of article.querySelectorAll('[data-fan-time]')) {
+    target.textContent='Your time: '+formatter.format(new Date(target.dataset.fanTime));
+    target.hidden=false;
   }
 }
 
@@ -329,7 +314,6 @@ function syncEditLayout(article) {
   for(const card of cards) {
     const settings=canvasCardSettings(card.dataset.canvasCard);
     if(settings) {
-      setCanvasSize(card,settings.size);
       card.dataset.span=settings.span;
       card.dataset.height=settings.minHeight;
     }
@@ -357,14 +341,8 @@ function patchEditCanvas(article,fresh) {
     if(!next.dataset.canvasCard) return previous?.isEqualNode(next)?previous:next;
     if(!previous) return next;
     const nextBody=next.querySelector('[data-canvas-body]');
-    setCanvasSize(previous,nextBody.firstElementChild.dataset.size);
     const previousBody=previous.querySelector('[data-canvas-body]');
     if(!previousBody.isEqualNode(nextBody)) previousBody.replaceChildren(...nextBody.childNodes);
-    const alternate=previous.querySelector('[data-canvas-alternate]');
-    const nextAlternate=next.querySelector('[data-canvas-alternate]');
-    if(alternate&&!alternate.content.isEqualNode(nextAlternate.content)) {
-      alternate.content.replaceChildren(...nextAlternate.content.childNodes);
-    }
     for(const control of previous.querySelectorAll(':scope > button')) {
       control.setAttribute('aria-label',next.querySelector('.'+control.classList[0]).getAttribute('aria-label'));
     }
@@ -502,8 +480,6 @@ function supportingCards() {
     });
     toggle.dataset.visibility='';
     group.append(toggle);
-    const sizeId=card.family==='schedule'?'schedule-size':group.id+'-size';
-    group.append(selectFor(sizeId,'Content variant',[['compact','Compact'],['expanded','Expanded']],card.size,value=>{card.size=value;}));
     const prefix=card.family==='schedule'?'schedule':group.id;
     group.append(selectFor(prefix+'-span','Preferred width',spanOptions,String(card.span),value=>{card.span=Number(value);}));
     group.append(selectFor(prefix+'-minHeight','Minimum height',heightOptions,String(card.minHeight),value=>{card.minHeight=Number(value);}));
@@ -514,7 +490,7 @@ function supportingCards() {
       group.append(selectFor(group.id+'-category','Category',promoCategories.map(value=>[value,value]),card.category,value=>{card.category=value;
         by('outline-'+card.id).querySelector('small').textContent=card.hidden?'Hidden':card.category+' · Promo card';
       }));
-      for(const [key,label,type,limit] of [['title','Headline','text',80],['url','HTTPS address','url',2048],['description','Expanded description','textarea',160]]) {
+      for(const [key,label,type,limit] of [['title','Headline','text',80],['url','HTTPS address','url',2048],['description','Description','textarea',160]]) {
         const part=inputFor(type,group.id+'-'+key,card[key],limit,label);
         part.input.addEventListener('input',()=>{
           card[key]=part.input.value;
@@ -767,7 +743,7 @@ by('reconnect').querySelector('button').addEventListener('click',async()=>{
 function summarize(key,value) {
   if(key==='layout') {
     const {identity,spotlight,dock,supporting}=value;
-    const dimensions=card=>[card.size,card.span+' / 12 columns',card.minHeight?card.minHeight+' px minimum':'Fit content'];
+    const dimensions=card=>[card.span+' / 12 columns',card.minHeight?card.minHeight+' px minimum':'Fit content'];
     const movable=supporting.map(card=>[
       card.family==='schedule'?'Schedule':card.title||'Promo card',
       card.category,card.url,card.description,...dimensions(card),card.hidden?'Hidden':'Visible',
