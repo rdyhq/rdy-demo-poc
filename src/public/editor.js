@@ -5,8 +5,11 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 const fields = ['displayName','intro','game','streamUrl'];
 const capacities = {sessions:7,updates:3,links:5};
 const labels = {sessions:'Session',updates:'Update',links:'Link'};
+const widthOptions = [['full','Full'],['half','Half']];
+const canvasInstructions = 'Drag the dots to reorder. Drag the top or bottom edge for height, or a side edge in Desktop for width.';
 const fixedControls = {
   'identity-size':['identity','size'], 'identity-alignment':['identity','alignment'],
+  'identity-width':['identity','width'], 'spotlight-width':['spotlight','width'], 'dock-width':['dock','width'],
   'avatar-size':['identity','avatarSize'], 'avatar-position':['identity','avatarPosition'],
   'cover-x':['identity','focalX'], 'cover-y':['identity','focalY'],
   'spotlight-size':['spotlight','size'], 'dock-size':['dock','size'],
@@ -110,12 +113,12 @@ function editCanvas() {
 }
 
 function editContentKey(value) {
-  // Order and size can be applied to the existing DOM. Other fields need the shared Home renderer.
+  // Order and dimensions can be applied to the existing DOM. Other fields need the shared Home renderer.
   const {identity,spotlight,dock,supporting}=value.layout;
-  const withoutSize=({size,...card})=>card;
+  const withoutDimensions=({size,width,...card})=>card;
   return JSON.stringify({...value,layout:{
-    identity:withoutSize(identity),spotlight:withoutSize(spotlight),dock:withoutSize(dock),
-    supporting:supporting.map(withoutSize).sort((a,b)=>a.id.localeCompare(b.id)),
+    identity:withoutDimensions(identity),spotlight:withoutDimensions(spotlight),dock:withoutDimensions(dock),
+    supporting:supporting.map(withoutDimensions).sort((a,b)=>a.id.localeCompare(b.id)),
   }});
 }
 
@@ -303,7 +306,10 @@ function syncEditLayout(article) {
   const cards=Array.from(article.querySelectorAll(':scope > [data-canvas-card]'));
   for(const card of cards) {
     const settings=canvasCardSettings(card.dataset.canvasCard);
-    if(settings) setCanvasSize(card,settings.size);
+    if(settings) {
+      setCanvasSize(card,settings.size);
+      card.dataset.width=settings.width;
+    }
   }
   const movable=Array.from(article.children).filter(card=>card.matches('.schedule-notice')||card.querySelector('.canvas-grip'));
   if(!movable.length) return;
@@ -473,6 +479,8 @@ function supportingCards() {
     group.append(toggle);
     const sizeId=card.family==='schedule'?'schedule-size':group.id+'-size';
     group.append(selectFor(sizeId,'Card size',[['compact','Compact'],['expanded','Expanded']],card.size,value=>{card.size=value;}));
+    const widthId=card.family==='schedule'?'schedule-width':group.id+'-width';
+    group.append(selectFor(widthId,'Desktop width',widthOptions,card.width,value=>{card.width=value;}));
     if(card.family==='schedule') {
       schedule.hidden=false;
       group.append(schedule);
@@ -508,7 +516,7 @@ function supportingCards() {
 
 by('add-promo').addEventListener('click',()=>{
   if(supportingLinkCount()>=5) return;
-  const card={id:crypto.randomUUID(),family:'promo',size:'compact',hidden:false,category:'Giveaway',title:'',url:'',description:''};
+  const card={id:crypto.randomUUID(),family:'promo',size:'compact',width:'full',hidden:false,category:'Giveaway',title:'',url:'',description:''};
   content.layout.supporting.push(card);
   supportingCards();
   selectInspector(card.id,true);
@@ -735,12 +743,12 @@ function summarize(key,value) {
     const {identity,spotlight,dock,supporting}=value;
     const movable=supporting.map(card=>[
       card.family==='schedule'?'Schedule':card.title||'Promo card',
-      card.category,card.url,card.description,card.size,card.hidden?'Hidden':'Visible',
+      card.category,card.url,card.description,card.size,card.width+' width',card.hidden?'Hidden':'Visible',
     ].filter(Boolean).join(' · '));
-    movable.splice(value.dockPosition,0,'Channel Dock · '+dock.size);
+    movable.splice(value.dockPosition,0,'Channel Dock · '+dock.size+' · '+dock.width+' width');
     return [
-      'Identity: '+[identity.size,identity.alignment,identity.avatarSize,identity.avatarPosition,identity.focalX+' / '+identity.focalY].join(' · '),
-      'Spotlight: '+spotlight.size,
+      'Identity: '+[identity.size,identity.width+' width',identity.alignment,identity.avatarSize,identity.avatarPosition,identity.focalX+' / '+identity.focalY].join(' · '),
+      'Spotlight: '+spotlight.size+' · '+spotlight.width+' width',
       ...movable.map((card,index)=>(index+1)+'. '+card),
     ].join('\n');
   }
@@ -843,16 +851,16 @@ function installCanvasControls(article) {
   const doc=article.ownerDocument;
   let suppressHandleClick=false;
 
-  function commitSize(card,size) {
+  function commitDimensions(card,property,value) {
     const key=card.dataset.canvasCard;
     const settings=canvasCardSettings(key);
-    settings.size=size;
-    const control=by(['identity','spotlight','dock'].includes(key)?key+'-size':
-      settings.family==='schedule'?'schedule-size':'promo-'+key+'-size');
-    control.value=size;
+    settings[property]=value;
+    const prefix=['identity','spotlight','dock'].includes(key)?key:
+      settings.family==='schedule'?'schedule':'promo-'+key;
+    by(prefix+'-'+property).value=value;
     changed();
     const label=card.querySelector('.canvas-select').getAttribute('aria-label').slice('Edit '.length);
-    by('card-announcement').textContent=label+' is now '+size+'.';
+    by('card-announcement').textContent=label+' is now '+value+(property==='width'?' width on desktop':'')+'.';
   }
 
   article.addEventListener('click',event=>{
@@ -879,9 +887,11 @@ function installCanvasControls(article) {
     const cards=Array.from(article.querySelectorAll('.canvas-grip'),button=>button.closest('[data-canvas-card]'));
     if(!resize&&cards.length<2) return;
     const rect=card.getBoundingClientRect();
+    const sideRoom=resize==='left'?event.clientX:doc.documentElement.clientWidth-event.clientX;
     drag={
       handle,card,cards,resize,pointer:event.pointerId,startY:event.clientY,startX:event.clientX,y:event.clientY,x:event.clientX,
-      initialSize:settings.size,
+      initialSize:settings.size,initialWidth:settings.width,
+      expandThreshold:Math.max(6,Math.min(28,sideRoom-2)),
       offsetY:event.clientY-rect.top,offsetX:event.clientX-rect.left,index:cards.indexOf(card),
       order:movableOrder(),
       active:false,
@@ -911,15 +921,28 @@ function installCanvasControls(article) {
     selectInspector(card.dataset.canvasCard);
     doc.documentElement.classList.add(resize?'canvas-sizing':'canvas-reordering');
     if(resize) return;
+    for(const item of cards) item.getAnimations().forEach(animation=>animation.cancel());
     const rect=card.getBoundingClientRect();
     current.peers=cards.filter(item=>item!==card);
-    current.midpoints=current.peers.map(peer=>{
-      const bounds=peer.getBoundingClientRect();
-      return bounds.top+bounds.height/2+doc.scrollingElement.scrollTop;
-    });
+    const scroll=doc.scrollingElement.scrollTop;
+    const fullWidth=article.clientWidth;
+    const rows=[];
+    for(const item of cards) {
+      const bounds=item.getBoundingClientRect();
+      const top=bounds.top+scroll;
+      let row=rows.at(-1);
+      if(!row||Math.abs(row.top-top)>1) {
+        row={top,bottom:top,split:bounds.width<fullWidth*.75,centers:[]};
+        rows.push(row);
+      }
+      row.bottom=Math.max(row.bottom,bounds.bottom+scroll);
+      if(item!==card) row.centers.push(bounds.left+bounds.width/2);
+    }
+    current.rows=rows.filter(row=>row.centers.length);
     current.slot=index;
     const placeholder=doc.createElement('div');
     placeholder.className='canvas-placeholder';
+    placeholder.dataset.width=card.dataset.width;
     placeholder.setAttribute('aria-hidden','true');
     placeholder.style.height=rect.height+'px';
     article.insertBefore(placeholder,card);
@@ -929,14 +952,25 @@ function installCanvasControls(article) {
     card.classList.add('canvas-dragging');
   }
 
+  function dropSlot(rows,x,y) {
+    let start=0;
+    for(const row of rows) {
+      if(row.split) {
+        if(y<row.top) return start;
+        if(y<=row.bottom) return start+row.centers.filter(center=>x>=center).length;
+      } else if(y<(row.top+row.bottom)/2) return start;
+      start+=row.centers.length;
+    }
+    return start;
+  }
+
   function drawDrag(current) {
-    const {card,peers,placeholder,midpoints,offsetY,offsetX,height,x,y}=current;
+    const {card,peers,placeholder,rows,offsetY,offsetX,height,x,y}=current;
     const origin=article.getBoundingClientRect();
     card.style.left=(x-offsetX-origin.left)+'px';
     card.style.top=(y-offsetY-origin.top)+'px';
-    const center=y-offsetY+height/2+doc.scrollingElement.scrollTop;
-    const next=midpoints.findIndex(midpoint=>center<midpoint);
-    const slot=next<0?peers.length:next;
+    const centerY=y-offsetY+height/2+doc.scrollingElement.scrollTop;
+    const slot=dropSlot(rows,x,centerY);
     if(slot===current.slot) return;
     const before=positionsOf(peers);
     article.insertBefore(placeholder,peers[slot]??peers.at(-1).nextElementSibling);
@@ -968,16 +1002,27 @@ function installCanvasControls(article) {
       if(!drag.resize) drag.frame=requestAnimationFrame(scrollDrag);
     }
     if(drag.resize) {
-      const outward=drag.resize==='top'?-delta:delta;
-      const size=outward>20?'expanded':outward<-20?'compact':drag.initialSize;
-      setCanvasSize(drag.card,size);
+      if(drag.resize==='left'||drag.resize==='right') {
+        const deltaX=drag.x-drag.startX;
+        const outward=drag.resize==='left'?-deltaX:deltaX;
+        const width=outward>=drag.expandThreshold?'full':outward<-28?'half':drag.initialWidth;
+        if(width!==drag.card.dataset.width) {
+          const before=positionsOf(Array.from(article.children).filter(item=>item!==drag.card));
+          drag.card.dataset.width=width;
+          animatePositions(before);
+        }
+      } else {
+        const outward=drag.resize==='top'?-delta:delta;
+        const size=outward>20?'expanded':outward<-20?'compact':drag.initialSize;
+        setCanvasSize(drag.card,size);
+      }
     } else drawDrag(drag);
   });
 
   function finishGesture(commit) {
     const current=drag;
     drag=null;
-    const {card,cards,handle,pointer,slot,index,resize,active,x,y,initialSize,placeholder}=current;
+    const {card,cards,handle,pointer,slot,index,resize,active,x,y,initialSize,initialWidth,placeholder}=current;
     cancelAnimationFrame(current.frame);
     if(handle.hasPointerCapture(pointer)) handle.releasePointerCapture(pointer);
     if(!active) return;
@@ -988,8 +1033,10 @@ function installCanvasControls(article) {
     const key=card.dataset.canvasCard;
     const canCommit=commit&&inside&&!busy&&!uploading&&!needsSignIn&&canvasCardSettings(key);
     if(resize) {
+      const width=card.dataset.width;
       const size=card.querySelector('[data-size]').dataset.size;
-      if(canCommit&&size!==initialSize) commitSize(card,size);
+      if(canCommit&&width!==initialWidth) commitDimensions(card,'width',width);
+      else if(canCommit&&size!==initialSize) commitDimensions(card,'size',size);
       else changed();
     } else {
       const before=positionsOf(cards);
@@ -1033,7 +1080,7 @@ for(const button of root.querySelectorAll('[data-canvas-mode]')) button.addEvent
   canvasMode=button.dataset.canvasMode;
   const editing=canvasMode==='edit';
   by('canvas-heading').textContent=editing?'Edit canvas':'Visitor preview';
-  by('canvas-note').textContent=editing?'Drag the dots to reorder or a top or bottom edge to resize.':'Test links with your unsaved changes at either width.';
+  by('canvas-note').textContent=editing?canvasInstructions:'Test links with your unsaved changes at either width.';
   for(const choice of root.querySelectorAll('[data-canvas-mode]')) {
     choice.setAttribute('aria-pressed',String(choice===button));
   }

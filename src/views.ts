@@ -1,7 +1,7 @@
 import { html, raw } from 'hono/html';
 import { randomUUID } from 'node:crypto';
 import { futureSessions, nextSession, themeNames, type HomeContent, type ScheduleChange, type SessionSlot } from './domain.ts';
-import { channelPlatform, defaultLayout, platforms, type EditableHome } from './home-cards.ts';
+import { channelPlatform, defaultLayout, platforms, type CardWidth, type EditableHome } from './home-cards.ts';
 import { demoRanking } from './leaderboard.ts';
 import type { ProContent, ProDraft } from './pro.ts';
 import { discordSchedule, type Selection } from './sharing.ts';
@@ -22,7 +22,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.theme==='Hearth'||options.theme==='Grove'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas5">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas8">
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.newTabLinks?html`<base target="_blank">`:''}
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
@@ -31,7 +31,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
       ${options.metadata.image?html`<meta property="og:image" content="${options.metadata.image}">`:''}`:''}
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js" defer></script>`:''}
-    ${options.script?html`<script src="/assets/editor.js?v=canvas5" defer></script>`:''}
+    ${options.script?html`<script src="/assets/editor.js?v=canvas8" defer></script>`:''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
@@ -151,13 +151,15 @@ const promoActions={
 
 type CardSize = 'compact' | 'expanded';
 
-function editableCard(key:string,label:string,body:ReturnType<typeof html>,movable:boolean,editing?:boolean,alternate?:ReturnType<typeof html>) {
+function editableCard(key:string,label:string,body:ReturnType<typeof html>,movable:boolean,editing?:boolean,alternate?:ReturnType<typeof html>,width?:CardWidth) {
   if(!editing) return body;
-  return html`<div class="canvas-card" data-canvas-card="${key}">
+  return html`<div class="canvas-card" data-canvas-card="${key}" ${width?html`data-width="${width}"`:''}>
     <div inert data-canvas-body>${body}</div>
     ${alternate?html`<template data-canvas-alternate>${alternate}</template>
       <span data-resize-edge="top" aria-hidden="true"></span>
-      <span data-resize-edge="bottom" aria-hidden="true"></span>`:''}
+      <span data-resize-edge="bottom" aria-hidden="true"></span>
+      <span data-resize-edge="left" aria-hidden="true"></span>
+      <span data-resize-edge="right" aria-hidden="true"></span>`:''}
     <button type="button" class="canvas-select" aria-pressed="false" aria-label="Edit ${label}"></button>
     ${movable?html`<button type="button" class="canvas-grip" aria-label="Reorder ${label}" title="Drag to reorder">
       <svg aria-hidden="true" width="16" height="20" viewBox="0 0 16 20" fill="currentColor">
@@ -196,14 +198,16 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
   const sessions=futureSessions(content,options.now);
   const card = (key:string,label:string,body:ReturnType<typeof html>,movable=false) =>
     editableCard(key,label,body,movable,options.editCanvas);
-  const sizedCard = (key:string,label:string,size:CardSize,render:(size:CardSize)=>ReturnType<typeof html>,movable=false) =>
+  const sizedCard = (key:string,label:string,{size,width}:{size:CardSize;width:CardWidth},
+    render:(size:CardSize)=>ReturnType<typeof html>,movable=false) =>
     editableCard(key,label,render(size),movable,options.editCanvas,
-      options.editCanvas?render(size==='compact'?'expanded':'compact'):undefined);
-  const dock=content.links.length?sizedCard('dock','Channel Dock',layout.dock.size,size=>{
+      options.editCanvas?render(size==='compact'?'expanded':'compact'):undefined,width);
+  const halfWidth = (width:CardWidth) => !options.editCanvas&&width==='half'?raw(' data-width="half"'):'';
+  const dock=content.links.length?sizedCard('dock','Channel Dock',layout.dock,size=>{
     const compact=size==='compact';
     const visibleLinks=compact?content.links.slice(0,3):content.links;
     const remainingLinks=compact?content.links.slice(3):[];
-    return html`<section class="home-card dock-card" data-card="dock" data-size="${size}">
+    return html`<section class="home-card dock-card" data-card="dock" data-size="${size}"${halfWidth(layout.dock.width)}>
       <h2>Find me</h2>${channelLinks(visibleLinks,compact)}
       ${remainingLinks.length?html`<details><summary>More channels</summary>${channelLinks(remainingLinks)}</details>`:''}</section>`;
   },true):'';
@@ -213,13 +217,13 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
     if(item.hidden) return '';
     if(item.family==='promo') {
       if(!item.url||!item.title) return '';
-      return sizedCard(item.id,item.title,item.size,size=>html`<section class="home-card promo-card" data-card="promo" data-size="${size}">
+      return sizedCard(item.id,item.title,item,size=>html`<section class="home-card promo-card" data-card="promo" data-size="${size}"${halfWidth(item.width)}>
         <p class="micro">${item.category}</p><h2>${item.title}</h2>
         ${size==='expanded'&&item.description?html`<p>${item.description}</p>`:''}
         <a class="button" href="${item.url}">${promoActions[item.category]} <span aria-hidden="true">↗</span></a></section>`,true);
     }
     if(!sessions.length) return '';
-    return sizedCard(item.id,'Schedule',item.size,size=>html`<section class="home-card schedule-card" data-card="schedule" data-size="${size}">
+    return sizedCard(item.id,'Schedule',item,size=>html`<section class="home-card schedule-card" data-card="schedule" data-size="${size}"${halfWidth(item.width)}>
       <h2>${size==='compact'?'Next session':'Upcoming sessions'}</h2>
       ${(size==='compact'?sessions.slice(0,1):sessions).map(scheduleSlot)}
       ${content.streamUrl?html`<a class="button secondary" href="${content.streamUrl}">Open channel</a>`:''}</section>`,true);
@@ -233,7 +237,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
       <p class="dim">If this tab stays open, close it to return to your unsaved editor.</p></aside>`:''}
     ${options.review?html`<aside class="status-note">Restricted publication review · <a href="/ops">Back to cases</a></aside>`:''}
     <article class="creator card-home" data-flair="${pro?.appearance??'original'}" ${options.editCanvas?raw('data-edit-canvas'):''}>
-      ${sizedCard('identity','Creator Identity',identity.size,size=>html`<section class="home-card identity-card" data-card="identity" data-size="${size}" data-align="${identity.alignment}"
+      ${sizedCard('identity','Creator Identity',identity,size=>html`<section class="home-card identity-card" data-card="identity" data-size="${size}"${halfWidth(identity.width)} data-align="${identity.alignment}"
         data-avatar-size="${identity.avatarSize}" data-avatar-position="${identity.avatarPosition}">
         <div class="cover" data-focal-x="${identity.focalX}" data-focal-y="${identity.focalY}">${content.coverId?html`<img src="${options.asset(content.coverId)}" alt="" fetchpriority="high">`:options.demo?art:html`<div class="plain-cover"></div>`}</div>
         <div class="identity">
@@ -243,7 +247,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
           ${content.game?html`<p class="signature-game"><span class="sr-only">Signature game: </span>${content.game}</p>`:''}</div>
         </div>
       </section>`)}
-      ${content.streamUrl?sizedCard('spotlight','Spotlight',layout.spotlight.size,size=>html`<section class="home-card spotlight-card" data-card="spotlight" data-size="${size}" aria-label="Stream destination">
+      ${content.streamUrl?sizedCard('spotlight','Spotlight',layout.spotlight,size=>html`<section class="home-card spotlight-card" data-card="spotlight" data-size="${size}"${halfWidth(layout.spotlight.width)} aria-label="Stream destination">
         <p class="micro">SPOTLIGHT</p><a class="button" href="${content.streamUrl}">${streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a></section>`):''}
       ${supporting}
       ${content.updates.length?card('updates','Updates',html`<section class="home-card updates" data-card="updates"><h2>Updates</h2>${content.updates.map(update=>html`
@@ -261,6 +265,7 @@ function editorSelect(id:string,label:string,options:readonly (readonly [string|
 }
 
 const cardSizeOptions=[['compact','Compact'],['expanded','Expanded']] as const;
+const cardWidthOptions=[['full','Full'],['half','Half']] as const;
 
 function editorOutlineButton(key:string,title:string,detail:string,fixed=false) {
   return html`<button type="button" class="editor-outline-row" data-edit-card="${key}" aria-pressed="false">
@@ -332,7 +337,7 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
         <div class="editor-preview-stage" data-preview-size="phone">
           <iframe id="editor-canvas" name="lobby-editor-canvas" title="Private Home canvas"></iframe>
         </div>
-        <p class="editor-stage-note" id="canvas-note">Drag the dots to reorder or a top or bottom edge to resize.</p>
+        <p class="editor-stage-note" id="canvas-note">Drag the dots to reorder. Drag the top or bottom edge for height, or a side edge in Desktop for width.</p>
         <p class="editor-stage-note">Fans see the last published version.</p>
       </section>
       <aside class="editor-inspector editor-panel" aria-label="Card inspector">
@@ -349,6 +354,7 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
         <details class="editor-extras"><summary>Identity appearance</summary>
           <div class="identity-options">
             ${editorSelect('identity-size','Card size',cardSizeOptions)}
+            ${editorSelect('identity-width','Desktop width',cardWidthOptions)}
             ${editorSelect('identity-alignment','Text alignment',[['left','Left'],['center','Centered'],['right','Right']])}
             ${editorSelect('avatar-size','Avatar size',[['small','Small'],['medium','Medium'],['large','Large']])}
             ${editorSelect('avatar-position','Avatar position',[['edge','Banner edge'],['banner-center','Banner center']])}
@@ -365,10 +371,12 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
         <p id="spotlight-empty" hidden>Add a stream destination to show Spotlight on your Home.</p>
         <label for="streamUrl">Stream destination <small>HTTPS address</small></label><input id="streamUrl" type="url" maxlength="2048" value="${state.content.streamUrl}">
         ${editorSelect('spotlight-size','Spotlight size',cardSizeOptions)}
+        ${editorSelect('spotlight-width','Desktop width',cardWidthOptions)}
       </section>
       <section data-inspector="dock" hidden><h2>Channel Dock</h2><p class="editor-description">Group your social and community links.</p>
         <p id="dock-empty" hidden>Add a supporting link to show the Channel Dock.</p>
         ${editorSelect('dock-size','Channel Dock size',cardSizeOptions)}
+        ${editorSelect('dock-width','Desktop width',cardWidthOptions)}
         <div class="editor-entry" id="dock-move" tabindex="-1"></div>
         <p>Move priority links to the top. The Dock and Promo cards share five supporting links.</p>
         <div id="links"></div><button type="button" class="secondary" data-add="links">Add a link</button>
