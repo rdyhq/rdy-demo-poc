@@ -13,8 +13,10 @@ import { assetBytes, maxUpload, upload, type Objects } from './assets.ts';
 import { Auth, type SendMail } from './auth.ts';
 import { AppError, digest, emptyHome, equalSecret, invalid, mailbox, scheduleChange, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
 import { invite, inviteList, revokeInvite } from './enrollment.ts';
-import { cardColumns, cardHeights, cardSpans, normalizeHome, platforms, readHome, type StoredHome } from './home-cards.ts';
+import { cardColumns, cardHeights, cardSpans, channelPlatform, normalizeHome, platforms, readHome, type EditableHome, type StoredHome } from './home-cards.ts';
 import { liveState } from './live-state.ts';
+import { TwitchActivity, type TwitchActivityConfig, type TwitchChannel } from './twitch-activity.ts';
+import type { HomeAlias } from './home-aliases.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
@@ -50,6 +52,7 @@ const platformIcons=new Map(Object.keys(platforms).map(name=>[
 ]));
 
 type Configuration={
+  twitchActivity?:TwitchActivityConfig; aliases?:ReadonlyMap<string,HomeAlias>;
   pool?:pg.Pool; origin?:string; twitch?:TwitchConfig; billing?:BillingConfig; pro?:{multipage:boolean}; redirectOrigins?:string[]; mail?:SendMail; objects?:Objects|null;
   reportContact?:string; clock?:()=>number; demo?:boolean; readOnlyHomes?:boolean;
   clientAddress?:(context:Context)=>string;
@@ -70,6 +73,7 @@ const forbidden=()=>new AppError(403,'forbidden','This action could not be autho
 export function createApp(config:Configuration={}) {
   const app=new Hono();
   const clock=config.clock??Date.now;
+  const activity=config.twitchActivity?new TwitchActivity(config.twitchActivity,clock):null;
   const origin=config.origin?new URL(config.origin).origin:null;
   const originHost=origin?new URL(origin).host:null;
   const redirectHosts=new Set(config.redirectOrigins?.map(value=>new URL(value).host));
@@ -91,6 +95,12 @@ export function createApp(config:Configuration={}) {
     if (!pool) throw new AppError(503,'unavailable','LINB is temporarily unavailable.');
     return pool;
   };
+  async function linkedChannel(db:pg.Pool,owner:string,content:EditableHome):Promise<TwitchChannel|undefined> {
+    if(!activity||!content.streamUrl||channelPlatform(content.streamUrl)!=='twitch') return;
+    const login=new URL(content.streamUrl).pathname.split('/')[1].toLowerCase();
+    const {rows}=await db.query<TwitchChannel>('SELECT subject,lower(login) AS login FROM twitch_identities WHERE creator_id=$1',[owner]);
+    if(rows[0]?.login===login) return rows[0];
+  }
   const requireHomeWrites=()=>{
     if(config.readOnlyHomes) throw new AppError(503,'home_writes_paused','Home changes are temporarily paused.');
   };
@@ -308,7 +318,8 @@ export function createApp(config:Configuration={}) {
     const owner=await principal(c,'creator');
     const state=await editor(requirePool(),owner);
     const linked=twitch&&!state.draft_revision?await requirePool().query('SELECT login FROM twitch_identities WHERE creator_id=$1',[owner]):null;
-    return c.html(editorPage(state,csrf(cookie(c)!),Boolean(objects),linked?.rows[0]?.login,Boolean(pro&&state.publication_id)));
+    const clips=Boolean(await linkedChannel(requirePool(),owner,state.content));
+    return c.html(editorPage(state,csrf(cookie(c)!),Boolean(objects),linked?.rows[0]?.login,Boolean(pro&&state.publication_id),clips));
   });
   if(pro) {
     app.get('/editor/pro',async c=>{
@@ -411,7 +422,9 @@ export function createApp(config:Configuration={}) {
       c.header('Content-Security-Policy',policy.replace("frame-ancestors 'none'","frame-ancestors 'self'"));
       c.header('X-Frame-Options','SAMEORIGIN');
     }
-    return c.html(renderHome(content,{now,notice,preview:true,embedded,editCanvas:embedded&&fields.mode==='edit',phone:fields.width==='phone',asset:id=>'/editor/assets/'+id}));
+    const channel=await linkedChannel(db,owner,content);
+    const signal=channel?await activity!.get(channel,content.layout.spotlight.offlineLead==='clip'):undefined;
+    return c.html(renderHome(content,{now,notice,liveState:signal,preview:true,embedded,editCanvas:embedded&&fields.mode==='edit',phone:fields.width==='phone',asset:id=>'/editor/assets/'+id}));
   });
   for(const action of ['save','publish','unpublish'] as const) {
     app.post('/api/editor/'+action,async c=>{
@@ -471,16 +484,27 @@ export function createApp(config:Configuration={}) {
       return c.html(message('Report received','An operator can review your report.','/h/'+home.id,'Return to the creator page'),201);
     });
   }
-  app.get('/h/:homeId',async c=>{
-    const db=requirePool(),home=await publicHome(db,c.req.param('homeId'));
-    const canonical=(origin??new URL(c.req.url).origin)+'/h/'+home.id;
+  async function renderPublicHome(c:Context,id:string,alias?:{handle:string;twitchSubject:string}) {
+    const db=requirePool(),home=await publicHome(db,id,alias?.twitchSubject);
+    const siteOrigin=origin??new URL(c.req.url).origin;
+    const homeUrl=siteOrigin+'/h/'+home.id;
+    const canonical=alias?siteOrigin+'/'+alias.handle:homeUrl;
+    const channel=await linkedChannel(db,home.owner_id,home.content);
+    const fixture=await liveState(home.id,config.demo?c.req.query('demo-live'):undefined);
+    const signal=fixture.live?fixture:channel?await activity!.get(channel,home.content.layout.spotlight.offlineLead==='clip'):fixture;
     const paid=pro?await publicPro(db,home.id,home.publication_id):null;
     if(paid&&!pro?.multipage) { paid.highlights=null; paid.recommendations=null; }
     const preview=await approvedPreview(db,home)??previewFields(home.content,{name:false,intro:false,image:false});
-    return c.html(renderHome(home.content,{now:clock(),liveState:await liveState(home.id,config.demo?c.req.query('demo-live'):undefined),report:'/h/'+home.id+'/report',homeId:home.id,pro:paid,notice:home.schedule_change,asset:id=>'/h/'+home.id+'/images/'+id,canonical,
+    if(channel) {
+      const current=await publicHome(db,id,channel.subject);
+      if(current.publication_id!==home.publication_id) throw unavailable();
+    }
+    return c.html(renderHome(home.content,{now:clock(),liveState:signal,refreshActivity:Boolean(channel),
+      report:'/h/'+home.id+'/report',homeId:home.id,pro:paid,notice:home.schedule_change,asset:id=>'/h/'+home.id+'/images/'+id,canonical,
       metadata:{title:preview.title,description:preview.description,
-        image:preview.coverId?canonical+'/share-image/'+home.publication_id:undefined}}));
-  });
+        image:preview.coverId?homeUrl+'/share-image/'+home.publication_id:undefined}}));
+  }
+  app.get('/h/:homeId',c=>renderPublicHome(c,c.req.param('homeId')));
 
   if(pro?.multipage) app.get('/h/:homeId/p/:pageId',async c=>{
     const db=requirePool(),home=await publicHome(db,c.req.param('homeId')),page=c.req.param('pageId');
@@ -586,6 +610,9 @@ export function createApp(config:Configuration={}) {
       sessions:quiet?[]:[{id:randomUUID(),title:'Surface route practice',local:future.toISOString().slice(0,16),zone:'UTC',offset:'+00:00',instant:future.toISOString()}]};
     return c.html(renderHome(content,{now:clock(),asset:()=>'',demo:true,liveState:await liveState('demo',c.req.query('demo-live'))}));
   });
+  for(const [handle,alias] of config.aliases??[]) {
+    app.get('/'+handle,c=>renderPublicHome(c,alias.homeId,{handle,twitchSubject:alias.twitchSubject}));
+  }
   app.notFound(c=>c.html(message('This home is not available','The requested page is unavailable.'),404));
   return app;
 }

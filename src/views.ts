@@ -34,8 +34,8 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js?v=2" defer></script>`:''}
     ${options.cardLayout?html`<script src="/assets/card-layout.js?v=1" defer></script>`:''}
-    ${options.script?html`<script type="module" src="/assets/editor.js?v=aura" defer></script>`:''}
-    ${options.aura?html`<script src="/assets/aura.js" defer></script>`: ''}
+    ${options.script?html`<script type="module" src="/assets/editor.js?v=twitch-activity" defer></script>`:''}
+    ${options.aura?html`<script src="/assets/aura.js?v=twitch-activity" defer></script>`: ''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
@@ -180,7 +180,7 @@ function scheduleSlot(slot:SessionSlot) {
     <div><dt>Time zone</dt><dd>${slot.zone} (${slot.offset})</dd></div></dl></div>`;
 }
 
-export function renderHome(content:HomeContent|EditableHome,options:{now:number;liveState?:LiveState;asset:(id:string)=>string;canonical?:string;
+export function renderHome(content:HomeContent|EditableHome,options:{now:number;liveState?:LiveState;refreshActivity?:boolean;asset:(id:string)=>string;canonical?:string;
   preview?:boolean;embedded?:boolean;editCanvas?:boolean;phone?:boolean;review?:boolean;report?:string;demo?:boolean;pro?:ProContent|null;homeId?:string;proBase?:string;notice?:ScheduleChange|null;currentPage?:string;metadata?:{title:string;description:string;image?:string}}) {
   const layout='layout' in content?content.layout:defaultLayout(options.homeId??'demo');
   const pro=options.pro, page=options.currentPage;
@@ -205,11 +205,15 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
   const featured=layout.spotlight.offlineLead==='link'
     ? content.links.find(link=>link.url===layout.spotlight.offlineLink) : undefined;
   const next=sessions[0];
-  const lead=live ? html`<p class="micro on-air">ON AIR</p><h2>Live now</h2>
-    ${viewers===undefined?'':html`<p class="spotlight-meta"><span data-viewer-count="${viewers}"${options.liveState?.fixtureViewers===undefined?'':html` data-fixture-viewers="${options.liveState.fixtureViewers}"`}>${viewers.toLocaleString('en-US')}</span> watching</p>`}`
-    : featured ? html`<p class="micro">FEATURED LINK</p><h2>${featured.label}</h2>`
+  const fallbackLead=featured ? html`<p class="micro">FEATURED LINK</p><h2>${featured.label}</h2>`
     : next ? html`<p class="micro">NEXT STREAM</p><h2>${next.title}</h2><p class="spotlight-meta"><time datetime="${next.instant}">${next.local.replace('T',' ')} ${next.zone} (${next.offset})</time></p>`
     : html`<p class="micro">SPOTLIGHT</p>`;
+  const clip=layout.spotlight.offlineLead==='clip'&&options.liveState?.verified?options.liveState.clip:undefined;
+  const lead=live ? html`<p class="micro on-air">ON AIR</p><h2>${options.liveState?.title||'Live now'}</h2>
+    ${viewers===undefined?'':html`<p class="spotlight-meta"><span data-viewer-count="${viewers}"${options.liveState?.fixtureViewers===undefined?'':html` data-fixture-viewers="${options.liveState.fixtureViewers}"`}>${viewers.toLocaleString('en-US')}</span> watching</p>`}`
+    : clip ? html`<p class="micro">RECENT TWITCH CLIP</p><h2>${clip.title}</h2><p class="spotlight-meta">
+      <a href="${clip.url}">Watch the clip</a>${clip.views===undefined?'':html` · ${clip.views.toLocaleString('en-US')} views`}</p>`
+    : fallbackLead;
   // Keep the card frame and editor controls shared. Each family supplies only its content.
   const card = (family:string,key:string,label:string,body:ReturnType<typeof html>,dimensions?:FrameDimensions,
     movable=false,attributes?:ReturnType<typeof html>) =>
@@ -259,7 +263,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
     <canvas class="aura-field" aria-hidden="true" hidden></canvas>
     <article class="creator card-home" data-aura-home data-accent="${aura.accent??''}"
       data-font="${aura.font}" data-shape="${aura.shape}" data-frame="${aura.frame}" data-field="${aura.field}"
-      data-intensity="${aura.intensity}"${live&&aura.liveSurge?raw(' data-live-surge'):''} data-flair="${pro?.appearance??'original'}" ${options.editCanvas?raw('data-edit-canvas'):''}>
+      data-intensity="${aura.intensity}"${options.refreshActivity?raw(' data-refresh-activity'):''}${live&&aura.liveSurge?raw(' data-live-surge'):''} data-flair="${pro?.appearance??'original'}" ${options.editCanvas?raw('data-edit-canvas'):''}>
       ${card('identity','identity','Creator Identity',html`
         <div class="cover" data-focal-x="${identity.focalX}" data-focal-y="${identity.focalY}">${content.coverId?html`<img src="${options.asset(content.coverId)}" alt="" fetchpriority="high">`:options.demo?art:html`<div class="plain-cover"></div>`}</div>
         <div class="identity">
@@ -270,6 +274,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
         </div>
       `,identity,false,html` data-align="${identity.alignment}" data-avatar-size="${identity.avatarSize}" data-avatar-position="${identity.avatarPosition}"`)}
       ${content.streamUrl?card('spotlight','spotlight','Spotlight',html`
+        ${options.refreshActivity?html`<template data-activity-fallback data-action="${streamLabel(content.streamUrl)}">${fallbackLead}</template>`:''}
         ${live&&aura.liveSurge?html`<span class="aura-sweep" aria-hidden="true"></span>`:''}
         <div class="card-action-layout"><div class="spotlight-copy">${lead}</div><a class="button" href="${content.streamUrl}">${live?'Watch live':streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a></div>`,
         layout.spotlight,false,html` aria-label="Stream destination"`):''}
@@ -297,7 +302,7 @@ function editorOutlineButton(key:string,title:string,detail:string,fixed=false) 
   </button>`;
 }
 
-export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twitchLogin?:string,proEnabled=false) {
+export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twitchLogin?:string,proEnabled=false,clipsEnabled=false) {
   return frame('Edit your home',html`<div class="workspace editor-workspace" id="workspace" data-content="${JSON.stringify(state.content)}"
     data-home="${state.id}" data-csrf="${csrf}" data-revision="${state.draft_revision}" data-publication="${state.publication_id??''}" data-published-revision="${state.published_revision??''}" data-held="${state.held}">
     <header class="editor-toolbar">
@@ -402,7 +407,7 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
       <section data-inspector="spotlight" hidden><h2>Spotlight</h2><p class="editor-description">Send visitors to your primary stream.</p>
         <p id="spotlight-empty" hidden>Add a stream destination to show Spotlight on your Home.</p>
         <label for="streamUrl">Stream destination <small>HTTPS address</small></label><input id="streamUrl" type="url" maxlength="2048" value="${state.content.streamUrl}">
-        ${editorSelect('offlineLead','When offline, lead with',[['next','Next stream'],['link','Featured link']])}
+        ${editorSelect('offlineLead','When offline, lead with',[['next','Next stream'],['link','Featured link'],...(clipsEnabled?[['clip','Recent Twitch clip'] as const]:[])])}
         <div id="offline-link-field" hidden>${editorSelect('offlineLink','Featured link',[['','Choose a link from the Channel Dock']])}</div>
         ${editorSelect('spotlight-span','Preferred width',cardSpanOptions)}
         ${editorSelect('spotlight-minHeight','Minimum height',cardHeightOptions)}

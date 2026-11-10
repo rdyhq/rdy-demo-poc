@@ -124,7 +124,8 @@ function syncOfflineFields() {
       ...Array.from(links,([url,label])=>new Option(label,url)));
   }
   select.value=links.has(spotlight.offlineLink)?spotlight.offlineLink:'';
-  by('offlineLead').value=spotlight.offlineLead==='link'?'link':'next';
+  const lead=by('offlineLead');
+  lead.value=[...lead.options].some(option=>option.value===spotlight.offlineLead)?spotlight.offlineLead:'next';
   by('offline-link-field').hidden=spotlight.offlineLead!=='link';
 }
 
@@ -328,6 +329,7 @@ async function refreshCanvas() {
     const next=fresh.querySelector('[data-edit-canvas]');
     if(!next) return;
     patchEditCanvas(article,next);
+    article.toggleAttribute('data-live-surge',next.hasAttribute('data-live-surge'));
     for(const name of ['accent','font','shape','frame','field','intensity']) article.dataset[name]=next.dataset[name];
     article.ownerDocument.documentElement.dataset.theme=fresh.documentElement.dataset.theme;
     article.ownerDocument.title=fresh.title;

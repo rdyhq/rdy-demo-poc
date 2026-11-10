@@ -1,4 +1,4 @@
-export type LiveState = {live:boolean; verified:boolean; viewers?:number; fixtureViewers?:number};
+export type LiveState = {live:boolean; verified:boolean; viewers?:number; title?:string; clip?:{title:string;url:string;views?:number}; fixtureViewers?:number};
 
 export async function liveState(_homeId:string,fixture?:string,env=process.env):Promise<LiveState> {
   if(env.LOBBY_DEV_DIR&&env.LOBBY_DEMO==='1'&&fixture==='1') {
