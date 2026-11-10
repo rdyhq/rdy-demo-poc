@@ -116,7 +116,7 @@ export async function mutate(pool:pg.Pool,owner:string,action:'save'|'publish'|'
       const notice=scheduleChange(previousPublication?readHome(previousPublication.content,home.id):undefined,next,now,previousPublication?.schedule_change);
       publicationId=randomUUID();
       await client.query(`INSERT INTO publications(home_id,id,draft_revision,committed_at,content,pro_content,pro_grant,schedule_change)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,[home.id,publicationId,revision,new Date(now),saved.schemaVersion===2?writeHome(next):{...next,layout:undefined},pro,grant,notice]);
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,[home.id,publicationId,revision,new Date(now),saved.schemaVersion===2?writeHome(next):{...next,layout:undefined,aura:undefined},pro,grant,notice]);
       for(const page of [pro?.highlights,pro?.recommendations]) if(page) {
         await client.query('INSERT INTO pro_page_history(home_id,page_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[home.id,page.id]);
       }

@@ -1,3 +1,6 @@
+import { accentPalettes, adjustAccent } from './contrast.js';
+import { matchArtAccent } from './art-accent.js';
+
 const root = document.querySelector('#workspace');
 const by = (id) => document.getElementById(id);
 const form = by('home-form');
@@ -24,7 +27,7 @@ const blockPicker=by('block-picker');
 const blockSearch=by('block-search');
 const blockOptions=Array.from(blockPicker.querySelectorAll('[data-block]'));
 const promoCategories=blockOptions.filter(button=>button.dataset.block==='promo').map(button=>button.dataset.category);
-const fieldNames = {layout:'Card layout and supporting cards',scheduleRemoval:'Schedule removal notice',displayName:'Display name',intro:'Intro',game:'Current game',streamUrl:'Stream destination',theme:'Theme',avatarId:'Avatar',coverId:'Cover image'};
+const fieldNames = {layout:'Card layout and supporting cards',scheduleRemoval:'Schedule removal notice',displayName:'Display name',intro:'Intro',game:'Current game',streamUrl:'Stream destination',theme:'Theme',aura:'Aura',avatarId:'Avatar',coverId:'Cover image'};
 const layouts = {
   sessions:[['title','Session title','text',80],['local','Local date and time','datetime-local'],['zone','IANA time zone','text',90],['offset','UTC offset if the local time repeats','text',6]],
   updates:[['text','Update text','textarea',280]],
@@ -60,6 +63,134 @@ const actualSizeButton=by('preview-actual-size');
 const deviceWidths={phone:390,tablet:768,desktop:1024};
 const dockOutline=by('card-outline-supporting').querySelector('[data-edit-card=dock]');
 let drag;
+let matchingArt=false;
+let offlineOptionsKey;
+const auraControls=['font','shape','frame','field','intensity'];
+const auraPresets={
+  Cozy:{theme:'Ember',font:'grotesk',shape:'soft',frame:'clean',field:'drift',intensity:'calm'},
+  Retro:{theme:'Nebula',font:'pixel',shape:'square',frame:'pixel',field:'grid',intensity:'bold'},
+  'Night Ops':{theme:'Tide',font:'mono',shape:'square',frame:'hud',field:'stars',intensity:'calm'},
+};
+const artIds=()=>[content.avatarId,content.coverId].filter(Boolean);
+const auraPreview=by('aura-preview-motion');
+
+function auraNotice(message) {
+  const note=by('aura-note');
+  note.textContent=message;
+  note.hidden=!message;
+}
+
+function setAccent(requested,source) {
+  const accent=requested===null?null:adjustAccent(requested,accentPalettes[content.theme]);
+  content.aura.accent=accent;
+  content.aura.accentSource=source;
+  auraNotice(accent!==requested?'Adjusted for readability':'');
+  syncAuraFields();
+}
+
+function syncAuraFields() {
+  const {aura,theme}=content;
+  for(const radio of form.querySelectorAll('[name=theme]')) radio.checked=radio.value===theme;
+  for(const key of auraControls) by('aura-'+key).value=aura[key];
+  by('aura-liveSurge').checked=aura.liveSurge;
+  by('aura-accent').value=aura.accent??accentPalettes[theme].accent;
+  for(const button of form.querySelectorAll('[data-aura-swatch]')) {
+    const {auraSwatch:swatch}=button.dataset;
+    const pressed=swatch?aura.accentSource==='swatch'&&aura.accent===adjustAccent(swatch,accentPalettes[theme]):aura.accentSource==='theme';
+    button.setAttribute('aria-pressed',String(pressed));
+  }
+  for(const button of form.querySelectorAll('[data-aura-preset]')) {
+    const {theme:expected,...values}=auraPresets[button.dataset.auraPreset];
+    const pressed=theme===expected&&aura.accentSource==='theme'&&aura.liveSurge&&
+      Object.entries(values).every(([key,value])=>aura[key]===value);
+    button.setAttribute('aria-pressed',String(pressed));
+  }
+}
+
+function syncOfflineFields() {
+  const spotlight=content.layout.spotlight;
+  const select=by('offlineLink');
+  const links=new Map();
+  for(const link of content.links) {
+    try {
+      const url=new URL(link.url);
+      if(url.protocol==='https:'&&!url.username&&!url.password) links.set(url.href,link.label.trim()||url.hostname);
+    } catch {}
+  }
+  const key=JSON.stringify([...links]);
+  if(key!==offlineOptionsKey) {
+    offlineOptionsKey=key;
+    select.replaceChildren(new Option('Choose a link from the Channel Dock',''),
+      ...Array.from(links,([url,label])=>new Option(label,url)));
+  }
+  select.value=links.has(spotlight.offlineLink)?spotlight.offlineLink:'';
+  by('offlineLead').value=spotlight.offlineLead==='link'?'link':'next';
+  by('offline-link-field').hidden=spotlight.offlineLead!=='link';
+}
+
+function syncAuraPreview(article=canvasArticle()) {
+  if(!article) return;
+  article.toggleAttribute('data-preview-reduced',auraPreview.checked);
+  article.dispatchEvent(new Event('aura-update'));
+}
+
+for(const radio of form.querySelectorAll('[name=theme]')) radio.addEventListener('input',()=>{
+  content.theme=radio.value;
+  setAccent(content.aura.accent,content.aura.accentSource);
+});
+for(const key of auraControls) by('aura-'+key).addEventListener('input',event=>{
+  content.aura[key]=event.target.value;
+  syncAuraFields();
+});
+by('aura-liveSurge').addEventListener('input',event=>{
+  content.aura.liveSurge=event.target.checked;
+  syncAuraFields();
+});
+for(const button of form.querySelectorAll('[data-aura-preset]')) button.addEventListener('click',()=>{
+  const {theme,...values}=auraPresets[button.dataset.auraPreset];
+  content.theme=theme;
+  Object.assign(content.aura,values,{liveSurge:true});
+  setAccent(null,'theme');
+  changed();
+});
+for(const button of form.querySelectorAll('[data-aura-swatch]')) button.addEventListener('click',()=>{
+  const swatch=button.dataset.auraSwatch;
+  setAccent(swatch||null,swatch?'swatch':'theme');
+  changed();
+});
+by('aura-accent').addEventListener('change',event=>{
+  setAccent(event.target.value,'custom');
+  changed();
+});
+by('aura-match').addEventListener('click',async()=>{
+  const ids=artIds();
+  if(!ids.length||matchingArt) return;
+  const before=content.aura.accent, theme=content.theme;
+  matchingArt=true;
+  auraNotice('Sampling your art…');
+  updateControls();
+  try {
+    const match=await matchArtAccent(ids);
+    if(content.theme!==theme||content.aura.accent!==before||ids.join(',')!==artIds().join(',')) {
+      if(by('aura-note').textContent==='Sampling your art…') auraNotice('');
+    } else if(match) {
+      setAccent(match,'art');
+      changed();
+    } else auraNotice('Your art has no vivid color to match. Choose an accent instead.');
+  } catch {
+    auraNotice('Could not read the images. Try again or choose an accent.');
+  } finally {
+    matchingArt=false;
+    updateControls();
+  }
+});
+auraPreview.addEventListener('input',()=>syncAuraPreview());
+by('offlineLead').addEventListener('input',event=>{
+  content.layout.spotlight.offlineLead=event.target.value;
+});
+by('offlineLink').addEventListener('input',event=>{
+  content.layout.spotlight.offlineLink=event.target.value||null;
+});
 
 function updateControls() {
   const blocked=busy||uploading>0;
@@ -84,6 +215,10 @@ function updateControls() {
   by('revision-label').textContent='Draft revision '+revision;
   by('publish-help').textContent=retry?'Resolve the previous attempt first.':conflicted?'Compare the current draft first.':dirty||!revision?'Save changes before you publish.':'The saved revision is ready to publish.';
   for(const input of form.querySelectorAll('input[type=file]')) input.disabled=writesBlocked;
+  for(const button of form.querySelectorAll('[data-aura-preset], [data-aura-swatch]')) button.disabled=blocked;
+  const hasArt=artIds().length>0;
+  by('aura-match').disabled=writesBlocked||matchingArt||!hasArt;
+  by('aura-match-help').textContent=hasArt?'Sample the colors in your avatar and cover.':'Add an avatar or cover to match its colors.';
   by('retry').disabled=writesBlocked;
   for(const button of form.querySelectorAll('[data-add]')) {
     button.disabled=blocked||!canAddBlock(button.dataset.add);
@@ -104,6 +239,7 @@ function updatePreview() {
   }
   by('spotlight-empty').hidden=Boolean(content.streamUrl.trim());
   by('dock-empty').hidden=content.links.length>0;
+  syncOfflineFields();
 
 }
 
@@ -151,6 +287,7 @@ function syncCanvasMode(article) {
   article.dataset.canvasMode=canvasMode;
   for(const body of article.querySelectorAll('[data-canvas-body]')) body.inert=editing;
   article.ownerDocument.querySelector('.creator-credit').hidden=editing;
+  syncAuraPreview(article);
 }
 
 function editContentKey(value) {
@@ -191,6 +328,7 @@ async function refreshCanvas() {
     const next=fresh.querySelector('[data-edit-canvas]');
     if(!next) return;
     patchEditCanvas(article,next);
+    for(const name of ['accent','font','shape','frame','field','intensity']) article.dataset[name]=next.dataset[name];
     article.ownerDocument.documentElement.dataset.theme=fresh.documentElement.dataset.theme;
     article.ownerDocument.title=fresh.title;
     renderedEditKey=key;
@@ -611,7 +749,8 @@ function loadValues(values) {
   content=clone({...values,scheduleRemoval:values.scheduleRemoval??'unknown'});
   by('scheduleRemoval').value=content.scheduleRemoval??'unknown';
   for (const key of fields) by(key).value=content[key];
-  for (const radio of form.querySelectorAll('[name=theme]')) radio.checked=radio.value===content.theme;
+  syncAuraFields();
+  auraNotice('');
   for (const key of ['avatarId','coverId']) {
     const status=by(key+'-state');
     if(status) status.textContent=content[key]?'Image ready.':'No image selected.';
@@ -901,7 +1040,7 @@ by('compare-dialog').addEventListener('close',event=>{
 function submitPreview(target,width,payload,mode) {
   const preview=document.createElement('form');
   preview.method='post';
-  preview.action='/editor/preview';
+  preview.action='/editor/preview'+(!mode&&auraPreview.checked?'#reduce-motion':'');
   preview.target=target;
   for(const [name,value] of Object.entries({csrf,width,content:payload,embedded:mode?'1':'0',mode:mode??'visitor'})) {
     const input=document.createElement('input');
