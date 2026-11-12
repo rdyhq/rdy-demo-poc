@@ -17,6 +17,7 @@ import { cardColumns, cardHeights, cardSpans, channelPlatform, normalizeHome, pl
 import { liveState } from './live-state.ts';
 import { TwitchActivity, type TwitchActivityConfig, type TwitchChannel } from './twitch-activity.ts';
 import { acceptHandle, handleOffer, homeHandle, resolveHandle } from './handles.ts';
+import { describeFailure } from './failure.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
@@ -41,7 +42,7 @@ const editorScript=readFileSync(new URL('./public/editor.js',import.meta.url),'u
 const cardLayoutScript=readFileSync(new URL('./public/card-layout.js',import.meta.url),'utf8');
 const previewScript=readFileSync(new URL('./public/preview.js',import.meta.url),'utf8');
 const verifyScript=readFileSync(new URL('./public/verify.js',import.meta.url),'utf8');
-const auraScripts=new Map(['aura','contrast','art-accent','handoff'].map(name=>[
+const auraScripts=new Map(['aura','contrast','art-accent','handoff','editor-support'].map(name=>[
   name+'.js',readFileSync(new URL('./public/'+name+'.js',import.meta.url),'utf8'),
 ]));
 const fonts=new Map(['inter','bricolage-grotesque','unbounded','jetbrains-mono','silkscreen'].map(name=>[
@@ -187,7 +188,7 @@ export function createApp(config:Configuration={}) {
     const status=known?error.status:503;
     const text=known?error.message:'LINB could not complete this request. Please try again.';
     const requestId=randomUUID();
-    if(!known) console.error('LINB request failed',requestId);
+    if(!known) console.error('LINB request failed',requestId,describeFailure(error));
     if(c.req.path.startsWith('/api/')) return c.json({code:known?error.code:'temporarily_unavailable',message:text,
       requestId,...(known&&error.fields?{fields:error.fields}:{})},status as 401);
     return c.html(message(status===404?'This home is not available':status===401?'Sign in again':'LINB could not complete this request',
@@ -354,9 +355,10 @@ export function createApp(config:Configuration={}) {
       if(!state.publication_id) throw unavailable();
       const draft=await proDraft(db,state.id);
       const content=normalizePro(fields,draft,pro.multipage);
-      const saved=await db.query('UPDATE pro_drafts SET content=$1,revision=revision+1 WHERE home_id=$2 AND revision=$3',
-        [content,state.id,Number(fields.version)]);
-      if(!saved.rowCount) throw new AppError(409,'conflict','The Pro draft changed. Reopen it before saving.');
+      const version=typeof fields.version==='string'&&/^\d{1,9}$/.test(fields.version)?Number(fields.version):null;
+      const saved=version===null?null:await db.query('UPDATE pro_drafts SET content=$1,revision=revision+1 WHERE home_id=$2 AND revision=$3',
+        [content,state.id,version]);
+      if(!saved?.rowCount) throw new AppError(409,'conflict','The Pro draft changed. Reopen it before saving.');
       return c.redirect('/editor/pro?review=1',303);
     });
     for(const kind of ['preview','free-preview'] as const) app.post('/editor/pro/'+kind,async c=>{
