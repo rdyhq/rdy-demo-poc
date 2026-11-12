@@ -50,6 +50,7 @@ const twitch=LINB_TWITCH==='1'?{clientId:TWITCH_CLIENT_ID!,clientSecret:TWITCH_C
 if(LINB_TWITCH_ACTIVITY==='1'&&(!TWITCH_CLIENT_ID||!TWITCH_CLIENT_SECRET)) {
   throw new Error('Twitch activity requires app credentials.');
 }
+if(!mail&&twitch) console.error('LINB has no mail service. Sign-in is by Twitch only, and operators cannot sign in.');
 const twitchActivity=LINB_TWITCH_ACTIVITY==='1'?{clientId:TWITCH_CLIENT_ID!,clientSecret:TWITCH_CLIENT_SECRET!}:undefined;
 const {LINB_STRIPE_TEST,STRIPE_TEST_SECRET,STRIPE_TEST_PRICE,STRIPE_TEST_WEBHOOK_SECRET}=process.env;
 if(LINB_STRIPE_TEST==='1'&&(!STRIPE_TEST_SECRET||!STRIPE_TEST_PRICE||!STRIPE_TEST_WEBHOOK_SECRET)) {

@@ -74,7 +74,9 @@ export function createApp(config:Configuration={}) {
   const contact=mailbox(config.reportContact)??undefined;
   const pool=config.pool;
   const objects=config.objects??null;
-  const auth=pool&&config.mail&&origin?new Auth(pool,config.mail,origin,Boolean(config.twitch),config.readOnlyHomes):null;
+  // With no mail service, Twitch is the only way to sign in. With neither, nobody signs in.
+  const mailOn=Boolean(config.mail);
+  const auth=pool&&origin&&(config.mail||config.twitch)?new Auth(pool,config.mail??null,origin,Boolean(config.twitch),config.readOnlyHomes):null;
   const twitch=pool&&auth&&origin&&config.twitch?new Twitch(pool,config.twitch,origin,Boolean(config.openSignup)):null;
   const billing=pool&&auth&&origin&&config.billing?new Billing(pool,origin,config.billing):null;
   const twitchState=secure?'__Host-linb-twitch':'linb-twitch';
@@ -316,8 +318,10 @@ export function createApp(config:Configuration={}) {
     if(!bytes) throw unavailable();
     return sendImage(bytes);
   });
-  app.get('/sign-in',c=>c.html(signInPage({sent:c.req.query('sent')==='1',twitch:Boolean(twitch),state:c.req.query('twitch')})));
-  app.get('/ops/sign-in',c=>c.html(signInPage({operator:true,sent:c.req.query('sent')==='1'})));
+  // The email form shows with a mail service. It also shows when nothing is set up, as before.
+  const emailForm=mailOn||!auth;
+  app.get('/sign-in',c=>c.html(signInPage({sent:emailForm&&c.req.query('sent')==='1',twitch:Boolean(twitch),state:c.req.query('twitch'),email:emailForm})));
+  app.get('/ops/sign-in',c=>c.html(signInPage({operator:true,sent:emailForm&&c.req.query('sent')==='1',email:emailForm})));
   for(const [path,kind] of [['/sign-in','login'],['/ops/sign-in','operator']] as const) {
     app.post(path,async c=>{
       sameOrigin(c);
@@ -336,6 +340,8 @@ export function createApp(config:Configuration={}) {
     app.post('/account/twitch',async c=>{
       const creator=await principal(c,'creator'),fields=await c.req.parseBody(),sid=cookie(c)!;
       checkCsrf(c,fields.csrf);
+      // A change of the connection needs a fresh proof of the mailbox. Without mail there is none.
+      if(!mailOn) throw new AppError(503,'mail_unavailable','The Twitch connection cannot change here. Email is not set up.');
       if(!await twitch.recentEmail(sid,creator)) return c.redirect('/account?twitch=verify',303);
       if(fields.action==='unlink') {
         await twitch.unlink(creator);
@@ -388,8 +394,8 @@ export function createApp(config:Configuration={}) {
     const home=await db.query<{id:string}>('SELECT id FROM homes WHERE owner_id=$1',[creator]);
     const host=new URL(origin??c.req.url).host;
     const current=home.rows[0]?await homeHandle(db,home.rows[0].id):null,offer=(await handleOffer(db,creator))?.handle;
-    return c.html(accountTab(await editorView(c,creator),{email:rows[0].mailbox,change:change.rows[0],contact:contact??null,
-      notice:c.req.query('sent')==='1'?'Check both mailboxes for verification links.':undefined,
+    return c.html(accountTab(await editorView(c,creator),{email:rows[0].mailbox,change:change.rows[0],contact:contact??null,mail:mailOn,
+      notice:mailOn&&c.req.query('sent')==='1'?'Check both mailboxes for verification links.':undefined,
       twitch:connection?{linked:Boolean(connection.rowCount),login:connection.rows[0]?.login,status:c.req.query('twitch')}:undefined,billing:Boolean(billing),
       handle:{current:current?host+'/'+current:null,offer:offer?host+'/'+offer:null}}));
   });

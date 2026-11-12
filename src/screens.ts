@@ -95,23 +95,27 @@ export function liveStep(options:{address:string;path:string}) {
 }
 
 // Sign-in: Twitch first for a creator, then the one-time link by email.
-export function signInPage(options:{operator?:boolean;sent?:boolean;twitch?:boolean;state?:string}) {
+// `email` is false when the deployment has no mail service: Twitch is then the only way to sign in.
+export function signInPage(options:{operator?:boolean;sent?:boolean;twitch?:boolean;state?:string;email?:boolean}) {
+  const email=options.email!==false;
   const action=options.operator?'/ops/sign-in':'/sign-in';
-  const note=options.state==='mailbox'?'Twitch knows you. Sign in with the email of your linb.io account to connect it.'
-    :options.state==='retry'?'Twitch did not complete the sign-in. Try again or use your email.'
+  const note=options.state==='mailbox'?(email?'Twitch knows you. Sign in with the email of your linb.io account to connect it.'
+      :'The email of this Twitch account already has a linb.io page. Sign in with the Twitch account of that page.')
+    :options.state==='retry'?(email?'Twitch did not complete the sign-in. Try again or use your email.':'Twitch did not complete the sign-in. Try again.')
     :options.state==='email'?'Twitch gave no verified email. Verify your email at Twitch, then try again.':'';
-  const twitch=options.twitch&&!options.operator&&options.state!=='mailbox';
+  const twitch=options.twitch&&!options.operator&&(options.state!=='mailbox'||!email);
   return screen(options.operator?'Operator sign-in':'Sign in',html`${top(false)}
     <h1>${options.sent?'Check your mailbox':options.operator?'Operator sign-in':'Sign in'}</h1>
     ${options.sent?html`<p class="app-lead">If this mailbox can use LINB, a sign-in link is on its way. Look in your spam folder if it does not arrive.</p>
       <a class="app-secondary" href="${action}">Send another link</a>`
     :html`${note?html`<p class="app-note" role="alert">${note}</p>`:''}
-      ${twitch?html`<form method="post" action="/auth/twitch"><button class="app-twitch">Continue with Twitch</button></form><p class="app-or">or</p>`:''}
-      <form class="app-claim" method="post" action="${action}">
+      ${twitch?html`<form method="post" action="/auth/twitch"><button class="app-twitch">Continue with Twitch</button></form>${email?html`<p class="app-or">or</p>`:''}`:''}
+      ${email?html`<form class="app-claim" method="post" action="${action}">
         <label class="app-field" for="mailbox"><input id="mailbox" name="mailbox" aria-label="Email address" autocomplete="email" type="email" maxlength="254" required placeholder="you@example.com"></label>
         <button>Email me a sign-in link</button>
       </form>
-      <p class="app-fine">The link works once. It signs you in on this device.</p>`}`);
+      <p class="app-fine">The link works once. It signs you in on this device.</p>`
+      :options.operator?html`<p class="app-lead">Operator sign-in needs the mail service. It is not set up.</p>`:''}`}`);
 }
 
 // The link from the email opens this screen. The script puts the token of the link into the form.

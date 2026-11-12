@@ -6,6 +6,7 @@ import { createCreator } from './homes.ts';
 import { AppError, conflict, digest, invalid, mailbox, secret, tokenPattern } from './domain.ts';
 
 export type SendMail = (to: string, subject: string, text: string) => Promise<void>;
+const noMail=()=>new AppError(503,'mail_unavailable','Email is not set up here. Sign in with Twitch.');
 type Purpose = 'login' | 'operator' | 'mailbox-old' | 'mailbox-new';
 type Principal = { creator_id: string | null; operator_id: string | null };
 const badProof=()=>new AppError(410,'invalid_proof','This link is not valid. Request a new link.');
@@ -42,11 +43,12 @@ async function session(client: pg.PoolClient,creator: string|null,operator: stri
 
 export class Auth {
   pool: pg.Pool;
-  send: SendMail;
+  // Null when the deployment has no mail service. Twitch is then the only way to sign in.
+  send: SendMail|null;
   origin: string;
   twitchEnabled: boolean;
   readOnlyHomes: boolean;
-  constructor(pool: pg.Pool,send: SendMail,origin: string,twitchEnabled=false,readOnlyHomes=false) {
+  constructor(pool: pg.Pool,send: SendMail|null,origin: string,twitchEnabled=false,readOnlyHomes=false) {
     this.pool=pool;
     this.send=send;
     this.origin=origin;
@@ -55,6 +57,7 @@ export class Auth {
   }
 
   async requestLink(raw: unknown,ip: string,kind: 'login'|'operator') {
+    if (!this.send) throw noMail();
     const email=mailbox(raw);
     if (!email) return;
     const proof=await transaction(this.pool,async client=>{
@@ -76,6 +79,7 @@ export class Auth {
   }
 
   deliver(email: string,subject: string,token: string) {
+    if (!this.send) return;
     const message='Open this link, then select Confirm access. The link expires in 15 minutes.\n\n'+
       this.origin+'/verify#token='+token+'\n\nIf you did not request access, ignore this email.';
     void this.send(email,subject,message).catch(()=>console.error('LINB email delivery failed.'));
@@ -138,6 +142,7 @@ export class Auth {
   }
 
   async startChange(creator: string,raw: unknown,replace=false) {
+    if (!this.send) throw noMail();
     const next=mailbox(raw);
     if (!next) throw invalid('mailbox','Enter a complete mailbox address.');
     const result=await transaction(this.pool,async client=>{
