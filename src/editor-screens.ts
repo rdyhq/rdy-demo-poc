@@ -93,6 +93,14 @@ export function pageTab(view:EditorView) {
         <label for="ed-zone">Time zone</label><select id="ed-zone" name="zone"${zone?'':html` data-zone="auto"`}>${zones.map(name=>
           html`<option value="${name}"${name===(zone??'UTC')?html` selected`:''}>${name}</option>`)}</select>
         <button>Add session</button></form></details>
+    <h2>Updates</h2>
+    <ul class="ed-list">${content.updates.map(update=>html`<li class="ed-row ed-link"><span>${update.text}</span>
+      <form method="post" action="/editor/updates">${hidden(csrf)}<input type="hidden" name="id" value="${update.id}">
+        <button name="action" value="remove" aria-label="Remove this update">✕</button></form></li>`)}</ul>
+    ${content.updates.length<3?html`<details class="ed-row ed-more-form"><summary>Add an update</summary>
+      <form class="ed-profile" method="post" action="/editor/updates">${hidden(csrf)}<input type="hidden" name="action" value="add">
+        <label for="ed-update">A short note for your fans</label><textarea id="ed-update" name="text" required maxlength="280" rows="3"></textarea>
+        <button>Add update</button></form></details>`:html`<p class="ed-fine">Three updates at most. Take one off to add another.</p>`}
     <h2>Offline card</h2>
     <form class="ed-row ed-lead" method="post" action="/editor/lead">${hidden(csrf)}
       <label for="ed-lead">While you are offline, your card leads with</label>

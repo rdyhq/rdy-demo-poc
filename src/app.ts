@@ -509,6 +509,17 @@ export function createApp(config:Configuration={}) {
         scheduleRemoval:fields.action==='cancel'?'cancelled':'unknown'});
     } else throw invalid('action','Choose an action.');
   });
+  // The creator adds a short update, or takes one off. The newest comes first. The first publication gives an update its date.
+  editorAction('/editor/updates',pageTab,'/editor',async(owner,state,fields)=>{
+    const updates=state.content.updates.map(({id,text})=>({id,text}));
+    if(fields.action==='add') updates.unshift({id:randomUUID(),text:fields.text as string});
+    else if(fields.action==='remove') {
+      const at=updates.findIndex(update=>update.id===fields.id);
+      if(at<0) throw invalid('id','Choose one of your updates.');
+      updates.splice(at,1);
+    } else throw invalid('action','Choose an action.');
+    await saveDraft(owner,state,{...state.content,updates} as EditableHome);
+  });
   // The creator chooses what leads the card while offline (RDY D-6DX8J): the next stream, the latest clip or one of the links.
   editorAction('/editor/lead',pageTab,'/editor',async(owner,state,fields)=>{
     const layout=structuredClone(state.content.layout), lead=typeof fields.lead==='string'?fields.lead:'';

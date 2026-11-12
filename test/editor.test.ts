@@ -160,6 +160,39 @@ test('the editor is a list with a preview, and each change saves by itself',{ski
       assert.doesNotMatch(await (await get('/editor/view',nova)).text(),/class="pg-h">Schedule/);
     });
 
+    await t.test('the creator adds an update and takes one off',async()=>{
+      const stored=async()=>(await draft()).content.updates as {id:string;text:string}[];
+      const add=(text:string)=>send('/editor/updates',{action:'add',text});
+      const tab=await (await get('/editor',nova)).text();
+      assert.match(tab,/<h2>Updates<\/h2>/);
+      assert.match(tab,/<details class="ed-row ed-more-form"><summary>Add an update<\/summary>/);
+      assert.equal((await add('Back on Saturday with a new route.')).status,303);
+      assert.deepEqual((await stored()).map(update=>update.text),['Back on Saturday with a new route.']);
+      assert.match(await (await get('/editor',nova)).text(),/<li class="ed-row ed-link"><span>Back on Saturday with a new route\.<\/span>/);
+      assert.match(await (await get('/editor/view',nova)).text(),/class="pg-h">Updates.*Back on Saturday with a new route\./s);
+      // The newest update comes first. Three updates at most.
+      assert.equal((await add('Second note')).status,303);
+      assert.equal((await add('Third note')).status,303);
+      const three=await stored();
+      assert.deepEqual(three.map(update=>update.text),['Third note','Second note','Back on Saturday with a new route.']);
+      const full=await (await get('/editor',nova)).text();
+      assert.doesNotMatch(full,/Add an update/);
+      assert.match(full,/<p class="ed-fine">Three updates at most\. Take one off to add another\.<\/p>/);
+      assert.equal((await add('Fourth note')).status,422);
+      assert.equal((await send('/editor/updates',{action:'remove',id:three[1].id})).status,303);
+      assert.deepEqual((await stored()).map(update=>update.text),['Third note','Back on Saturday with a new route.']);
+      // An update has 1 to 280 characters.
+      for(const text of ['','x'.repeat(281)]) {
+        const refused=await add(text);
+        assert.equal(refused.status,422);
+        assert.match(await refused.text(),/role="alert">/);
+      }
+      assert.equal((await send('/editor/updates',{action:'remove',id:randomUUID()})).status,422);
+      assert.equal((await send('/editor/updates',{action:'edit',id:three[0].id})).status,422);
+      for(const update of await stored()) assert.equal((await send('/editor/updates',{action:'remove',id:update.id})).status,303);
+      assert.doesNotMatch(await (await get('/editor/view',nova)).text(),/class="pg-h">Updates/);
+    });
+
     await t.test('the creator sets and removes the avatar and the banner',async()=>{
       const png=await sharp({create:{width:300,height:300,channels:3,background:'#190838'}}).png().toBuffer();
       const form=new FormData();
