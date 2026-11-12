@@ -94,6 +94,7 @@ a { color:inherit; }
 .ed-row { display:flex; flex-wrap:wrap; align-items:center; gap:10px 12px; margin:0 0 8px; padding:14px 16px; border:1px solid #ECEAE5; border-radius:16px; background:#fff; }
 .ed-profile { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
 .ed-profile label, .ed-art-row label { font-size:13.5px; font-weight:600; color:var(--soft); }
+.ed-profile .app-select { min-height:46px; padding:8px 12px; border-radius:12px; font-size:16px; }
 .ed input:not([type=file],[type=radio],[type=hidden],[type=checkbox]), .ed textarea { width:100%; min-height:46px; padding:10px 12px; border:1.5px solid var(--line); border-radius:12px; background:#fff; color:var(--ink); font:500 16px/1.4 Inter,system-ui,sans-serif; }
 .ed textarea { resize:vertical; }
 .ed-profile button { justify-self:start; margin-top:8px; }
@@ -126,6 +127,7 @@ a { color:inherit; }
 .ed-stack { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; justify-items:start; }
 .ed-stack p, .ed-stack h2, .ed-stack h3 { margin:0; }
 .ed-stack h3 { font-size:16px; }
+.ed-stack > .ed-profile, .ed-stack > .ed-inline { justify-self:stretch; }
 .ed-inline { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; width:100%; }
 .ed-inline input[type=email] { flex:1 1 220px; width:auto; }
 .ed-check { display:flex; align-items:center; gap:8px; font-size:15px; }

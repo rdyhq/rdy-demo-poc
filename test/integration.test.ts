@@ -64,6 +64,11 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal(issued.status,303,await issued.clone().text());
       const enrollment=await (await get('/ops/invites',operator)).text();
       assert.match(enrollment,/Mira synthetic/);
+      // The operator screens have the look of the app.
+      assert.match(enrollment,/<body class="ed">/);
+      assert.match(enrollment,/<nav class="ed-tabs" aria-label="Operator"><a href="\/ops">Cases<\/a><a href="\/ops\/invites" aria-current="page">Invitations<\/a><\/nav>/);
+      assert.match(enrollment,/<h1>Invitations<\/h1>/);
+      assert.doesNotMatch(enrollment,/lobby\.css|class="panel|RESTRICTED WORKSPACE/);
       assert.ok(!enrollment.includes(creator));
       assert.equal((await post('/sign-in',{mailbox:'Mira@EXAMPLE.TEST'})).status,303);
       const proof=token(creator)!;
@@ -127,7 +132,9 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const file=await get(calendarPath);
       assert.equal(file.status,410);
       assert.match(file.headers.get('content-type')!,/^text\/html/);
-      assert.match(await file.text(),/Calendar downloads have ended.*Open creator page/s);
+      const ended=await file.text();
+      assert.match(ended,/<h1>Calendar downloads have ended<\/h1><p class="app-lead">Open the creator’s page for their latest links and schedule\.<\/p><a class="app-secondary" href="\/h\/[0-9a-f-]+">Open creator page<\/a>/);
+      assert.doesNotMatch(ended,/lobby\.css/);
       for(const publicPath of ['/h/'+id,imagePath,calendarPath]) {
         const forwarded=await app.request('https://l1nb.io'+publicPath+'?token=drop');
         assert.equal(forwarded.status,308);
@@ -161,13 +168,25 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal((await post(path,fields,'','https://other.example')).status,403);
       assert.equal((await post(path,fields)).status,201);
       assert.doesNotMatch(await (await get('/h/'+id)).text(),/Synthetic report/);
-      assert.match(await (await get('/ops',operator)).text(),/Synthetic report visible only to operators/);
+      const inbox=await (await get('/ops',operator)).text();
+      assert.match(inbox,/Synthetic report visible only to operators/);
+      assert.match(inbox,/<body class="ed">/);
+      assert.match(inbox,/<nav class="ed-tabs" aria-label="Operator"><a href="\/ops" aria-current="page">Cases<\/a><a href="\/ops\/invites">Invitations<\/a><\/nav>/);
+      assert.match(inbox,/<h1>Cases<\/h1>/);
+      assert.match(inbox,/<form method="post" action="\/ops\/logout"><input type="hidden" name="csrf" value="[0-9a-f]+"><button class="ed-quiet">Sign out<\/button><\/form>/);
+      assert.doesNotMatch(inbox,/lobby\.css|class="panel|RESTRICTED WORKSPACE/);
     });
     await t.test('hold authorization, stale review, and unpublish cannot expose the home',async()=>{
       assert.equal((await get('/api/editor',operator)).status,401);
       const opened=await post('/ops/cases',{csrf:csrf(operator),homeId:id,reviewer,reason:'Private contact information',evidence:'Synthetic exposure fixture.'},operator);
       assert.equal(opened.status,303,await opened.clone().text());
       const path=opened.headers.get('Location')!;
+      const casePage=await (await get(path,operator)).text();
+      assert.match(casePage,/<body class="ed">/);
+      assert.match(casePage,/<h1>Private contact information<\/h1>/);
+      assert.match(casePage,/<button>Apply visibility hold<\/button>/);
+      assert.match(casePage,/<h2>Audit events<\/h2>/);
+      assert.doesNotMatch(casePage,/lobby\.css|class="panel|RESTRICTED CASE/);
       const act=(action:string,cookie:string,pub='',reason='')=>post(path+'/'+action,{
         csrf:csrf(cookie),operationId:randomUUID(),publicationId:pub,reason,
       },cookie);

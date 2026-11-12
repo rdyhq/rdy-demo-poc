@@ -28,7 +28,8 @@ import { buildingPage, confirmPage, landingPage, leavingPage, linksStep, liveSte
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
-import { invitesPage, leaderboardDemo, proEditor, opsCase, opsPage, renderHome, retiredCalendar } from './views.ts';
+import { leaderboardDemo, proEditor, renderHome } from './views.ts';
+import { invitesPage, opsCase, opsPage } from './ops-screens.ts';
 
 const stylesheet=[
   readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8'),
@@ -800,7 +801,7 @@ export function createApp(config:Configuration={}) {
     const file=c.req.param('file');
     if(!file.endsWith('.ics')||!uuidPattern.test(file.slice(0,-4))||!uuidPattern.test(c.req.param('sessionId'))) throw unavailable();
     const home=await publicHome(requirePool(),c.req.param('homeId'));
-    return c.html(retiredCalendar(home.id),410);
+    return c.html(messagePage('Calendar downloads have ended','Open the creator’s page for their latest links and schedule.','/h/'+home.id,'Open creator page'),410);
   });
   app.get('/h/:homeId/images/:id',async c=>{
     const db=requirePool(),home=await publicHome(db,c.req.param('homeId')),id=c.req.param('id');
