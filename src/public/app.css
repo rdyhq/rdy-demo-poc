@@ -1,0 +1,36 @@
+/* The app screens of the fresh start (RDY D-TG9VX): white, one column, one main action. */
+@font-face { font-family:Inter; src:url('/assets/fonts/inter-latin.woff2') format('woff2'); font-weight:100 900; font-display:swap; }
+@font-face { font-family:"Bricolage Grotesque"; src:url('/assets/fonts/bricolage-grotesque-latin.woff2') format('woff2'); font-weight:700; font-display:swap; }
+:root { color-scheme:light; --ink:#131316; --soft:#5B5B66; --faint:#8B8A94; --line:#DCDAD4; --wash:#F6F5F1; --twitch:#772CE8; }
+* { box-sizing:border-box; }
+body { margin:0; background:#fff; color:var(--ink); font:16px/1.5 Inter,system-ui,sans-serif; }
+a { color:inherit; }
+:focus-visible { outline:3px solid var(--ink); outline-offset:3px; }
+.app { display:flex; flex-direction:column; width:min(100%,440px); min-height:100vh; margin:0 auto; padding:20px 22px 32px; }
+.app-top { display:flex; justify-content:space-between; align-items:center; min-height:44px; margin-bottom:clamp(28px,9vh,84px); }
+.app-top a { color:var(--soft); font-size:14.5px; }
+.app-top .app-logo { color:var(--ink); font:700 19px/1 "Bricolage Grotesque",system-ui,sans-serif; letter-spacing:.06em; text-decoration:none; }
+.app h1 { margin:0 0 14px; font:700 clamp(40px,11vw,52px)/1 "Bricolage Grotesque",system-ui,sans-serif; letter-spacing:-.035em; }
+.app-lead { margin:0 0 22px; color:var(--soft); font-size:17px; }
+.app-note { margin:0 0 14px; padding:10px 14px; border-radius:12px; background:#FDECEC; color:#8A1C1C; font-size:15px; }
+.app-claim { display:grid; gap:10px; }
+.app-field { display:flex; align-items:center; min-height:58px; padding:0 18px; border:1.5px solid var(--line); border-radius:16px; font-size:17px; cursor:text; }
+.app-field:focus-within { border-color:var(--ink); }
+.app-field span { color:var(--faint); }
+.app-field input { flex:1; min-width:0; height:54px; padding:0; border:0; outline:0; background:transparent; color:var(--ink); font:600 17px/1 Inter,system-ui,sans-serif; }
+.app-field input::placeholder { color:#B5B3BC; font-weight:500; }
+.app-claim button, .app-primary {
+  display:flex; align-items:center; justify-content:center; min-height:58px; padding:8px 20px; border:0; border-radius:999px;
+  background:var(--ink); color:#fff; font:650 17px/1 Inter,system-ui,sans-serif; text-decoration:none; cursor:pointer;
+}
+.app-fine { margin:14px 0 0; color:var(--faint); font-size:13.5px; text-align:center; }
+.app-steps { display:grid; gap:11px; margin:0 0 24px; padding:0; list-style:none; color:var(--soft); }
+.app-steps li { display:flex; align-items:center; gap:11px; }
+.app-steps li::before { content:""; flex:none; width:16px; height:16px; border:2px solid var(--line); border-top-color:var(--ink); border-radius:50%; animation:app-turn .9s linear infinite; }
+.app-skeleton { display:grid; justify-items:center; gap:12px; padding:24px 18px; border-radius:24px; background:var(--wash); }
+.app-skeleton span { display:block; width:100%; height:46px; border-radius:14px; background:#E6E4DE; }
+.app-skeleton span:first-child { width:76px; height:76px; border-radius:50%; }
+.app-skeleton span:nth-child(2) { width:55%; height:13px; }
+.app-skeleton span:nth-child(3) { height:120px; border-radius:18px; }
+@keyframes app-turn { to { transform:rotate(1turn); } }
+@media (prefers-reduced-motion:reduce) { .app-steps li::before { animation:none; } }

@@ -1,5 +1,7 @@
 import sharp from 'sharp';
 import { matchColours, suggestSkin } from './public/art-match.js';
+import { applySkin } from './public/editor-support.js';
+import type { EditableHome } from './home-cards.ts';
 import type { TwitchProfile } from './twitch-activity.ts';
 
 // The import adapter for Twitch art (RDY k-TVMM0, r-GVBR2). It fetches images only from the Twitch image host.
@@ -46,6 +48,18 @@ async function checked(bytes:Buffer|null) {
 }
 
 export type ChannelMatch={profile:TwitchProfile;art:{avatar:Buffer|null;banner:Buffer|null};skin:ReturnType<typeof suggestSkin>};
+
+// The first draft of a creator: the fields of the Twitch channel on top of a Home (RDY r-KQGNH).
+// The art names are asset IDs after a claim, and the names of the waiting art in a preview.
+export function channelDraft(base:EditableHome,match:ChannelMatch,art:{avatar:string|null;banner:string|null}):EditableHome {
+  const {profile,skin}=match;
+  const url='https://www.twitch.tv/'+profile.login;
+  const content=structuredClone(base);
+  Object.assign(content,{displayName:profile.displayName,intro:profile.bio,game:profile.game,streamUrl:url,avatarId:art.avatar,coverId:art.banner});
+  if(!content.links.some(link=>link.url===url)) content.links.unshift({label:'Twitch',url});
+  if(skin) applySkin(content,skin);
+  return content;
+}
 
 // The matched draft of RDY D-HCXW2: the profile, its art and a skin from the art. Nothing here is saved.
 export async function matchChannel(profile:TwitchProfile,http:typeof fetch=fetch):Promise<ChannelMatch> {

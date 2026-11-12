@@ -9,7 +9,8 @@ test('LINB identity and canonical public URL',async()=>{
   const text=await home.text();
   assert.match(text,/<title>Link in bio for streamers · LINB<\/title>/);
   assert.match(text,/<link rel="canonical" href="https:\/\/linb.io\/"/);
-  assert.match(text,/One link.*All your.*worlds/s);
+  // The headline of the fresh start (RDY D-TG9VX).
+  assert.match(text,/Your stream\..*One link\./s);
   assert.match((await app.request('/assets/linb.svg')).headers.get('content-type')!,/^image\/svg\+xml/);
 });
 

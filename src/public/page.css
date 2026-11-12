@@ -1,0 +1,108 @@
+/* The Home of the fresh start (RDY D-TG9VX): one centred column in the colours of the creator's channel. */
+@font-face { font-family:Inter; src:url('/assets/fonts/inter-latin.woff2') format('woff2'); font-weight:100 900; font-display:swap; }
+@font-face { font-family:"Bricolage Grotesque"; src:url('/assets/fonts/bricolage-grotesque-latin.woff2') format('woff2'); font-weight:700; font-display:swap; }
+@font-face { font-family:Unbounded; src:url('/assets/fonts/unbounded-latin.woff2') format('woff2'); font-weight:700; font-display:swap; }
+@font-face { font-family:"JetBrains Mono"; src:url('/assets/fonts/jetbrains-mono-latin.woff2') format('woff2'); font-weight:700; font-display:swap; }
+@font-face { font-family:Silkscreen; src:url('/assets/fonts/silkscreen-latin.woff2') format('woff2'); font-weight:700; font-display:swap; }
+
+/* The themes keep the colours of RDY tb-6BCAQ. A skin stylesheet replaces them for an art palette. */
+:root,[data-theme=Nebula] {
+  color-scheme:dark; --page:#120E1D; --surface:#1C1631; --raised-surface:#251D3F; --text:#F6F2FF; --muted:#B4A9CC;
+  --accent:#B69CFF; --on:#160F27; --card-edge:#30274B; --border:#7966A4; --glow:#6C4CFF; --second:var(--muted);
+}
+[data-theme=Ember] {
+  color-scheme:dark; --page:#150C0A; --surface:#231511; --raised-surface:#2F1B15; --text:#FFF3EC; --muted:#D6B5A7;
+  --accent:#FF8A4C; --on:#2A1006; --card-edge:#43281F; --border:#9A6048; --glow:#FF5A1F; --second:var(--muted);
+}
+[data-theme=Tide] {
+  color-scheme:dark; --page:#061318; --surface:#0C222A; --raised-surface:#112D37; --text:#EAFCFF; --muted:#9CC3CC;
+  --accent:#47DCC4; --on:#03201B; --card-edge:#1B3E4A; --border:#487F8C; --glow:#1F9FB5; --second:var(--muted);
+}
+[data-theme=Paper] {
+  color-scheme:light; --page:#F4F1EC; --surface:#FFFFFF; --raised-surface:#F7F4EF; --text:#1A1622; --muted:#6B6475;
+  --accent:#5A3CF0; --on:#FFFFFF; --card-edge:#E1DBD1; --border:#8B8395; --glow:#8F7BFF; --second:var(--muted);
+}
+
+* { box-sizing:border-box; }
+html { background:var(--page); }
+body {
+  margin:0; min-height:100vh; color:var(--text); font:16px/1.5 Inter,system-ui,sans-serif;
+  background:linear-gradient(180deg,var(--card-edge) 0,var(--page) 460px) no-repeat var(--page);
+}
+a { color:inherit; }
+:focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
+
+.pg { --display:"Bricolage Grotesque",system-ui,sans-serif; max-width:480px; margin:0 auto; padding:0 16px 32px; text-align:center; overflow-wrap:anywhere; }
+.pg[data-font=wide] { --display:Unbounded,system-ui,sans-serif; }
+.pg[data-font=mono] { --display:"JetBrains Mono",ui-monospace,monospace; }
+.pg[data-font=pixel] { --display:Silkscreen,"Bricolage Grotesque",system-ui,sans-serif; }
+
+.pg-hero { margin:0 -16px; height:156px; overflow:hidden; -webkit-mask-image:linear-gradient(#000 45%,transparent); mask-image:linear-gradient(#000 45%,transparent); }
+.pg-hero:empty { height:84px; }
+.pg-hero img { display:block; width:100%; height:100%; object-fit:cover; }
+.pg-avatar {
+  position:relative; width:92px; height:92px; margin-top:-58px; border-radius:50%; object-fit:cover;
+  background:var(--surface); border:3px solid var(--page); box-shadow:0 0 0 2px var(--accent);
+}
+.pg-hero:empty + .pg-avatar { margin-top:-28px; }
+.pg-initials { display:inline-grid; place-items:center; color:var(--accent); font:700 30px/1 var(--display); }
+.pg-name { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:4px 9px; margin:12px 0 4px; font:700 26px/1.2 var(--display); letter-spacing:-.02em; }
+.pg[data-font=wide] .pg-name { font-size:23px; }
+/* The LIVE mark is text. White on this red reaches 5:1. */
+.pg-live { padding:4px 8px; border-radius:999px; background:#D6173A; color:#fff; font:700 11px/1 Inter,system-ui,sans-serif; letter-spacing:.06em; }
+.pg-bio { max-width:34ch; margin:0 auto 14px; color:var(--muted); }
+
+.pg-social, .pg-links, .pg-rows, .pg-notes { list-style:none; margin:0; padding:0; }
+.pg-social { display:flex; flex-wrap:wrap; justify-content:center; gap:4px; margin-bottom:14px; }
+.pg-social a { display:grid; place-items:center; width:44px; height:44px; border-radius:50%; }
+.pg-icon { display:block; width:22px; height:22px; background:currentColor; -webkit-mask:var(--platform) center / contain no-repeat; mask:var(--platform) center / contain no-repeat; }
+.pg-icon[data-platform=twitch] { --platform:url('/assets/platforms/twitch.svg'); }
+.pg-icon[data-platform=youtube] { --platform:url('/assets/platforms/youtube.svg'); }
+.pg-icon[data-platform=tiktok] { --platform:url('/assets/platforms/tiktok.svg'); }
+.pg-icon[data-platform=x] { --platform:url('/assets/platforms/x.svg'); }
+.pg-icon[data-platform=kick] { --platform:url('/assets/platforms/kick.svg'); }
+.pg-icon[data-platform=instagram] { --platform:url('/assets/platforms/instagram.svg'); }
+
+.pg-card, .pg-pill, .pg-rows li, .pg-notes li, .pg-tags span {
+  background:color-mix(in srgb,var(--text) 7%,transparent); border:1px solid color-mix(in srgb,var(--text) 13%,transparent);
+}
+.pg-card { margin-bottom:10px; padding:14px; border-radius:20px; }
+.pg-thumb { display:block; width:100%; aspect-ratio:16/9; margin-bottom:12px; border-radius:14px; object-fit:cover; }
+.pg-card-kicker { margin:2px 0 6px; color:var(--second); font:700 12px/1 Inter,system-ui,sans-serif; letter-spacing:.09em; text-transform:uppercase; }
+.pg-card-title { margin:0; font-size:17px; font-weight:650; }
+.pg-card-meta { margin:2px 0 0; color:var(--muted); font-size:14px; font-variant-numeric:tabular-nums; }
+.pg-watch {
+  display:flex; align-items:center; justify-content:center; min-height:48px; margin-top:12px; padding:8px 16px; border-radius:999px;
+  background:var(--accent); color:var(--on); font-weight:700; text-decoration:none;
+}
+.pg-card > .pg-watch:first-child { margin-top:0; }
+.pg-links { display:grid; gap:10px; }
+.pg-pill { position:relative; display:flex; align-items:center; justify-content:center; min-height:56px; padding:8px 56px; border-radius:16px; font-weight:600; text-decoration:none; }
+.pg-pill i { position:absolute; left:10px; display:grid; place-items:center; width:36px; height:36px; border-radius:10px; background:var(--accent); color:var(--on); font-style:normal; font-weight:700; }
+.pg-pill .pg-icon { width:18px; height:18px; }
+.pg-pill:hover, .pg-watch:hover { text-decoration:underline; }
+
+.pg-h { margin:26px 0 10px; color:var(--muted); font:700 12px/1 Inter,system-ui,sans-serif; letter-spacing:.09em; text-transform:uppercase; }
+.pg-rows, .pg-notes { display:grid; gap:8px; }
+.pg-rows li { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:16px; text-align:left; font-weight:600; }
+.pg-rows b { min-width:42px; padding:6px 8px; border-radius:9px; background:var(--second); color:var(--page); font:700 11px/1.25 Inter,system-ui,sans-serif; text-align:center; }
+.pg-rows small, .pg-notes small { display:block; color:var(--muted); font-size:13px; font-weight:450; }
+.pg-notes li { padding:12px 14px; border-radius:16px; text-align:left; }
+.pg-tags { display:flex; flex-wrap:wrap; justify-content:center; gap:6px; margin:22px 0 0; }
+.pg-tags span { padding:4px 12px; border-radius:999px; color:var(--muted); font-size:13px; }
+.pg-foot { display:flex; flex-wrap:wrap; justify-content:center; gap:6px 16px; margin-top:28px; color:var(--muted); font-size:12.5px; }
+
+/* The claim sheet of a preview. It is part of the app, so it keeps the app's own colours. */
+.pg:has(+ .pg-sheet) { padding-bottom:250px; }
+.pg-sheet {
+  position:fixed; inset:auto 0 0; margin:0 auto; max-width:480px; padding:22px 22px 20px; border-radius:26px 26px 0 0;
+  background:#fff; color:#131316; color-scheme:light; box-shadow:0 -18px 40px #0000004d; text-align:center;
+}
+.pg-sheet h2 { margin:0 0 6px; font:700 26px/1.1 "Bricolage Grotesque",system-ui,sans-serif; letter-spacing:-.03em; }
+.pg-sheet p { margin:0 0 16px; color:#5B5B66; }
+.pg-sheet button {
+  width:100%; min-height:56px; border:0; border-radius:999px; background:#772CE8; color:#fff; font:650 16.5px/1 Inter,system-ui,sans-serif; cursor:pointer;
+}
+.pg-sheet a { display:inline-block; margin-top:12px; color:#5B5B66; font-size:14px; }
+.pg-sheet :focus-visible { outline-color:#131316; }
+@media (forced-colors:active) { .pg-card, .pg-pill, .pg-rows li { border-color:CanvasText; } }

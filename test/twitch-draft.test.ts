@@ -58,7 +58,7 @@ function twitchStub(overrides:{user?:object|null;game?:string;images?:Record<str
 test('the Twitch adapter reads the profile of the linked channel',async()=>{
   const {http}=twitchStub();
   const activity=new TwitchActivity({clientId:'app',clientSecret:'fixture',http});
-  assert.deepEqual(await activity.profile(user.id),{login:'novabyte',displayName:'NovaByte',bio:user.description,game:'Neon Drift 2',
+  assert.deepEqual(await activity.profile(user.id),{subject:'2002',login:'novabyte',displayName:'NovaByte',bio:user.description,game:'Neon Drift 2',
     avatarUrl:user.profile_image_url,bannerUrl:user.offline_image_url});
 });
 

@@ -11,7 +11,8 @@ type Principal = { creator_id: string | null; operator_id: string | null };
 const badProof=()=>new AppError(410,'invalid_proof','This link is not valid. Request a new link.');
 const notSignedIn=()=>new AppError(401,'sign_in','Sign in again to continue.');
 
-async function throttle(client: pg.PoolClient, key: string, limit: number) {
+// One counter for each key and hour. The answer is empty once the key has reached its limit.
+export async function throttle(client: pg.Pool | pg.PoolClient, key: string, limit: number) {
   const {rows}=await client.query(`INSERT INTO rate_limits VALUES ($1,date_trunc('hour',now()),1)
     ON CONFLICT (bucket,hour) DO UPDATE SET attempts=rate_limits.attempts+1
     WHERE rate_limits.attempts<$2 RETURNING attempts`,[digest(key),limit]);

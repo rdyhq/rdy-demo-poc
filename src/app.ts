@@ -10,21 +10,23 @@ import { Twitch, twitchCallback, type TwitchConfig } from './twitch.ts';
 import { transaction } from './db.ts';
 import { acceptReport, reportInbox, reportReasons } from './reports.ts';
 import { assetBytes, maxUpload, upload, type Objects } from './assets.ts';
-import { Auth, type SendMail } from './auth.ts';
+import { Auth, throttle, type SendMail } from './auth.ts';
 import { AppError, digest, emptyHome, equalSecret, invalid, mailbox, scheduleChange, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
 import { invite, inviteList, revokeInvite } from './enrollment.ts';
-import { cardColumns, cardHeights, cardSpans, channelPlatform, normalizeHome, platforms, readHome, type EditableHome, type StoredHome } from './home-cards.ts';
+import { cardColumns, cardHeights, cardSpans, channelPlatform, newHome, normalizeHome, platforms, readHome, type EditableHome, type StoredHome } from './home-cards.ts';
 import { liveState } from './live-state.ts';
 import { TwitchActivity, type TwitchActivityConfig, type TwitchChannel } from './twitch-activity.ts';
 import { acceptHandle, handleOffer, homeHandle, resolveHandle } from './handles.ts';
 import { describeFailure } from './failure.ts';
 import { artPalette, paletteCss, paletteVersion, skinColours } from './public/palette.js';
 import { applySkin } from './public/editor-support.js';
-import { matchChannel, type ChannelMatch } from './twitch-channel.ts';
+import { channelDraft, matchChannel, type ChannelMatch } from './twitch-channel.ts';
+import { renderPage } from './page.ts';
+import { buildingPage, landingPage } from './screens.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
-import { accountPage, billingPage, confirmation, editorPage, editorShare, invitesPage, landing, leaderboardDemo, matchPage, message, proEditor, opsCase, opsPage, renderHome, reportPage, retiredCalendar, signIn } from './views.ts';
+import { accountPage, billingPage, confirmation, editorPage, editorShare, invitesPage, leaderboardDemo, matchPage, message, proEditor, opsCase, opsPage, renderHome, reportPage, retiredCalendar, signIn } from './views.ts';
 
 const stylesheet=[
   readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8'),
@@ -45,6 +47,7 @@ const editorScript=readFileSync(new URL('./public/editor.js',import.meta.url),'u
 const cardLayoutScript=readFileSync(new URL('./public/card-layout.js',import.meta.url),'utf8');
 const previewScript=readFileSync(new URL('./public/preview.js',import.meta.url),'utf8');
 const verifyScript=readFileSync(new URL('./public/verify.js',import.meta.url),'utf8');
+const freshStyles=new Map(['page','app'].map(name=>[name+'.css',readFileSync(new URL('./public/'+name+'.css',import.meta.url),'utf8')]));
 const auraScripts=new Map(['aura','contrast','palette','art-match','art-pixels','handoff','editor-support'].map(name=>[
   name+'.js',readFileSync(new URL('./public/'+name+'.js',import.meta.url),'utf8'),
 ]));
@@ -123,6 +126,26 @@ export function createApp(config:Configuration={}) {
     // Twitch gave no profile. Ask again at the next request.
     void entry.value.then(match=>{ if(!match&&matches.get(owner)===entry) matches.delete(owner); },()=>matches.delete(owner));
     return entry;
+  }
+  // A preview before sign-up waits here. linb.io does not store or publish it (RDY s-W8K47).
+  const previews=new Map<string,{until:number;value:Promise<ChannelMatch|null>}>();
+  const previewHome='00000000-0000-4000-8000-000000000000';
+  const twitchLogin=(value:unknown)=>{
+    const name=typeof value==='string'?value.trim().toLowerCase():'';
+    return /^[a-z0-9_]{3,25}$/.test(name)?name:null;
+  };
+  async function channelPreview(login:string,address:string):Promise<ChannelMatch|null|'limited'> {
+    const waiting=previews.get(login);
+    if(waiting&&waiting.until>clock()) return waiting.value;
+    // Each new name costs requests to Twitch, so each client address gets a limited number of them.
+    if(!(await throttle(requirePool(),'preview:'+address,20))) return 'limited';
+    previews.delete(login);
+    if(previews.size>=200) previews.delete(previews.keys().next().value!);
+    const entry={until:clock()+10*60_000,
+      value:activity!.profileByLogin(login).then(profile=>profile?matchChannel(profile,config.twitchActivity!.http):null)};
+    previews.set(login,entry);
+    void entry.value.then(match=>{ if(!match&&previews.get(login)===entry) previews.delete(login); },()=>previews.delete(login));
+    return entry.value;
   }
   const requireHomeWrites=()=>{
     if(config.readOnlyHomes) throw new AppError(503,'home_writes_paused','Home changes are temporarily paused.');
@@ -239,6 +262,9 @@ export function createApp(config:Configuration={}) {
     return c.text(paletteCss(palette),200,{'Content-Type':'text/css; charset=utf-8','Cache-Control':'public, max-age=31536000, immutable'});
   });
   app.get('/assets/linb.svg',c=>c.text(brandIcon,200,{'Content-Type':'image/svg+xml','Cache-Control':'public, max-age=300'}));
+  for(const [file,styles] of freshStyles) {
+    app.get('/assets/'+file,c=>c.text(styles,200,{'Content-Type':'text/css; charset=utf-8','Cache-Control':'public, max-age=300'}));
+  }
   app.get('/assets/lobby.css',c=>c.text(stylesheet,200,{'Content-Type':'text/css; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/player.js',c=>c.text(playerScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/share.js',c=>c.text(shareScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
@@ -246,7 +272,34 @@ export function createApp(config:Configuration={}) {
   app.get('/assets/card-layout.js',c=>c.text(cardLayoutScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/preview.js',c=>c.text(previewScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/verify.js',c=>c.text(verifyScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
-  app.get('/',c=>c.html(landing(Boolean(auth),Boolean(config.demo),origin?origin+'/':undefined)));
+  app.get('/',c=>c.html(landingPage({preview:Boolean(activity&&pool),missing:twitchLogin(c.req.query('missing'))??undefined,
+    invalid:c.req.query('invalid')==='1',limited:c.req.query('limited')==='1',canonical:origin?origin+'/':undefined})));
+  app.get('/preview',c=>{
+    if(!activity||!pool) return c.redirect('/',303);
+    const login=twitchLogin(c.req.query('name'));
+    return login?c.html(buildingPage(login)):c.redirect('/?invalid=1',303);
+  });
+  app.get('/preview/page',async c=>{
+    if(!activity||!pool) return c.redirect('/',303);
+    const login=twitchLogin(c.req.query('name'));
+    if(!login) return c.redirect('/?invalid=1',303);
+    const match=await channelPreview(login,config.clientAddress?.(c)??'local');
+    if(match==='limited') return c.redirect('/?limited=1',303);
+    if(!match) return c.redirect('/?missing='+login,303);
+    const {profile,art}=match;
+    const content=channelDraft(readHome(newHome(previewHome),previewHome),match,{avatar:art.avatar&&'avatar',banner:art.banner&&'banner'});
+    c.header('Cache-Control','no-store');
+    return c.html(renderPage(content,{now:clock(),claim:twitch?profile.login:undefined,
+      liveState:await activity.get({subject:profile.subject,login:profile.login}),asset:kind=>'/preview/art/'+profile.login+'/'+kind}));
+  });
+  app.get('/preview/art/:login/:kind',async c=>{
+    const waiting=previews.get(c.req.param('login'));
+    const match=waiting&&waiting.until>clock()?await waiting.value:null;
+    const kind=c.req.param('kind');
+    const bytes=match&&(kind==='avatar'||kind==='banner')?match.art[kind]:null;
+    if(!bytes) throw unavailable();
+    return sendImage(bytes);
+  });
   app.get('/sign-in',c=>c.html(signIn(false,c.req.query('sent')==='1',Boolean(twitch),c.req.query('twitch'))));
   app.get('/ops/sign-in',c=>c.html(signIn(true,c.req.query('sent')==='1')));
   for(const [path,kind] of [['/sign-in','login'],['/ops/sign-in','operator']] as const) {
