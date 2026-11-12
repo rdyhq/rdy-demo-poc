@@ -97,6 +97,9 @@ a { color:inherit; }
 .ed-profile .app-select { min-height:46px; padding:8px 12px; border-radius:12px; font-size:16px; }
 .ed input:not([type=file],[type=radio],[type=hidden],[type=checkbox]), .ed textarea { width:100%; min-height:46px; padding:10px 12px; border:1.5px solid var(--line); border-radius:12px; background:#fff; color:var(--ink); font:500 16px/1.4 Inter,system-ui,sans-serif; }
 .ed textarea { resize:vertical; }
+.ed select { min-height:46px; padding:8px 12px; border:1.5px solid var(--line); border-radius:12px; background:#fff; color:var(--ink); font:500 16px/1.4 Inter,system-ui,sans-serif; }
+.ed-lead label { flex:1 1 100%; color:var(--soft); font-size:13.5px; font-weight:600; }
+.ed-lead select { flex:1; min-width:0; }
 .ed-profile button { justify-self:start; margin-top:8px; }
 .ed-art { flex:none; width:48px; height:48px; border-radius:12px; object-fit:cover; background:#F4F3EF; }
 .ed-art-row form { display:flex; flex:1; flex-wrap:wrap; align-items:center; gap:8px 10px; min-width:0; }

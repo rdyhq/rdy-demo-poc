@@ -43,6 +43,11 @@ function frame(title:string,tab:Tab,view:EditorView,body:unknown,options:{solo?:
 // The Page tab: each row is one part of the Home, and each form saves to the draft by itself (RDY r-K3YBN).
 export function pageTab(view:EditorView) {
   const {content}=view.state, {csrf}=view;
+  // What leads the card while the creator is offline (RDY D-6DX8J). A choice that the page cannot show reads as the next stream.
+  const {offlineLead,offlineLink}=content.layout.spotlight;
+  const featured=offlineLead==='link'?content.links.findIndex(link=>link.url===offlineLink):-1;
+  const lead=offlineLead==='clip'&&view.twitch?'clip':featured>=0?'link:'+featured:'next';
+  const choice=(value:string,label:string)=>html`<option value="${value}"${lead===value?html` selected`:''}>${label}</option>`;
   const art=(kind:'avatar'|'banner',label:string,id:string|null)=>html`<div class="ed-row ed-art-row">
     ${id?html`<img class="ed-art" src="/editor/assets/${id}" alt="">`:html`<span class="ed-art" aria-hidden="true"></span>`}
     <form method="post" action="/editor/art" enctype="multipart/form-data">${hidden(csrf)}<input type="hidden" name="kind" value="${kind}">
@@ -68,6 +73,11 @@ export function pageTab(view:EditorView) {
     <form class="ed-row ed-add" method="post" action="/editor/links">${hidden(csrf)}<input type="hidden" name="action" value="add">
       <input name="label" required maxlength="32" placeholder="Label" aria-label="Link label">
       <input name="url" required type="url" inputmode="url" placeholder="https://" aria-label="Link address"><button>Add link</button></form>
+    <h2>Offline card</h2>
+    <form class="ed-row ed-lead" method="post" action="/editor/lead">${hidden(csrf)}
+      <label for="ed-lead">While you are offline, your card leads with</label>
+      <select id="ed-lead" name="lead">${choice('next','Next stream')}${view.twitch?choice('clip','Latest clip'):''}${
+        content.links.map((link,index)=>choice('link:'+index,'Link: '+link.label))}</select><button>Save</button></form>
     ${view.twitch?html`<h2>From Twitch</h2>
     <ul class="ed-list">${([['schedule','Schedule',content.layout.supporting.find(card=>card.family==='schedule')?.hidden===true],
       ['clips','Clips',content.layout.clipsHidden]] as const).map(([part,label,off])=>html`<li class="ed-row ed-link"><i aria-hidden="true"><span class="app-icon" data-platform="twitch"></span></i>

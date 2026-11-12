@@ -90,6 +90,27 @@ test('the editor is a list with a preview, and each change saves by itself',{ski
       assert.equal((await send('/editor/links',{action:'remove',index:'7'})).status,422);
     });
 
+    await t.test('the creator chooses what leads the card while offline',async()=>{
+      const tab=await (await get('/editor',nova)).text();
+      assert.match(tab,/<h2>Offline card<\/h2>/);
+      // A creator with no linked Twitch channel is not offered the latest clip (RDY D-6DX8J).
+      assert.ok(tab.includes('<select id="ed-lead" name="lead"><option value="next" selected>Next stream</option><option value="link:0">Link: YouTube</option></select>'));
+      assert.equal((await send('/editor/lead',{lead:'link:0'})).status,303);
+      let spotlight=(await draft()).content.spotlight;
+      assert.deepEqual([spotlight.offlineLead,spotlight.offlineLink],['link','https://www.youtube.com/@novabyte']);
+      assert.match(await (await get('/editor',nova)).text(),/<option value="next">Next stream<\/option><option value="link:0" selected>Link: YouTube<\/option>/);
+      assert.ok((await (await get('/editor/view',nova)).text()).includes(
+        '<p class="pg-card-kicker">Featured link</p><p class="pg-card-title"><a href="https://www.youtube.com/@novabyte">YouTube</a></p>'));
+      assert.equal((await send('/editor/lead',{lead:'next'})).status,303);
+      spotlight=(await draft()).content.spotlight;
+      assert.deepEqual([spotlight.offlineLead,spotlight.offlineLink],['next',null]);
+      for(const lead of ['link:7','link:x','clip','other','']) {
+        const refused=await send('/editor/lead',{lead});
+        assert.equal(refused.status,422,lead);
+        assert.match(await refused.text(),/role="alert">/);
+      }
+    });
+
     await t.test('the creator sets and removes the avatar and the banner',async()=>{
       const png=await sharp({create:{width:300,height:300,channels:3,background:'#190838'}}).png().toBuffer();
       const form=new FormData();

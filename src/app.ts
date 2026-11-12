@@ -472,7 +472,9 @@ export function createApp(config:Configuration={}) {
     c.header('Cache-Control','no-store');
     // The preview of a draft shows the clips that the published page shows.
     const channel=await linkedChannel(requirePool(),owner,state.content);
-    return c.html(renderPage(state.content,{now:clock(),asset:id=>'/editor/assets/'+id,...await channelParts(channel,state.content)}));
+    // The preview shows the card as the page shows it now: live, or with the lead that the creator chose.
+    const signal=channel?await activity!.get(channel,state.content.layout.spotlight.offlineLead==='clip'):undefined;
+    return c.html(renderPage(state.content,{now:clock(),liveState:signal,asset:id=>'/editor/assets/'+id,...await channelParts(channel,state.content)}));
   });
   editorAction('/editor/profile',pageTab,'/editor',async(owner,state,fields)=>{
     const {displayName,intro,game,streamUrl}=fields;
@@ -492,6 +494,21 @@ export function createApp(config:Configuration={}) {
       [links[from],links[to]]=[links[to],links[from]];
     } else throw invalid('action','Choose an action.');
     await saveDraft(owner,state,{...state.content,links});
+  });
+  // The creator chooses what leads the card while offline (RDY D-6DX8J): the next stream, the latest clip or one of the links.
+  editorAction('/editor/lead',pageTab,'/editor',async(owner,state,fields)=>{
+    const layout=structuredClone(state.content.layout), lead=typeof fields.lead==='string'?fields.lead:'';
+    if(lead==='next') Object.assign(layout.spotlight,{offlineLead:'next',offlineLink:null});
+    else if(lead==='clip') {
+      // The latest clip is offered only when a provider supplies clips.
+      if(!await linkedChannel(requirePool(),owner,state.content)) throw invalid('lead','Connect Twitch to lead with a clip.');
+      Object.assign(layout.spotlight,{offlineLead:'clip',offlineLink:null});
+    } else {
+      const link=/^link:\d{1,2}$/.test(lead)?state.content.links[Number(lead.slice(5))]:undefined;
+      if(!link) throw invalid('lead','Choose the next stream, the latest clip or one of your links.');
+      Object.assign(layout.spotlight,{offlineLead:'link',offlineLink:link.url});
+    }
+    await saveDraft(owner,state,{...state.content,layout});
   });
   // The creator switches a part from Twitch off or on (RDY r-RA9HG). The choice is in the draft, as every change is.
   editorAction('/editor/twitch',pageTab,'/editor',async(owner,state,fields)=>{
