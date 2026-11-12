@@ -10,6 +10,7 @@ import { demoRanking } from './leaderboard.ts';
 import type { ProContent, ProDraft } from './pro.ts';
 import { discordSchedule, type Selection } from './sharing.ts';
 import type { HomeState } from './homes.ts';
+import type { ChannelMatch } from './twitch-channel.ts';
 
 const mark=html`<img class="mark" src="/assets/linb.svg" width="32" height="32" alt="">`;
 const art=html`<svg class="art" viewBox="0 0 920 380" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
@@ -316,7 +317,33 @@ function editorOutlineButton(key:string,title:string,detail:string,fixed=false) 
   </button>`;
 }
 
-export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twitchLogin?:string,proEnabled=false,clipsEnabled=false) {
+// The review of a matched draft (RDY D-HCXW2). Each item shows its source, and the creator can correct or omit it before save.
+export function matchPage(match:ChannelMatch,operation:string,csrf:string,hasDraft:boolean) {
+  const {profile,art,skin}=match;
+  const check=(name:string,label:ReturnType<typeof html>)=>html`<label class="check"><input type="checkbox" name="${name}" checked> ${label}</label>`;
+  return frame('Your matched draft',html`<section class="match-review">
+    <div class="match-intro"><p class="eyebrow">PRIVATE DRAFT</p><h1>Your page, matched to your channel</h1>
+      <p>LINB read your Twitch channel <strong>@${profile.login}</strong>. Nothing is saved yet. Change or omit any item, then use the draft.</p>
+      ${hasDraft?html`<p class="dim">The items that you keep replace the same items in your saved draft.</p>`:''}</div>
+    <form method="post" action="/editor/match" class="panel">
+      <input type="hidden" name="csrf" value="${csrf}"><input type="hidden" name="operationId" value="${operation}">
+      <h2>From your Twitch channel</h2>
+      <label for="match-name">Name</label><input id="match-name" name="displayName" required maxlength="40" value="${profile.displayName}">
+      <label for="match-intro">Intro <small>From your Twitch bio</small></label><textarea id="match-intro" name="intro" required maxlength="160">${profile.bio}</textarea>
+      <label for="match-game">Game <small>The category of your last stream</small></label><input id="match-game" name="game" maxlength="80" value="${profile.game}">
+      ${check('link',html`Stream link: twitch.tv/${profile.login}`)}
+      ${art.avatar?check('avatar',html`Avatar <img class="match-art" src="/editor/match/art/avatar" alt="">`):''}
+      ${art.banner?check('banner',html`Banner <img class="match-art match-banner" src="/editor/match/art/banner" alt="">`):''}
+      ${skin?html`<h2>Suggested look</h2>${check('skin',html`Use this look`)}
+        <ul class="match-reasons">${skin.reasons.map(({control,value,reason})=>html`<li><strong>${control}: ${value}.</strong> ${reason}</li>`)}</ul>`:''}
+      <div class="form-actions"><button>Use this draft</button><a class="button secondary" href="/editor?manual=1">${hasDraft?'Back to the editor':'Set up by hand'}</a></div>
+    </form>
+    <div class="match-preview"><p class="micro">PREVIEW WITH EVERY ITEM</p>
+      <iframe title="Preview of your matched Home" src="/editor/match/preview"></iframe></div>
+  </section>`,{privatePage:true,wide:true});
+}
+
+export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twitchLogin?:string,proEnabled=false,clipsEnabled=false,twitchMatch=false) {
   return frame('Edit your home',html`<div class="workspace editor-workspace" id="workspace" data-content="${JSON.stringify(state.content)}"
     data-home="${state.id}" data-csrf="${csrf}" data-revision="${state.draft_revision}" data-publication="${state.publication_id??''}" data-published-revision="${state.published_revision??''}" data-held="${state.held}">
     <header class="editor-toolbar">
@@ -451,6 +478,7 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
           <p id="aura-match-help" class="editor-description"></p><p id="aura-match-note" role="status" hidden></p>
           <ul id="aura-match-changes" hidden></ul>
           <button class="secondary" id="aura-match-undo" type="button" hidden>Undo match</button>
+          ${twitchMatch?html`<p><a id="twitch-match" href="/editor/match">Match my Twitch channel</a></p>`:''}
         </fieldset>
         <fieldset><legend>Identity presets</legend><div class="aura-choices">
           ${['Cozy','Retro','Night Ops'].map(name=>html`<button type="button" class="secondary" data-aura-preset="${name}">${name}</button>`)}

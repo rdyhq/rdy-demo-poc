@@ -72,14 +72,16 @@ export function artPalette({base,second=null,accent=null}) {
   const page=tone('page');
   const surfaces=[page,raised];
   const on=dark?toHex(hue,Math.min(saturation,.6),.09):'#ffffff';
-  const settledAccent=settle((accent??accentPalettes[theme].accent).toLowerCase(),[...surfaces,on],4.5,dark);
+  const artAccent=(accent??accentPalettes[theme].accent).toLowerCase();
+  const settledAccent=settle(artAccent,[...surfaces,on],4.5,dark);
   const settledSecond=second===null?null:settle(second.toLowerCase(),surfaces,4.5,dark);
   const muted=settle(tone('muted'),surfaces,4.5,dark);
   const palette={
     scheme,theme,page,raisedPage:tone('raisedPage'),surface:tone('surface'),raised,
     text:settle(tone('text'),surfaces,4.5,dark),muted,accent:settledAccent,on,
     cardEdge:tone('cardEdge'),border:settle(tone('border'),surfaces,3,dark),
-    glow:settledSecond??settledAccent,second:settledSecond??muted,
+    // The glow only decorates the field and the frames, so it keeps the colour of the art.
+    glow:second?.toLowerCase()??artAccent,second:settledSecond??muted,
   };
   return paletteReadable(palette)?palette:null;
 }

@@ -1,12 +1,27 @@
 import { issuer } from './twitch.ts';
 import type { LiveState } from './live-state.ts';
+import { artUrl } from './twitch-channel.ts';
 
 export type TwitchActivityConfig = {clientId:string;clientSecret:string;http?:typeof fetch};
 export type TwitchChannel = {subject:string;login:string};
+export type TwitchProfile = {login:string;displayName:string;bio:string;game:string;avatarUrl:string|null;bannerUrl:string|null};
 type CacheEntry<T> = {until:number;value:Promise<T>};
 const unavailable:LiveState={live:false,verified:false};
 const validCount=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
 const title=(value:unknown)=>typeof value==='string'?value.trim().slice(0,160):'';
+// Cut a text of the channel to the limit of its Home field, at a word where one is near.
+function cut(value:unknown,limit:number) {
+  const text=typeof value==='string'?value.replace(/\s+/g,' ').trim():'';
+  if(text.length<=limit) return text;
+  const head=text.slice(0,limit-1);
+  const space=head.lastIndexOf(' ');
+  return (space>limit/2?head.slice(0,space):head).trimEnd()+'…';
+}
+// The default picture of Twitch is not the creator's art.
+const creatorArt=(value:unknown)=>{
+  const url=artUrl(value);
+  return url&&!new URL(url).pathname.startsWith('/user-default-pictures')?url:null;
+};
 
 export class TwitchActivity {
   private token?:{value:string;until:number};
@@ -46,7 +61,7 @@ export class TwitchActivity {
     return this.pendingToken;
   }
 
-  private async read(path:'streams'|'clips'|'users',query:URLSearchParams) {
+  private async read(path:'streams'|'clips'|'users'|'channels',query:URLSearchParams) {
     const token=await this.accessToken();
     const response=await this.json('https://api.twitch.tv/helix/'+path+'?'+query,{
       headers:{'Client-Id':this.config.clientId,Authorization:'Bearer '+token},
@@ -65,6 +80,20 @@ export class TwitchActivity {
     const entry={until:now+ttl,value:read()};
     cache.set(key,entry);
     return entry.value;
+  }
+
+  // The profile of the linked channel for the matched draft (RDY r-9NNVP). Any doubt gives no profile.
+  async profile(subject:string):Promise<TwitchProfile|null> {
+    try {
+      const [user]=await this.read('users',new URLSearchParams({id:subject}));
+      if(user?.id!==subject||typeof user.login!=='string'||!/^[a-z0-9_]{1,25}$/.test(user.login)) return null;
+      const [channel]=await this.read('channels',new URLSearchParams({broadcaster_id:subject})).catch(()=>[]);
+      return {
+        login:user.login,displayName:cut(user.display_name,40)||user.login,bio:cut(user.description,160),
+        game:channel?.broadcaster_id===subject?cut(channel.game_name,80):'',
+        avatarUrl:creatorArt(user.profile_image_url),bannerUrl:creatorArt(user.offline_image_url),
+      };
+    } catch { return null; }
   }
 
   async get(channel:TwitchChannel,includeClip=false):Promise<LiveState> {

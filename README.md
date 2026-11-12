@@ -60,6 +60,8 @@ Read [AGENTS.md](AGENTS.md) for the Rdy workflow. The approved design baseline i
 
 Enable the pilot only after the RDY decision and exact deployment approval. Configure Twitch sign-in using the existing Twitch settings. Set `LINB_TWITCH_ACTIVITY=1` to enable public activity using the same app credentials. The server uses app tokens to read Helix, without adding user scopes.
 
+With `LINB_TWITCH_ACTIVITY=1`, a creator with a linked Twitch channel also gets a matched draft. When the draft is still empty, the editor opens a review at `/editor/match`. The server reads the display name, the bio, the avatar, the offline banner and the last stream category of the linked channel. It fetches images only from `static-cdn.jtvnw.net`, over HTTPS, with a 5 MiB limit, and puts them through the same checks as an upload. It suggests a skin from the art: the art palette, the accent, the second colour, the font, the shape, the frame and the field. Nothing is saved until the creator selects Use this draft. Set up by hand skips the review, and the Skin panel links back to it.
+
 Invite the creator through the existing admission flow. After they verify their mailbox and link Twitch, their Home gets a handle: `/<verified Twitch login>`. The creator takes no step. The existing UUID routes stay available, and a Home with a handle names the handle address as canonical. A handle returns 404 after a hold, unpublish or unlink.
 
 A handle belongs to one Home and never moves to another. After the creator renames the Twitch account and signs in with Twitch, the Account page offers the new login. The earlier handle keeps working and forwards to the new one. A creator who linked Twitch before handles existed gets the handle at the next Twitch sign-in.

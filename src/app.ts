@@ -19,10 +19,12 @@ import { TwitchActivity, type TwitchActivityConfig, type TwitchChannel } from '.
 import { acceptHandle, handleOffer, homeHandle, resolveHandle } from './handles.ts';
 import { describeFailure } from './failure.ts';
 import { artPalette, paletteCss, paletteVersion, skinColours } from './public/palette.js';
+import { applySkin } from './public/editor-support.js';
+import { matchChannel, type ChannelMatch } from './twitch-channel.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
-import { accountPage, billingPage, confirmation, editorPage, editorShare, invitesPage, landing, leaderboardDemo, message, proEditor, opsCase, opsPage, renderHome, reportPage, retiredCalendar, signIn } from './views.ts';
+import { accountPage, billingPage, confirmation, editorPage, editorShare, invitesPage, landing, leaderboardDemo, matchPage, message, proEditor, opsCase, opsPage, renderHome, reportPage, retiredCalendar, signIn } from './views.ts';
 
 const stylesheet=[
   readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8'),
@@ -105,6 +107,23 @@ export function createApp(config:Configuration={}) {
     // The login stored when the creator linked Twitch goes stale after a rename.
     if(rows[0]) return {subject:rows[0].subject,login};
   }
+  // A matched draft waits here for the creator's answer. Nothing of it is saved before Use this draft (RDY r-7J06Z).
+  const matches=new Map<string,{until:number;operation:string;value:Promise<ChannelMatch|null>}>();
+  async function channelMatch(owner:string) {
+    if(!activity) return null;
+    const waiting=matches.get(owner);
+    if(waiting&&waiting.until>clock()) return waiting;
+    const {rows}=await requirePool().query<{subject:string}>('SELECT subject FROM twitch_identities WHERE creator_id=$1',[owner]);
+    if(!rows[0]) return null;
+    matches.delete(owner);
+    if(matches.size>=200) matches.delete(matches.keys().next().value!);
+    const entry={until:clock()+10*60_000,operation:randomUUID(),
+      value:activity.profile(rows[0].subject).then(profile=>profile?matchChannel(profile,config.twitchActivity!.http):null)};
+    matches.set(owner,entry);
+    // Twitch gave no profile. Ask again at the next request.
+    void entry.value.then(match=>{ if(!match&&matches.get(owner)===entry) matches.delete(owner); },()=>matches.delete(owner));
+    return entry;
+  }
   const requireHomeWrites=()=>{
     if(config.readOnlyHomes) throw new AppError(503,'home_writes_paused','Home changes are temporarily paused.');
   };
@@ -137,7 +156,7 @@ export function createApp(config:Configuration={}) {
       c.header('X-Content-Type-Options','nosniff');
       c.header('X-Frame-Options','DENY');
       const allowedForms=(twitch?' https://id.twitch.tv':'')+(billing?' https://checkout.stripe.com https://billing.stripe.com':'');
-      const frameSources=[...(c.req.path==='/editor'?["'self'"]:[]),...(pro?['https://www.youtube-nocookie.com']:[])];
+      const frameSources=[...(c.req.path==='/editor'||c.req.path==='/editor/match'?["'self'"]:[]),...(pro?['https://www.youtube-nocookie.com']:[])];
       const allowedFrames=frameSources.length?'frame-src '+frameSources.join(' ')+'; ':'';
       c.header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'"+allowedForms+"; "+allowedFrames+"base-uri 'none'; frame-ancestors 'none'");
     }
@@ -346,9 +365,88 @@ export function createApp(config:Configuration={}) {
   app.get('/editor',async c=>{
     const owner=await principal(c,'creator');
     const state=await editor(requirePool(),owner);
-    const linked=twitch&&!state.draft_revision?await requirePool().query('SELECT login FROM twitch_identities WHERE creator_id=$1',[owner]):null;
+    const linked=twitch||activity?await requirePool().query('SELECT login FROM twitch_identities WHERE creator_id=$1',[owner]):null;
+    const login=linked?.rows[0]?.login as string|undefined;
+    const manual=c.req.query('manual')==='1';
+    // A creator with a linked Twitch channel sees the matched draft while the draft is empty (RDY r-7J06Z).
+    if(activity&&login&&!state.draft_revision&&!manual&&getCookie(c,'linb-manual')!=='1') return c.redirect('/editor/match',303);
+    if(manual) setCookie(c,'linb-manual','1',{path:'/editor',httpOnly:true,secure,sameSite:'Lax',maxAge:30*24*3600});
     const clips=Boolean(await linkedChannel(requirePool(),owner,state.content));
-    return c.html(editorPage(state,csrf(cookie(c)!),Boolean(objects),linked?.rows[0]?.login,Boolean(pro&&state.publication_id),clips));
+    return c.html(editorPage(state,csrf(cookie(c)!),Boolean(objects),twitch&&!state.draft_revision?login:undefined,
+      Boolean(pro&&state.publication_id),clips,Boolean(activity&&login)));
+  });
+  app.get('/editor/match',async c=>{
+    const owner=await principal(c,'creator');
+    const entry=await channelMatch(owner);
+    if(!entry) return c.redirect('/editor',303);
+    const match=await entry.value;
+    if(!match) return c.redirect('/editor?manual=1',303);
+    const state=await editor(requirePool(),owner);
+    return c.html(matchPage(match,entry.operation,csrf(cookie(c)!),state.draft_revision>0));
+  });
+  const waitingMatch=async(owner:string)=>{
+    const entry=matches.get(owner);
+    const match=entry&&entry.until>clock()?await entry.value:null;
+    if(!match) throw unavailable();
+    return match;
+  };
+  // The link, the skin and the texts of a matched draft, on top of the creator's current draft.
+  function matchedContent(current:EditableHome,match:ChannelMatch,texts:{displayName:unknown;intro:unknown;game:unknown},kept:(item:string)=>boolean) {
+    const content=structuredClone(current);
+    Object.assign(content,texts);
+    if(kept('link')) {
+      const url='https://www.twitch.tv/'+match.profile.login;
+      content.streamUrl=url;
+      if(!content.links.some(link=>link.url===url)&&content.links.length+content.layout.supporting.length-1<5) content.links.unshift({label:'Twitch',url});
+    }
+    if(kept('skin')&&match.skin) applySkin(content,match.skin);
+    return content;
+  }
+  app.get('/editor/match/art/:kind',async c=>{
+    const match=await waitingMatch(await principal(c,'creator'));
+    const kind=c.req.param('kind');
+    const bytes=kind==='avatar'||kind==='banner'?match.art[kind]:null;
+    if(!bytes) throw unavailable();
+    return sendImage(bytes);
+  });
+  app.get('/editor/match/preview',async c=>{
+    const owner=await principal(c,'creator');
+    const match=await waitingMatch(owner);
+    const state=await editor(requirePool(),owner);
+    const {displayName,bio:intro,game}=match.profile;
+    const content=matchedContent(state.content,match,{displayName,intro,game},()=>true);
+    // The art of the match is not stored yet, so the preview reads it from the waiting match.
+    for(const [kind,field] of [['avatar','avatarId'],['banner','coverId']] as const) if(match.art[kind]) content[field]=kind;
+    const policy=c.res.headers.get('Content-Security-Policy')!;
+    c.header('Content-Security-Policy',policy.replace("frame-ancestors 'none'","frame-ancestors 'self'"));
+    c.header('X-Frame-Options','SAMEORIGIN');
+    return c.html(renderHome(content,{now:clock(),preview:true,embedded:true,phone:true,
+      asset:id=>id==='avatar'||id==='banner'?'/editor/match/art/'+id:'/editor/assets/'+id}));
+  });
+  app.post('/editor/match',async c=>{
+    const owner=await principal(c,'creator');
+    const fields=await c.req.parseBody();
+    checkCsrf(c,fields.csrf);
+    requireHomeWrites();
+    const db=requirePool(), state=await editor(db,owner), operationId=fields.operationId;
+    if(typeof operationId!=='string'||!uuidPattern.test(operationId)) throw invalid('operationId','Provide a valid operation ID.');
+    // A second send of the same form finds the receipt of the first and saves nothing more.
+    const sent=await db.query('SELECT 1 FROM mutation_receipts WHERE home_id=$1 AND operation_id=$2',[state.id,operationId]);
+    if(sent.rowCount) return c.redirect('/editor',303);
+    const match=await (await channelMatch(owner))?.value;
+    if(!match) return c.redirect('/editor?manual=1',303);
+    const kept=(item:string)=>fields[item]==='on';
+    const content=matchedContent(state.content,match,{displayName:fields.displayName,intro:fields.intro,game:fields.game??''},kept);
+    // Check the texts and the skin before an image is stored.
+    normalizeHome(content,state.content,clock());
+    for(const [kind,field] of [['avatar','avatarId'],['banner','coverId']] as const) {
+      const bytes=match.art[kind];
+      if(!kept(kind)||!bytes||!objects) continue;
+      content[field]=(await upload(db,objects,owner,new File([Uint8Array.from(bytes)],kind+'.webp',{type:'image/webp'}))).id;
+    }
+    await mutate(db,owner,'save',{operationId,revision:state.draft_revision,content},clock());
+    matches.delete(owner);
+    return c.redirect('/editor',303);
   });
   if(pro) {
     app.get('/editor/pro',async c=>{
