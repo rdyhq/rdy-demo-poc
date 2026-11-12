@@ -24,7 +24,29 @@ LOBBY_TEST_DATABASE_URL='postgresql://localhost/lobby_test' npm test
 
 The integration suite creates and drops an isolated schema. Use a disposable database with schema creation permission. CI also builds the Render image and checks `/healthz`.
 
-## Staging handoff
+## Production
+
+Production is the Render service `lobby-staging` with its PostgreSQL 17 database, since 2026-11-12 (Rdy D-9Q58T). The address is `https://linb.io`. The domains `linb.io` and `l1nb.io` reach the service through Cloudflare.
+
+| Setting in Render | Value |
+| --- | --- |
+| `PUBLIC_ORIGIN` | `https://linb.io` |
+| `PUBLIC_REDIRECT_ORIGINS` | `https://l1nb.io,https://lobby-staging.onrender.com` |
+| `LINB_TWITCH`, `LINB_TWITCH_ACTIVITY`, `LINB_OPEN_SIGNUP` | `1` |
+| `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` | From the Twitch app of production. Its redirect URL is `https://linb.io/auth/twitch/callback`. |
+| `TWITCH_SESSION_KEY` | 64 hex characters. `openssl rand -hex 32` makes one. |
+| `LINB_OBJECTS` | `database` |
+| `LOBBY_TRUST_PROXY` | The number in the log line `LINB proxy chain` for `linb.io`. |
+
+Production has no mail service and no R2 bucket. Sign-in is by Twitch alone, operators cannot sign in, and pictures are in the database. Enter secrets directly in Render.
+
+- **Deploy:** wait for CI on the commit. Then start a manual deploy of that exact commit in Render. Render runs `npm run migrate` before the new build starts. Automatic deploys and Blueprint Auto Sync stay off.
+- **Go back:** roll back to the previous deploy in Render. A rollback of the app does not restore the database. Migrations only add, so the previous build runs on the newer schema.
+- **Find `LOBBY_TRUST_PROXY`:** request `https://linb.io/healthz`, then read the Render log. The server prints `LINB proxy chain: N forwarded entries on a request for linb.io.` once for each host. Set the value to N. The line names no address.
+
+## Hosted checks
+
+These notes date from the time when the service was staging. The checks and the recovery steps still apply.
 
 The Render Blueprint describes an Oregon web service and private PostgreSQL 17 database. Keep automatic deploys and Blueprint Auto Sync disabled. Once the exact application commit is approved, set the pre-deploy command to `npm run migrate` in the service settings. The migrations are ordered, checksummed, and transactional. [Render pre-deploy commands](https://render.com/docs/deploys#pre-deploy-command)
 

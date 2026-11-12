@@ -1,3 +1,5 @@
+# Production since 2026-11-12 (Rdy D-9Q58T). The service and the database keep their first names.
+# Blueprint Auto Sync is off: Render reads this file only when a person syncs it.
 services:
   - name: lobby-staging
     type: web
@@ -15,6 +17,25 @@ services:
           property: connectionString
       # The number of proxies in front of the service. Set it in Render. See the README.
       - key: LOBBY_TRUST_PROXY
+        sync: false
+      - key: PUBLIC_ORIGIN
+        value: https://linb.io
+      - key: PUBLIC_REDIRECT_ORIGINS
+        value: https://l1nb.io,https://lobby-staging.onrender.com
+      # Pictures are in PostgreSQL until an R2 bucket exists.
+      - key: LINB_OBJECTS
+        value: database
+      - key: LINB_TWITCH
+        value: "1"
+      - key: LINB_TWITCH_ACTIVITY
+        value: "1"
+      - key: LINB_OPEN_SIGNUP
+        value: "1"
+      - key: TWITCH_CLIENT_ID
+        sync: false
+      - key: TWITCH_CLIENT_SECRET
+        sync: false
+      - key: TWITCH_SESSION_KEY
         sync: false
 
 databases:

@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { homeAliases } from './home-aliases.ts';
 import { importAliases } from './handles.ts';
 import { createApp } from './app.ts';
-import { clientAddress, trustedProxyHops } from './client-address.ts';
+import { clientAddress, proxyChainNote, trustedProxyHops } from './client-address.ts';
 import { postmark } from './auth.ts';
 import { localObjects, objectStore } from './assets.ts';
 import { connect } from './db.ts';
@@ -69,7 +69,14 @@ const app=createApp({pool,origin:origin.origin,redirectOrigins,twitch,twitchActi
   appHandoff:process.env.LINB_APP_HANDOFF==='1',
   openSignup:process.env.LINB_OPEN_SIGNUP==='1',
   clientAddress:context=>clientAddress(getConnInfo(context).remote.address,context.req.header('X-Forwarded-For'),trustedHops)});
-const server=serve({fetch:app.fetch,hostname:host,port});
+// The log shows the length of the proxy chain, so that an operator can set LOBBY_TRUST_PROXY.
+const chainHosts=new Set<string>();
+const server=serve({fetch:(request,...rest)=>{
+  const note=proxyChainNote(chainHosts,new URL(request.url).pathname,request.headers.get('host')??undefined,
+    request.headers.get('x-forwarded-for')??undefined);
+  if(note) console.log(note);
+  return app.fetch(request,...rest);
+},hostname:host,port});
 for(const signal of ['SIGINT','SIGTERM'] as const) {
   process.once(signal,()=>server.close(()=>{void pool?.end();}));
 }
