@@ -3,7 +3,8 @@
 @font-face { font-family:"Bricolage Grotesque"; src:url('/assets/fonts/bricolage-grotesque-latin.woff2') format('woff2'); font-weight:700; font-display:swap; }
 :root { color-scheme:light; --ink:#131316; --soft:#5B5B66; --faint:#8B8A94; --line:#DCDAD4; --wash:#F6F5F1; --twitch:#772CE8; }
 * { box-sizing:border-box; }
-body { margin:0; background:#fff; color:var(--ink); font:16px/1.5 Inter,system-ui,sans-serif; }
+/* A skin stylesheet on a setup screen colours only the look card. The screen stays light. */
+body { margin:0; background:#fff; color-scheme:light; color:var(--ink); font:16px/1.5 Inter,system-ui,sans-serif; }
 a { color:inherit; }
 :focus-visible { outline:3px solid var(--ink); outline-offset:3px; }
 .app { display:flex; flex-direction:column; width:min(100%,440px); min-height:100vh; margin:0 auto; padding:20px 22px 32px; }
@@ -34,3 +35,36 @@ a { color:inherit; }
 .app-skeleton span:nth-child(3) { height:120px; border-radius:18px; }
 @keyframes app-turn { to { transform:rotate(1turn); } }
 @media (prefers-reduced-motion:reduce) { .app-steps li::before { animation:none; } }
+
+.app-dots { display:flex; gap:6px; }
+.app-dots i { width:24px; height:5px; border-radius:9px; background:#E4E2DC; }
+.app-dots i.on { background:var(--ink); }
+.app-small { min-height:52px; gap:2px; font-size:15.5px; }
+.app-small input { height:48px; font-size:15.5px; }
+.app-icon { flex:none; width:18px; height:18px; margin-right:8px; background:var(--ink); -webkit-mask:var(--platform) center / contain no-repeat; mask:var(--platform) center / contain no-repeat; }
+.app-icon[data-platform=youtube] { --platform:url('/assets/platforms/youtube.svg'); }
+.app-icon[data-platform=tiktok] { --platform:url('/assets/platforms/tiktok.svg'); }
+.app-icon[data-platform=x] { --platform:url('/assets/platforms/x.svg'); }
+.app-icon[data-platform=instagram] { --platform:url('/assets/platforms/instagram.svg'); }
+.app-icon[data-platform=kick] { --platform:url('/assets/platforms/kick.svg'); }
+.app-claim button { margin-top:6px; }
+.app-skip { display:block; margin-top:14px; color:var(--soft); font-size:14.5px; text-align:center; }
+.app-looks { display:grid; grid-template-columns:repeat(3,1fr); gap:12px 10px; margin-bottom:8px; }
+.app-looks label { display:block; color:var(--soft); font-size:13px; text-align:center; cursor:pointer; }
+.app-looks input { position:absolute; opacity:0; pointer-events:none; }
+.app-look { display:grid; justify-items:center; align-content:center; gap:6px; aspect-ratio:3/4; margin-bottom:6px; border:1.5px solid #E4E2DC; border-radius:14px; background:var(--look-page); }
+.app-look i { width:22px; height:22px; border-radius:50%; background:var(--look-accent); }
+.app-look b { color:var(--look-text); font-size:17px; }
+.app-look u { width:64%; height:11px; border-radius:999px; background:var(--look-accent); }
+.app-looks input:checked + .app-look { outline:2.5px solid var(--ink); outline-offset:2px; }
+.app-looks input:focus-visible + .app-look { outline:3px solid var(--ink); outline-offset:4px; }
+.app-looks label:has(input:checked) { color:var(--ink); font-weight:650; }
+.app-look[data-look=art] { --look-page:linear-gradient(var(--card-edge),var(--page)); --look-accent:var(--accent); --look-text:var(--text); }
+.app-look[data-look=Nebula] { --look-page:#120E1D; --look-accent:#B69CFF; --look-text:#F6F2FF; }
+.app-look[data-look=Ember] { --look-page:#150C0A; --look-accent:#FF8A4C; --look-text:#FFF3EC; }
+.app-look[data-look=Tide] { --look-page:#061318; --look-accent:#47DCC4; --look-text:#EAFCFF; }
+.app-look[data-look=Paper] { --look-page:#F4F1EC; --look-accent:#5A3CF0; --look-text:#1A1622; }
+.app-tick { display:grid; place-items:center; width:54px; height:54px; margin-bottom:18px; border-radius:50%; background:var(--ink); color:#fff; font-size:25px; }
+.app-copy { margin-bottom:18px; border-color:var(--wash); background:var(--wash); }
+.app-actions { display:grid; gap:12px; }
+.app-secondary { display:flex; align-items:center; justify-content:center; min-height:58px; padding:8px 20px; border:1.5px solid var(--line); border-radius:999px; font-weight:650; font-size:17px; text-decoration:none; }
