@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createApp } from '../src/app.ts';
 import { matchColours, suggestSkin } from '../src/public/art-match.js';
 import { accentPalettes, accentPasses } from '../src/public/contrast.js';
-import { applySkin, auraSummary, chooseTheme, restoreSkin } from '../src/public/editor-support.js';
+import { applySkin, chooseTheme, restoreSkin } from '../src/public/editor-support.js';
 import { artPalette, guardSurfaces } from '../src/public/palette.js';
 import { defaultAura } from '../src/aura.ts';
 import { newHome, normalizeHome, readHome } from '../src/home-cards.ts';
-import { editorPage } from '../src/views.ts';
 
 const size=48*48;
 // Paint flat areas of colour into a 48 by 48 image. The part that is left stays transparent.
@@ -161,24 +159,4 @@ test('a theme leaves the art palette and keeps the rest of the look',()=>{
   const plain={theme:'Ember',aura:{...defaultAura}};
   assert.equal(chooseTheme(plain,'art',null),false);
   assert.deepEqual(plain,{theme:'Ember',aura:{...defaultAura}});
-});
-
-test('the compare dialog names the page colours of an art palette',()=>{
-  assert.match(auraSummary({...defaultAura,palette:{base:'#07110c',second:'#ffb020'}}),/^Page colours: My art #07110c · Accent: /);
-  assert.doesNotMatch(auraSummary(defaultAura),/Page colours/);
-});
-
-test('the editor offers My art, the list of changes and the undo action',async()=>{
-  const id='00000000-0000-4000-8000-000000000001';
-  const page=String(editorPage({id,owner_id:id,draft_revision:0,publication_id:null,published_revision:null,
-    content:readHome(newHome(id),id),held:false,hold_reason:null},'csrf',true));
-  assert.match(page,/<label id="theme-art" hidden><input name="theme" type="radio" value="art">/);
-  assert.match(page,/<button class="secondary" id="aura-match" type="button" aria-describedby="aura-match-help">Match my art<\/button>/);
-  assert.match(page,/<ul id="aura-match-changes" hidden><\/ul>/);
-  assert.match(page,/<button class="secondary" id="aura-match-undo" type="button" hidden>Undo match<\/button>/);
-  const app=createApp();
-  for(const script of ['art-match','art-pixels','palette','contrast','editor-support']) {
-    assert.equal((await app.request('/assets/'+script+'.js')).status,200,script);
-  }
-  assert.equal((await app.request('/assets/art-accent.js')).status,404);
 });

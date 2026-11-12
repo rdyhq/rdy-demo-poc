@@ -1,16 +1,6 @@
 import { adjustAccent } from './contrast.js';
 import { guardSurfaces, nearestTheme } from './palette.js';
 
-// The compare dialog shows each Aura setting by name.
-export function auraSummary(aura) {
-  return [
-    ...(aura.palette?['Page colours: My art '+aura.palette.base]:[]),
-    'Accent: '+aura.accentSource+(aura.accent?' '+aura.accent:''),
-    'Font: '+aura.font,'Shape: '+aura.shape,'Frame: '+aura.frame,'Field: '+aura.field,'Intensity: '+aura.intensity,
-    'Live surge: '+(aura.liveSurge?'on':'off'),
-  ].join(' · ');
-}
-
 // Match my art sets the whole look (RDY r-GXT5V). The return value restores the look from before the match.
 export function applySkin(content,skin) {
   const before={theme:content.theme,aura:{...content.aura}};
@@ -38,14 +28,4 @@ export function chooseTheme(content,value,palette) {
   const requested=content.aura.accent;
   if(requested!==null) content.aura.accent=adjustAccent(requested,guardSurfaces(content.theme,content.aura.palette));
   return content.aura.accent!==requested;
-}
-
-// The browser asks before a page with unsaved values unloads.
-export function guardUnsaved(page,hasUnsaved) {
-  page.addEventListener('beforeunload',event=>{
-    if(!hasUnsaved()) return;
-    event.preventDefault();
-    // Some browsers ask only when the event also carries a return value.
-    event.returnValue='';
-  });
 }
