@@ -92,6 +92,15 @@ test('every base colour gives a readable palette',()=>{
   }
 });
 
+test('the glow is the colour of the art itself, so a light page gets a soft field',()=>{
+  // The accent is moved darker for text on a cream page. The glow only decorates, so it keeps the rose of the art.
+  const cozy=artPalette({base:'#ffe9c9',second:null,accent:'#e8697d'})!;
+  assert.equal(cozy.glow,'#e8697d');
+  assert.notEqual(cozy.accent,cozy.glow);
+  assert.equal(artPalette({base:'#ffe9c9',second:'#5B3A5E',accent:'#e8697d'})!.glow,'#5b3a5e');
+  assert.equal(artPalette({base:'#07110c',second:null,accent:null})!.glow,'#47dcc4');
+});
+
 test('a palette with no second colour uses the muted text colour there',()=>{
   const palette=artPalette({base:'#07110c',second:null,accent:'#39ff88'})!;
   assert.equal(palette.second,palette.muted);
