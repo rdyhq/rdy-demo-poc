@@ -253,6 +253,14 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       assert.equal((await post('/editor/twitch',{part:'clips',show:'0'},nova)).status,403);
     });
 
+    await t.test('a creator with a linked Twitch channel can lead with the latest clip',async()=>{
+      assert.ok((await (await get('/editor',nova)).text()).includes('<option value="next" selected>Next stream</option><option value="clip">Latest clip</option>'));
+      assert.equal((await post('/editor/lead',{csrf:csrf(nova),lead:'clip'},nova)).status,303);
+      assert.equal((await draftOf('nova@example.test')).content.spotlight.offlineLead,'clip');
+      assert.match(await (await get('/editor',nova)).text(),/<option value="clip" selected>Latest clip<\/option>/);
+      assert.equal((await post('/editor/lead',{csrf:csrf(nova),lead:'next'},nova)).status,303);
+    });
+
     await t.test('a creator can pick a theme in place of the matched colours',async()=>{
       who={sub:'3003',login:'afterhours',name:'Afterhours',email:'after@example.test',verified:true};
       const {result,session}=await signIn();
