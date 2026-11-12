@@ -335,6 +335,80 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       streaming=false;
       assert.equal((await get('/h/'+id+'/stream','',createApp({...base,openSignup:true}))).status,404);
     });
+
+    // A deployment with no mail service. Twitch is then the only way to sign in.
+    const bare=createApp({...base,mail:undefined,openSignup:true});
+    let mailless='';
+
+    await t.test('without a mail service, a streamer signs up and returns with Twitch alone',async()=>{
+      who={sub:'8008',login:'mailless',name:'Mailless',email:'mailless@example.test',verified:true};
+      const sent=mail.length;
+      const first=await signIn(bare);
+      assert.equal(first.result.headers.get('Location'),'/start');
+      assert.ok(first.session);
+      assert.equal((await get('/start',first.session,bare)).status,200);
+      assert.equal((await pool.query(`SELECT 1 FROM home_handles WHERE handle='mailless' AND current`)).rowCount,1);
+      const again=await signIn(bare);
+      assert.equal(again.result.headers.get('Location'),'/editor');
+      mailless=again.session;
+      assert.equal((await get('/editor',mailless,bare)).status,200);
+      assert.equal(mail.length,sent);
+    });
+
+    await t.test('without a mail service, the sign-in page offers Twitch only',async()=>{
+      const page=await (await get('/sign-in','',bare)).text();
+      assert.match(page,/<button class="app-twitch">Continue with Twitch<\/button>/);
+      assert.doesNotMatch(page,/name="mailbox"|Email me a sign-in link|The link works once/);
+      // The address of the sent state shows no mailbox message.
+      assert.doesNotMatch(await (await get('/sign-in?sent=1','',bare)).text(),/Check your mailbox/);
+      // A request for a link is refused, and it stores no proof.
+      const proofs=await count('access_proofs');
+      assert.equal((await post('/sign-in',{mailbox:'nova@example.test'},'',bare)).status,503);
+      assert.equal(await count('access_proofs'),proofs);
+      // With a mail service, the page keeps the email form.
+      assert.match(await (await get('/sign-in')).text(),/name="mailbox"/);
+    });
+
+    await t.test('without a mail service, the operator sign-in says that it needs mail',async()=>{
+      const page=await (await get('/ops/sign-in','',bare)).text();
+      assert.match(page,/<p class="app-lead">Operator sign-in needs the mail service\. It is not set up\.<\/p>/);
+      assert.doesNotMatch(page,/name="mailbox"/);
+      const proofs=await count('access_proofs');
+      assert.equal((await post('/ops/sign-in',{mailbox:'operator@example.test'},'',bare)).status,503);
+      assert.equal(await count('access_proofs'),proofs);
+    });
+
+    await t.test('without a mail service, a second Twitch account with a known email is sent to the first account',async()=>{
+      who={sub:'9009',login:'secondnova',name:'SecondNova',email:'nova@example.test',verified:true};
+      const {result,session}=await signIn(bare);
+      assert.equal(result.headers.get('Location'),'/sign-in?twitch=mailbox');
+      assert.equal(session,'');
+      assert.equal((await pool.query(`SELECT 1 FROM twitch_identities WHERE subject='9009'`)).rowCount,0);
+      const page=await (await get('/sign-in?twitch=mailbox','',bare)).text();
+      assert.match(page,/<p class="app-note" role="alert">The email of this Twitch account already has a linb\.io page\. Sign in with the Twitch account of that page\.<\/p>/);
+      assert.match(page,/Continue with Twitch/);
+      assert.doesNotMatch(page,/name="mailbox"/);
+    });
+
+    await t.test('without a mail service, the account offers no email change and no Twitch disconnect',async()=>{
+      const page=await (await get('/account',mailless,bare)).text();
+      assert.match(page,/<p>Your email: <strong>mailless@example\.test<\/strong><\/p><p class="ed-fine">It comes from your Twitch account\.<\/p>/);
+      assert.doesNotMatch(page,/action="\/account\/mailbox"|Send verification links/);
+      assert.match(page,/<p>Connected: mailless<\/p><p class="ed-fine">You sign in with Twitch\.<\/p>/);
+      assert.doesNotMatch(page,/Disconnect Twitch|action="\/account\/twitch"/);
+      assert.match(page,/<button class="ed-quiet">Sign out<\/button>/);
+      // The forms that the page does not show are refused.
+      const changes=await count('mailbox_changes');
+      assert.equal((await post('/account/mailbox',{csrf:csrf(mailless),mailbox:'other@example.test'},mailless,bare)).status,503);
+      assert.equal(await count('mailbox_changes'),changes);
+      assert.equal((await post('/account/twitch',{csrf:csrf(mailless),action:'unlink'},mailless,bare)).status,503);
+      assert.equal((await pool.query(`SELECT 1 FROM twitch_identities WHERE subject='8008'`)).rowCount,1);
+      // With a mail service, the account keeps both controls.
+      who={sub:'2002',login:'novabyte',name:'NovaByte',email:'nova@example.test',verified:true};
+      const full=await (await get('/account',(await signIn()).session)).text();
+      assert.match(full,/action="\/account\/mailbox"/);
+      assert.match(full,/Disconnect Twitch/);
+    });
   } finally {
     await pool.end();
     await admin.query('DROP SCHEMA '+schema+' CASCADE');
