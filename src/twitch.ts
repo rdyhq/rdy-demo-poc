@@ -1,13 +1,15 @@
 import { createCipheriv, createDecipheriv, createPublicKey, randomBytes, verify } from 'node:crypto';
 import type pg from 'pg';
 import { transaction } from './db.ts';
-import { AppError, conflict, digest, secret, tokenPattern } from './domain.ts';
+import { AppError, conflict, digest, mailbox, secret, tokenPattern } from './domain.ts';
+import { createCreator } from './homes.ts';
 import { assignHandle } from './handles.ts';
 
 export const issuer='https://id.twitch.tv/oauth2';
 export const twitchCallback='/auth/twitch/callback';
 export type TwitchConfig={clientId:string;clientSecret:string;key:Buffer;http?:typeof fetch};
-type Identity={subject:string;login:string|null};
+// The email is present only when Twitch says that the account verified it.
+type Identity={subject:string;login:string|null;email?:string|null};
 const failed=()=>new AppError(401,'twitch_unavailable','Twitch could not verify access. You can continue with email.');
 
 export function verifyIdentity(token:string,keys:JsonWebKey[],clientId:string,nonce:string,now=Date.now()):Identity {
@@ -22,7 +24,8 @@ export function verifyIdentity(token:string,keys:JsonWebKey[],clientId:string,no
        !verify('RSA-SHA256',Buffer.from(head+'.'+body),createPublicKey({key,format:'jwk'}),Buffer.from(sig,'base64url'))) throw failed();
     if(c.iss!==issuer||c.aud!==clientId||c.nonce!==nonce||typeof c.exp!=='number'||c.exp<=now/1000||
        typeof c.iat!=='number'||c.iat>now/1000+60||!/^\d{1,30}$/.test(c.sub)||typeof c.sub!=='string') throw failed();
-    return {subject:c.sub,login:typeof c.preferred_username==='string'&&/^[A-Za-z0-9_]{1,25}$/.test(c.preferred_username)?c.preferred_username:null};
+    return {subject:c.sub,login:typeof c.preferred_username==='string'&&/^[A-Za-z0-9_]{1,25}$/.test(c.preferred_username)?c.preferred_username:null,
+      email:c.email_verified===true?mailbox(c.email):null};
   } catch { throw failed(); }
 }
 
@@ -30,7 +33,11 @@ export class Twitch {
   db:pg.Pool;
   config:TwitchConfig;
   callback:string;
-  constructor(db:pg.Pool,config:TwitchConfig,origin:string) { this.db=db; this.config=config; this.callback=origin+twitchCallback; }
+  // With open sign-up, a new Twitch identity creates an account (RDY D-AD8F2).
+  openSignup:boolean;
+  constructor(db:pg.Pool,config:TwitchConfig,origin:string,openSignup=false) {
+    this.db=db; this.config=config; this.callback=origin+twitchCallback; this.openSignup=openSignup;
+  }
 
   async begin(intent:'sign-in'|'link',sid?:string) {
     const state=secret(),nonce=secret();
@@ -38,8 +45,10 @@ export class Twitch {
     await this.db.query('DELETE FROM twitch_pending WHERE expires_at<=now()');
     await this.db.query(`INSERT INTO twitch_attempts VALUES($1,$2,$3,$4,now()+interval '10 minutes')`,
       [digest(state),nonce,intent,sid?digest(sid):null]);
-    const query=new URLSearchParams({client_id:this.config.clientId,redirect_uri:this.callback,response_type:'code',scope:'openid',
-      state,nonce,claims:JSON.stringify({id_token:{preferred_username:null}})});
+    // The verified email of the Twitch account becomes the recovery mailbox of a new creator.
+    const claims=this.openSignup?{preferred_username:null,email:null,email_verified:null}:{preferred_username:null};
+    const query=new URLSearchParams({client_id:this.config.clientId,redirect_uri:this.callback,response_type:'code',
+      scope:this.openSignup?'openid user:read:email':'openid',state,nonce,claims:JSON.stringify({id_token:claims})});
     return {state,url:issuer+'/authorize?'+query};
   }
 
@@ -94,6 +103,18 @@ export class Twitch {
         return {destination:'/account?twitch=linked'};
       }
       const {rows}=await client.query('SELECT creator_id FROM twitch_identities WHERE subject=$1 FOR UPDATE',[identity.subject]);
+      let destination='/editor';
+      if(!rows[0]&&this.openSignup) {
+        if(!identity.email) return {destination:'/sign-in?twitch=email'};
+        // linb.io never joins two accounts by itself. A mailbox that it knows signs in with that mailbox.
+        const known=await client.query('SELECT 1 FROM creators WHERE lower(mailbox)=lower($1)',[identity.email]);
+        if(!known.rowCount) {
+          const creator=await createCreator(client,identity.email);
+          if(!await attachTwitch(client,creator,identity)) throw failed();
+          rows[0]={creator_id:creator};
+          destination='/start';
+        }
+      }
       if(!rows[0]) {
         const pending=secret();
         await client.query(`INSERT INTO twitch_pending VALUES($1,$2,$3,now()+interval '15 minutes')`,[digest(pending),identity.subject,identity.login]);
@@ -108,7 +129,7 @@ export class Twitch {
         [key,creator,Math.min(expiry,7*86400)]);
       await client.query('INSERT INTO twitch_sessions(session_hash,subject,token_box) VALUES($1,$2,$3)',
         [key,identity.subject,this.encrypt(payload.access_token)]);
-      return {sid:next,destination:'/editor'};
+      return {sid:next,destination};
     });
   }
 

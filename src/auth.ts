@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import { consumePendingTwitch } from './twitch.ts';
 import { transaction } from './db.ts';
-import { newHome } from './home-cards.ts';
+import { createCreator } from './homes.ts';
 import { AppError, conflict, digest, invalid, mailbox, secret, tokenPattern } from './domain.ts';
 
 export type SendMail = (to: string, subject: string, text: string) => Promise<void>;
@@ -119,11 +119,7 @@ export class Auth {
         const invite=await client.query(`UPDATE invites SET consumed_at=now() WHERE mailbox=$1
           AND revoked_at IS NULL AND consumed_at IS NULL AND expires_at>now() RETURNING id`,[proof.mailbox]);
         if (!invite.rowCount) throw badProof();
-        creator=randomUUID();
-        const home=randomUUID();
-        await client.query('INSERT INTO creators VALUES ($1,$2)',[creator,proof.mailbox]);
-        await client.query('INSERT INTO homes(id,owner_id) VALUES ($1,$2)',[home,creator]);
-        await client.query('INSERT INTO drafts VALUES ($1,0,$2)',[home,newHome(home)]);
+        creator=await createCreator(client,proof.mailbox);
       }
       await client.query('UPDATE sessions SET revoked_at=now() WHERE creator_id=$1 AND revoked_at IS NULL',[creator]);
       if(pendingTwitch) await consumePendingTwitch(client,pendingTwitch,creator);

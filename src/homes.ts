@@ -4,9 +4,18 @@ import { transaction } from './db.ts';
 import { conflict, digest, invalid, scheduleChange, unavailable, uuidPattern, type HomeContent, type ScheduleChange } from './domain.ts';
 
 import { type ProDraft, type ProContent } from './pro.ts';
-import { normalizeHome, readHome, writeHome, type EditableHome, type StoredHome } from './home-cards.ts';
+import { newHome, normalizeHome, readHome, writeHome, type EditableHome, type StoredHome } from './home-cards.ts';
 import { previewFingerprint, type Selection } from './sharing.ts';
 import { homeHandle } from './handles.ts';
+
+// A new creator has one Home and one empty private draft.
+export async function createCreator(client:pg.PoolClient,mailbox:string) {
+  const creator=randomUUID(), home=randomUUID();
+  await client.query('INSERT INTO creators VALUES ($1,$2)',[creator,mailbox]);
+  await client.query('INSERT INTO homes(id,owner_id) VALUES ($1,$2)',[home,creator]);
+  await client.query('INSERT INTO drafts VALUES ($1,0,$2)',[home,newHome(home)]);
+  return creator;
+}
 
 export type HomeState = {
   id:string; owner_id:string; draft_revision:number; publication_id:string|null; published_revision:number|null;

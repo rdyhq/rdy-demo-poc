@@ -113,7 +113,7 @@ test('the home page has one field for a Twitch name and one action',()=>{
   const html=String(landingPage({preview:true}));
   assert.match(html,/<form class="app-claim" method="get" action="\/preview">/);
   assert.equal((html.match(/<input /g)??[]).length,1);
-  assert.match(html,/<input id="name" name="name" required maxlength="25" pattern="\[A-Za-z0-9_\]\{3,25\}" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="yourtwitchname">/);
+  assert.match(html,/<input id="name" name="name" aria-label="Your Twitch name" required maxlength="25" pattern="\[A-Za-z0-9_\]\{3,25\}" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="yourtwitchname">/);
   assert.match(html,/<button>Show my page<\/button>/);
   assert.match(html,/No sign-up needed\./);
   assert.match(html,/<a href="\/sign-in">Sign in<\/a>/);

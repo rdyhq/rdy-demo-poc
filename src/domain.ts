@@ -124,7 +124,7 @@ export function normalize(value: any, old=emptyHome, now=Date.now(), preview=fal
     if (new Set(entries.map(e=>e.id)).size!==entries.length) throw invalid(field,'Use a different identifier for each entry.');
   }
   return {
-    schemaVersion:1,displayName:text(value.displayName,'displayName',40,!preview),intro:text(value.intro,'intro',160,!preview),
+    schemaVersion:1,displayName:text(value.displayName,'displayName',40,!preview),intro:text(value.intro,'intro',160),
     game:text(value.game,'game',80),streamUrl:https(value.streamUrl,'streamUrl'),theme:value.theme,
     avatarId:value.avatarId==null?null:id(value.avatarId,'avatarId'),coverId:value.coverId==null?null:id(value.coverId,'coverId'),
     links:list(value.links,'links',5).map((entry,i)=>({

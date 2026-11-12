@@ -11,22 +11,22 @@ import { transaction } from './db.ts';
 import { acceptReport, reportInbox, reportReasons } from './reports.ts';
 import { assetBytes, maxUpload, upload, type Objects } from './assets.ts';
 import { Auth, throttle, type SendMail } from './auth.ts';
-import { AppError, digest, emptyHome, equalSecret, invalid, mailbox, scheduleChange, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
+import { AppError, digest, emptyHome, equalSecret, invalid, mailbox, scheduleChange, themeNames, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
 import { invite, inviteList, revokeInvite } from './enrollment.ts';
 import { cardColumns, cardHeights, cardSpans, channelPlatform, newHome, normalizeHome, platforms, readHome, type EditableHome, type StoredHome } from './home-cards.ts';
 import { liveState } from './live-state.ts';
 import { TwitchActivity, type TwitchActivityConfig, type TwitchChannel } from './twitch-activity.ts';
 import { acceptHandle, handleOffer, homeHandle, resolveHandle } from './handles.ts';
 import { describeFailure } from './failure.ts';
-import { accentCss, artPalette, paletteCss, paletteVersion, skinColours } from './public/palette.js';
-import { applySkin } from './public/editor-support.js';
+import { accentCss, artPalette, paletteCss, paletteVersion, skinColours, skinPath } from './public/palette.js';
+import { chooseTheme } from './public/editor-support.js';
 import { channelDraft, matchChannel, type ChannelMatch } from './twitch-channel.ts';
 import { renderPage } from './page.ts';
-import { buildingPage, landingPage } from './screens.ts';
+import { buildingPage, landingPage, linksStep, liveStep, lookStep } from './screens.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
-import { accountPage, billingPage, confirmation, editorPage, editorShare, invitesPage, leaderboardDemo, matchPage, message, proEditor, opsCase, opsPage, renderHome, reportPage, retiredCalendar, signIn } from './views.ts';
+import { accountPage, billingPage, confirmation, editorPage, editorShare, invitesPage, leaderboardDemo, message, proEditor, opsCase, opsPage, renderHome, reportPage, retiredCalendar, signIn } from './views.ts';
 
 const stylesheet=[
   readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8'),
@@ -63,6 +63,8 @@ type Configuration={
   pool?:pg.Pool; origin?:string; twitch?:TwitchConfig; billing?:BillingConfig; pro?:{multipage:boolean}; redirectOrigins?:string[]; mail?:SendMail; objects?:Objects|null;
   reportContact?:string; clock?:()=>number; demo?:boolean; readOnlyHomes?:boolean; appHandoff?:boolean;
   clientAddress?:(context:Context)=>string;
+  // Open sign-up with Twitch is a setting that an operator can switch off (RDY r-C8Z5D).
+  openSignup?:boolean;
 };
 
 const parseJson=(raw:string)=>{
@@ -89,7 +91,7 @@ export function createApp(config:Configuration={}) {
   const pool=config.pool;
   const objects=config.objects??null;
   const auth=pool&&config.mail&&origin?new Auth(pool,config.mail,origin,Boolean(config.twitch),config.readOnlyHomes):null;
-  const twitch=pool&&auth&&origin&&config.twitch?new Twitch(pool,config.twitch,origin):null;
+  const twitch=pool&&auth&&origin&&config.twitch?new Twitch(pool,config.twitch,origin,Boolean(config.openSignup)):null;
   const billing=pool&&auth&&origin&&config.billing?new Billing(pool,origin,config.billing):null;
   const pro=billing?config.pro:null;
   const twitchState=secure?'__Host-linb-twitch':'linb-twitch';
@@ -110,8 +112,8 @@ export function createApp(config:Configuration={}) {
     // The login stored when the creator linked Twitch goes stale after a rename.
     if(rows[0]) return {subject:rows[0].subject,login};
   }
-  // A matched draft waits here for the creator's answer. Nothing of it is saved before Use this draft (RDY r-7J06Z).
-  const matches=new Map<string,{until:number;operation:string;value:Promise<ChannelMatch|null>}>();
+  // The channel of a creator who just claimed a page, read once for the first draft (RDY r-KQGNH).
+  const matches=new Map<string,{until:number;value:Promise<ChannelMatch|null>}>();
   async function channelMatch(owner:string) {
     if(!activity) return null;
     const waiting=matches.get(owner);
@@ -120,7 +122,7 @@ export function createApp(config:Configuration={}) {
     if(!rows[0]) return null;
     matches.delete(owner);
     if(matches.size>=200) matches.delete(matches.keys().next().value!);
-    const entry={until:clock()+10*60_000,operation:randomUUID(),
+    const entry={until:clock()+10*60_000,
       value:activity.profile(rows[0].subject).then(profile=>profile?matchChannel(profile,config.twitchActivity!.http):null)};
     matches.set(owner,entry);
     // Twitch gave no profile. Ask again at the next request.
@@ -179,7 +181,7 @@ export function createApp(config:Configuration={}) {
       c.header('X-Content-Type-Options','nosniff');
       c.header('X-Frame-Options','DENY');
       const allowedForms=(twitch?' https://id.twitch.tv':'')+(billing?' https://checkout.stripe.com https://billing.stripe.com':'');
-      const frameSources=[...(c.req.path==='/editor'||c.req.path==='/editor/match'?["'self'"]:[]),...(pro?['https://www.youtube-nocookie.com']:[])];
+      const frameSources=[...(c.req.path==='/editor'?["'self'"]:[]),...(pro?['https://www.youtube-nocookie.com']:[])];
       const allowedFrames=frameSources.length?'frame-src '+frameSources.join(' ')+'; ':'';
       c.header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'"+allowedForms+"; "+allowedFrames+"base-uri 'none'; frame-ancestors 'none'");
     }
@@ -275,7 +277,7 @@ export function createApp(config:Configuration={}) {
   app.get('/assets/preview.js',c=>c.text(previewScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/verify.js',c=>c.text(verifyScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/',c=>c.html(landingPage({preview:Boolean(activity&&pool),missing:twitchLogin(c.req.query('missing'))??undefined,
-    invalid:c.req.query('invalid')==='1',limited:c.req.query('limited')==='1',canonical:origin?origin+'/':undefined})));
+    invalid:c.req.query('invalid')==='1',limited:c.req.query('limited')==='1',closed:!twitch?.openSignup,canonical:origin?origin+'/':undefined})));
   app.get('/preview',c=>{
     if(!activity||!pool) return c.redirect('/',303);
     const login=twitchLogin(c.req.query('name'));
@@ -420,88 +422,101 @@ export function createApp(config:Configuration={}) {
   app.get('/editor',async c=>{
     const owner=await principal(c,'creator');
     const state=await editor(requirePool(),owner);
-    const linked=twitch||activity?await requirePool().query('SELECT login FROM twitch_identities WHERE creator_id=$1',[owner]):null;
-    const login=linked?.rows[0]?.login as string|undefined;
-    const manual=c.req.query('manual')==='1';
-    // A creator with a linked Twitch channel sees the matched draft while the draft is empty (RDY r-7J06Z).
-    if(activity&&login&&!state.draft_revision&&!manual&&getCookie(c,'linb-manual')!=='1') return c.redirect('/editor/match',303);
-    if(manual) setCookie(c,'linb-manual','1',{path:'/editor',httpOnly:true,secure,sameSite:'Lax',maxAge:30*24*3600});
+    const linked=twitch&&!state.draft_revision?await requirePool().query('SELECT login FROM twitch_identities WHERE creator_id=$1',[owner]):null;
     const clips=Boolean(await linkedChannel(requirePool(),owner,state.content));
-    return c.html(editorPage(state,csrf(cookie(c)!),Boolean(objects),twitch&&!state.draft_revision?login:undefined,
-      Boolean(pro&&state.publication_id),clips,Boolean(activity&&login)));
+    return c.html(editorPage(state,csrf(cookie(c)!),Boolean(objects),linked?.rows[0]?.login,Boolean(pro&&state.publication_id),clips));
   });
-  app.get('/editor/match',async c=>{
-    const owner=await principal(c,'creator');
-    const entry=await channelMatch(owner);
-    if(!entry) return c.redirect('/editor',303);
-    const match=await entry.value;
-    if(!match) return c.redirect('/editor?manual=1',303);
-    const state=await editor(requirePool(),owner);
-    return c.html(matchPage(match,entry.operation,csrf(cookie(c)!),state.draft_revision>0));
-  });
-  const waitingMatch=async(owner:string)=>{
-    const entry=matches.get(owner);
-    const match=entry&&entry.until>clock()?await entry.value:null;
-    if(!match) throw unavailable();
-    return match;
+
+  // The setup after a claim (RDY r-FYDDP): two steps that the creator can skip, then the address of the page.
+  const platformNames:Record<string,[string,string,RegExp]>={
+    youtube:['YouTube','https://www.youtube.com/@',/^@?([\w.-]{3,30})$/], tiktok:['TikTok','https://www.tiktok.com/@',/^@?([\w.]{2,24})$/],
+    x:['X','https://x.com/',/^@?(\w{1,15})$/], instagram:['Instagram','https://www.instagram.com/',/^@?([\w.]{1,30})$/],
+    kick:['Kick','https://kick.com/',/^@?(\w{3,25})$/],
   };
-  // The link, the skin and the texts of a matched draft, on top of the creator's current draft.
-  function matchedContent(current:EditableHome,match:ChannelMatch,texts:{displayName:unknown;intro:unknown;game:unknown},kept:(item:string)=>boolean) {
-    const content=structuredClone(current);
-    Object.assign(content,texts);
-    if(kept('link')) {
-      const url='https://www.twitch.tv/'+match.profile.login;
-      content.streamUrl=url;
-      if(!content.links.some(link=>link.url===url)&&content.links.length+content.layout.supporting.length-1<5) content.links.unshift({label:'Twitch',url});
-    }
-    if(kept('skin')&&match.skin) applySkin(content,match.skin);
-    return content;
+  // The claimed draft takes its fields from the Twitch channel (RDY r-KQGNH). A failure leaves the empty draft.
+  async function firstDraft(owner:string,state:Awaited<ReturnType<typeof editor>>) {
+    const match=config.readOnlyHomes?null:await (await channelMatch(owner))?.value;
+    if(!match) return state;
+    const db=requirePool(), art={avatar:null as string|null,banner:null as string|null};
+    try {
+      for(const kind of ['avatar','banner'] as const) {
+        const bytes=match.art[kind];
+        if(bytes&&objects) art[kind]=(await upload(db,objects,owner,new File([Uint8Array.from(bytes)],kind+'.webp',{type:'image/webp'}))).id;
+      }
+      await mutate(db,owner,'save',{operationId:randomUUID(),revision:0,content:channelDraft(state.content,match,art)},clock());
+    } catch { return state; }
+    matches.delete(owner);
+    return editor(db,owner);
   }
-  app.get('/editor/match/art/:kind',async c=>{
-    const match=await waitingMatch(await principal(c,'creator'));
-    const kind=c.req.param('kind');
-    const bytes=kind==='avatar'||kind==='banner'?match.art[kind]:null;
-    if(!bytes) throw unavailable();
-    return sendImage(bytes);
-  });
-  app.get('/editor/match/preview',async c=>{
+  const operationOf=(fields:Record<string,unknown>)=>{
+    const operationId=fields.operationId;
+    if(typeof operationId!=='string'||!uuidPattern.test(operationId)) throw invalid('operationId','Provide a valid operation ID.');
+    return operationId;
+  };
+  // A second send of the same form finds the receipt of the first.
+  const sentBefore=async(homeId:string,operationId:string)=>
+    Boolean((await requirePool().query('SELECT 1 FROM mutation_receipts WHERE home_id=$1 AND operation_id=$2',[homeId,operationId])).rowCount);
+  app.get('/start',async c=>{
     const owner=await principal(c,'creator');
-    const match=await waitingMatch(owner);
-    const state=await editor(requirePool(),owner);
-    const {displayName,bio:intro,game}=match.profile;
-    const content=matchedContent(state.content,match,{displayName,intro,game},()=>true);
-    // The art of the match is not stored yet, so the preview reads it from the waiting match.
-    for(const [kind,field] of [['avatar','avatarId'],['banner','coverId']] as const) if(match.art[kind]) content[field]=kind;
-    const policy=c.res.headers.get('Content-Security-Policy')!;
-    c.header('Content-Security-Policy',policy.replace("frame-ancestors 'none'","frame-ancestors 'self'"));
-    c.header('X-Frame-Options','SAMEORIGIN');
-    return c.html(renderHome(content,{now:clock(),preview:true,embedded:true,phone:true,
-      asset:id=>id==='avatar'||id==='banner'?'/editor/match/art/'+id:'/editor/assets/'+id}));
+    let state=await editor(requirePool(),owner);
+    if(state.publication_id) return c.redirect('/start/live',303);
+    if(!state.draft_revision) state=await firstDraft(owner,state);
+    return c.html(linksStep({csrf:csrf(cookie(c)!),operation:randomUUID()}));
   });
-  app.post('/editor/match',async c=>{
+  app.post('/start/links',async c=>{
     const owner=await principal(c,'creator');
     const fields=await c.req.parseBody();
     checkCsrf(c,fields.csrf);
     requireHomeWrites();
-    const db=requirePool(), state=await editor(db,owner), operationId=fields.operationId;
-    if(typeof operationId!=='string'||!uuidPattern.test(operationId)) throw invalid('operationId','Provide a valid operation ID.');
-    // A second send of the same form finds the receipt of the first and saves nothing more.
-    const sent=await db.query('SELECT 1 FROM mutation_receipts WHERE home_id=$1 AND operation_id=$2',[state.id,operationId]);
-    if(sent.rowCount) return c.redirect('/editor',303);
-    const match=await (await channelMatch(owner))?.value;
-    if(!match) return c.redirect('/editor?manual=1',303);
-    const kept=(item:string)=>fields[item]==='on';
-    const content=matchedContent(state.content,match,{displayName:fields.displayName,intro:fields.intro,game:fields.game??''},kept);
-    // Check the texts and the skin before an image is stored.
-    normalizeHome(content,state.content,clock());
-    for(const [kind,field] of [['avatar','avatarId'],['banner','coverId']] as const) {
-      const bytes=match.art[kind];
-      if(!kept(kind)||!bytes||!objects) continue;
-      content[field]=(await upload(db,objects,owner,new File([Uint8Array.from(bytes)],kind+'.webp',{type:'image/webp'}))).id;
+    const state=await editor(requirePool(),owner), operationId=operationOf(fields);
+    if(await sentBefore(state.id,operationId)) return c.redirect('/start/look',303);
+    const links=[...state.content.links], values:Record<string,string>={};
+    const refuse=(error:string)=>c.html(linksStep({csrf:csrf(cookie(c)!),operation:operationId,error,values}),422);
+    for(const [platform,[label,address,pattern]] of Object.entries(platformNames)) {
+      const value=values[platform]=typeof fields[platform]==='string'?(fields[platform] as string).trim():'';
+      if(!value) continue;
+      const name=pattern.exec(value)?.[1], url=name?address+name:null;
+      if(!url||channelPlatform(url)!==platform) return refuse('Check the '+label+' name.');
+      if(!links.some(link=>link.url===url)) links.push({label,url});
     }
-    await mutate(db,owner,'save',{operationId,revision:state.draft_revision,content},clock());
-    matches.delete(owner);
-    return c.redirect('/editor',303);
+    if(links.length>5) return refuse('Add up to four here. You can add more in the editor.');
+    if(links.length>state.content.links.length) {
+      await mutate(requirePool(),owner,'save',{operationId,revision:state.draft_revision,content:{...state.content,links}},clock());
+    }
+    return c.redirect('/start/look',303);
+  });
+  app.get('/start/look',async c=>{
+    const owner=await principal(c,'creator');
+    const state=await editor(requirePool(),owner);
+    if(state.publication_id) return c.redirect('/start/live',303);
+    const {aura,theme}=state.content;
+    const art=aura.palette&&artPalette({...aura.palette,accent:aura.accent});
+    return c.html(lookStep({csrf:csrf(cookie(c)!),operation:randomUUID(),theme,skin:art?skinPath(aura.palette,aura.accent):undefined}));
+  });
+  app.post('/start/look',async c=>{
+    const owner=await principal(c,'creator');
+    const fields=await c.req.parseBody();
+    checkCsrf(c,fields.csrf);
+    requireHomeWrites();
+    const db=requirePool(), state=await editor(db,owner), operationId=operationOf(fields);
+    if(await sentBefore(state.id,operationId)) return c.redirect('/start/live',303);
+    const look=fields.look, content=structuredClone(state.content);
+    let revision=state.draft_revision;
+    if(look!=='art'||!content.aura.palette) {
+      if(typeof look!=='string'||!(themeNames as readonly string[]).includes(look)) throw invalid('look','Choose a look.');
+      chooseTheme(content,look,null);
+      revision=(await mutate(db,owner,'save',{operationId,revision,content},clock())).revision;
+    }
+    // The matched look needs no save, so the publication carries the operation of the form.
+    await mutate(db,owner,'publish',{operationId:revision===state.draft_revision?operationId:randomUUID(),revision,publicationId:state.publication_id},clock());
+    return c.redirect('/start/live',303);
+  });
+  app.get('/start/live',async c=>{
+    const owner=await principal(c,'creator');
+    const db=requirePool(), state=await editor(db,owner);
+    if(!state.publication_id) return c.redirect('/start',303);
+    const handle=await homeHandle(db,state.id), path=handle?'/'+handle:'/h/'+state.id;
+    return c.html(liveStep({address:(originHost??new URL(c.req.url).host)+path,path}));
   });
   if(pro) {
     app.get('/editor/pro',async c=>{
