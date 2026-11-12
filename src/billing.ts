@@ -57,8 +57,16 @@ export class Billing {
         AND NOT EXISTS(SELECT 1 FROM visibility_holds v WHERE v.home_id=h.id AND v.released_at IS NULL) FOR UPDATE`,
         [home.id,home.publication_id,creator]);
       if(!current.rowCount) throw conflict('Review the current Free page before trying checkout.');
-      const {rows}=await client.query('SELECT * FROM billing_attempts WHERE creator_id=$1',[creator]);
-      const attempt=rows[0];
+      const {rows}=await client.query(`SELECT *,created_at<=now()-interval '25 hours' AS ended
+        FROM billing_attempts WHERE creator_id=$1`,[creator]);
+      let attempt=rows[0], replaced='';
+      // Stripe ends an unpaid Checkout Session 24 hours after its creation. With an hour of margin,
+      // the ended attempt gives way to a new one. The key changes, so Stripe starts a new session.
+      if(attempt?.ended) {
+        await client.query('DELETE FROM billing_attempts WHERE id=$1',[attempt.id]);
+        replaced='-after-'+attempt.id;
+        attempt=undefined;
+      }
       if(attempt&&attempt.publication_id!==home.publication_id) throw conflict('An earlier test checkout must be reviewed before starting another.');
       if(attempt?.checkout_url) return this.redirect(attempt.checkout_url,'checkout.stripe.com');
       const id=attempt?.id??randomUUID();
@@ -68,7 +76,7 @@ export class Billing {
         client_reference_id:creator,'subscription_data[metadata][linb_creator]':creator,
         'subscription_data[metadata][linb_publication]':home.publication_id,
         success_url:this.origin+'/account/billing?return=1',cancel_url:this.origin+'/account/billing',
-      },'linb-checkout-'+creator+'-'+home.publication_id);
+      },'linb-checkout-'+creator+'-'+home.publication_id+replaced);
       if(remote.livemode!==false||!validId(remote.id,'cs_test_')) throw unavailable();
       const url=this.redirect(remote.url,'checkout.stripe.com');
       await client.query(`INSERT INTO billing_attempts(id,creator_id,home_id,publication_id,stripe_checkout_id,checkout_url)

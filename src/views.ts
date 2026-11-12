@@ -559,7 +559,7 @@ function activeNotice(notice:ScheduleChange|null|undefined,now:number) {
   return Boolean(notice&&Math.max(Date.parse(notice.prior.instant),Date.parse(notice.next?.instant??notice.prior.instant))>now);
 }
 function scheduleCopy(notice:ScheduleChange) {
-  return notice.status+'. Previous time: '+slotLabel(notice.prior)+'.'+(notice.next?' New time: '+slotLabel(notice.next)+'.':'');
+  return notice.prior.title+': '+notice.status+'. Previous time: '+slotLabel(notice.prior)+'.'+(notice.next?' New time: '+slotLabel(notice.next)+'.':'');
 }
 
 function shareControl(url:string) {

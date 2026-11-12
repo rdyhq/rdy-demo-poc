@@ -98,8 +98,10 @@ export function createApp(config:Configuration={}) {
   async function linkedChannel(db:pg.Pool,owner:string,content:EditableHome):Promise<TwitchChannel|undefined> {
     if(!activity||!content.streamUrl||channelPlatform(content.streamUrl)!=='twitch') return;
     const login=new URL(content.streamUrl).pathname.split('/')[1].toLowerCase();
-    const {rows}=await db.query<TwitchChannel>('SELECT subject,lower(login) AS login FROM twitch_identities WHERE creator_id=$1',[owner]);
-    if(rows[0]?.login===login) return rows[0];
+    const {rows}=await db.query<{subject:string}>('SELECT subject FROM twitch_identities WHERE creator_id=$1',[owner]);
+    // Twitch confirms that this subject's current login is the stream destination.
+    // The login stored when the creator linked Twitch goes stale after a rename.
+    if(rows[0]) return {subject:rows[0].subject,login};
   }
   const requireHomeWrites=()=>{
     if(config.readOnlyHomes) throw new AppError(503,'home_writes_paused','Home changes are temporarily paused.');

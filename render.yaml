@@ -13,6 +13,9 @@ services:
         fromDatabase:
           name: lobby-staging-db
           property: connectionString
+      # The number of proxies in front of the service. Set it in Render. See the README.
+      - key: LOBBY_TRUST_PROXY
+        sync: false
 
 databases:
   - name: lobby-staging-db

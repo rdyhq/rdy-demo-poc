@@ -113,14 +113,32 @@ export class Twitch {
     const {rows}=await this.db.query(`SELECT subject,token_box FROM twitch_sessions
       WHERE session_hash=$1 AND checked_at<now()-interval '45 minutes'`,[hash]);
     if(!rows[0]) return;
-    try {
-      await this.validate(this.decrypt(rows[0].token_box),rows[0].subject);
+    const state=await this.tokenState(rows[0].token_box,rows[0].subject);
+    if(state==='accepted') {
       await this.db.query('UPDATE twitch_sessions SET checked_at=now() WHERE session_hash=$1',[hash]);
-    } catch {
+    } else if(state==='unanswered') {
+      // Twitch gave no answer. Keep the session and ask again in five minutes.
+      await this.db.query(`UPDATE twitch_sessions SET checked_at=now()-interval '40 minutes' WHERE session_hash=$1`,[hash]);
+    } else {
       await this.db.query('UPDATE sessions SET revoked_at=now() WHERE digest=$1',[hash]);
       await this.db.query('DELETE FROM twitch_sessions WHERE session_hash=$1',[hash]);
       throw failed();
     }
+  }
+
+  // Only an answer from Twitch can reject a token. An outage or a timeout cannot.
+  private async tokenState(box:string,subject:string):Promise<'accepted'|'rejected'|'unanswered'> {
+    let token:string;
+    try { token=this.decrypt(box); } catch { return 'rejected'; }
+    let response:Response;
+    try {
+      response=await (this.config.http??fetch)(issuer+'/validate',{headers:{Authorization:'OAuth '+token},
+        redirect:'error',signal:AbortSignal.timeout(6000)});
+    } catch { return 'unanswered'; }
+    if(response.status===401) return 'rejected';
+    const validated=response.ok?await response.json().catch(()=>null):null;
+    if(!validated) return 'unanswered';
+    return validated.client_id===this.config.clientId&&validated.user_id===subject&&validated.expires_in>0?'accepted':'rejected';
   }
 
   async unlink(creator:string) {

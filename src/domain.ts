@@ -145,11 +145,12 @@ export function nextSession(content: HomeContent, now: number) {
 
 export function scheduleChange(before:HomeContent|undefined,after:HomeContent,now:number,existing?:ScheduleChange|null):ScheduleChange|null {
   if(!before) return null;
-  const prior=nextSession(before,now),next=nextSession(after,now);
-  if(!prior) return existing&&Math.max(Date.parse(existing.prior.instant),Date.parse(existing.next?.instant??existing.prior.instant))>now?
-    next?{prior:existing.prior,next,status:'Changed'}:existing:null;
-  if(next?.id===prior.id&&next.instant===prior.instant&&next.zone===prior.zone) {
-    return existing&&Math.max(Date.parse(existing.prior.instant),Date.parse(existing.next?.instant??existing.prior.instant))>now?existing:null;
-  }
-  return {prior,next:next??null,status:next?'Changed':after.scheduleRemoval==='cancelled'?'Cancelled':'New time unknown'};
+  const active=existing&&Math.max(Date.parse(existing.prior.instant),Date.parse(existing.next?.instant??existing.prior.instant))>now?existing:null;
+  const prior=nextSession(before,now);
+  if(!prior) return active;
+  // A notice follows one session by its ID. Another session never stands in for it.
+  const kept=after.sessions.find(session=>session.id===prior.id);
+  if(!kept) return {prior,next:null,status:after.scheduleRemoval==='cancelled'?'Cancelled':'New time unknown'};
+  if(kept.instant===prior.instant&&kept.zone===prior.zone) return active;
+  return {prior,next:kept,status:'Changed'};
 }

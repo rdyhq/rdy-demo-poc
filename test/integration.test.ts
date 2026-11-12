@@ -217,10 +217,12 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
       const key={...publicKey.export({format:'jwk'}),kid:'fixture'};
       let nonce='';
+      const accepted=()=>Response.json({client_id:'fixture',user_id:'1001',expires_in:3600});
+      let validation:()=>Response=accepted;
       const http=async(input:RequestInfo|URL)=>{
         const path=new URL(String(input)).pathname;
         if(path.endsWith('/keys')) return Response.json({keys:[key]});
-        if(path.endsWith('/validate')) return Response.json({client_id:'fixture',user_id:'1001',expires_in:3600});
+        if(path.endsWith('/validate')) return validation();
         if(path.endsWith('/revoke')) return Response.json({});
         if(path.endsWith('/token')) {
           const b64=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -257,6 +259,23 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const replay=await twitchApp.request(signed.callback,{headers:{Cookie:signed.cookies}});
       assert.equal(replay.headers.get('Location'),'/sign-in?twitch=retry');
       assert.equal((await twitchApp.request(origin+'/ops',{headers:{Cookie:providerCookie}})).status,401);
+
+      // A Twitch outage keeps the session. Only an answer that rejects the token ends it.
+      const editorStatus=async()=>(await twitchApp.request(origin+'/api/editor',{headers:{Cookie:providerCookie}})).status;
+      const age=(minutes:number)=>pool.query("UPDATE twitch_sessions SET checked_at=checked_at-$1*interval '1 minute'",[minutes]);
+      await age(46);
+      validation=()=>new Response('',{status:503});
+      assert.equal(await editorStatus(),200);
+      validation=()=>{throw new TypeError('fetch failed');};
+      await age(46);
+      assert.equal(await editorStatus(),200);
+      // The failed check is not repeated on the next request, and it does not count as a passed check.
+      validation=()=>new Response('',{status:401});
+      assert.equal(await editorStatus(),200);
+      await age(6);
+      assert.equal(await editorStatus(),401);
+      validation=accepted;
+      assert.equal(await editorStatus(),401);
     });
     await t.test('test Stripe access gates atomic Pro pages and preserves the Free fallback',async()=>{
       const next='MiraNew@example.test';
@@ -267,9 +286,14 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const original=(await published.json()).publicationId;
       const who=(await pool.query('SELECT owner_id FROM homes WHERE id=$1',[id])).rows[0].owner_id;
       let subscriptionStatus='active', fetches=0;
-      const http=async(input:RequestInfo|URL)=>{
+      const checkouts:(string|null)[]=[];
+      const http=async(input:RequestInfo|URL,init?:RequestInit)=>{
         const path=new URL(String(input)).pathname;
-        if(path.endsWith('/checkout/sessions')) return Response.json({id:'cs_test_fixture',livemode:false,url:'https://checkout.stripe.com/c/pay/cs_test_fixture'});
+        if(path.endsWith('/checkout/sessions')) {
+          const session='cs_test_fixture'+(checkouts.length||'');
+          checkouts.push(new Headers(init?.headers).get('Idempotency-Key'));
+          return Response.json({id:session,livemode:false,url:'https://checkout.stripe.com/c/pay/'+session});
+        }
         if(path.endsWith('/subscriptions/sub_fixture')) {
           fetches++;
           return Response.json({id:'sub_fixture',livemode:false,customer:'cus_fixture',status:subscriptionStatus,
@@ -286,6 +310,19 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal((await request('/account/billing',{action:'checkout',approved:'1',publication:original})).headers.get('Location'),
         'https://checkout.stripe.com/c/pay/cs_test_fixture');
       assert.doesNotMatch(await (await request('/account/billing?return=1')).text(),/Test access active/);
+
+      // An open checkout is reused. Once Stripe has ended it, a new checkout replaces it.
+      const checkout=async()=>(await request('/account/billing',{action:'checkout',approved:'1',publication:original})).headers.get('Location');
+      const startedHoursAgo=(hours:number)=>pool.query("UPDATE billing_attempts SET created_at=now()-$2*interval '1 hour' WHERE creator_id=$1",[who,hours]);
+      await startedHoursAgo(23);
+      assert.equal(await checkout(),'https://checkout.stripe.com/c/pay/cs_test_fixture');
+      assert.equal(checkouts.length,1);
+      await startedHoursAgo(26);
+      assert.equal(await checkout(),'https://checkout.stripe.com/c/pay/cs_test_fixture1');
+      assert.equal(checkouts.length,2);
+      assert.notEqual(checkouts[1],checkouts[0]);
+      assert.equal(await checkout(),'https://checkout.stripe.com/c/pay/cs_test_fixture1');
+      assert.equal(checkouts.length,2);
       const event=(eventId:string,valid=true)=>{
         const body=JSON.stringify({id:eventId,livemode:false,type:'customer.subscription.updated',data:{object:{id:'sub_fixture'}}});
         const when=Math.floor(Date.now()/1000);
@@ -347,6 +384,10 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const initial=await response.text();
       assert.match(initial,/data-refresh-activity.*ON AIR.*Verified stream.*data-viewer-count="27"/s);
       assert.match(initial,/rel="canonical" href="https:\/\/lobby.example.test\/miravale"/);
+      // The login stored when the creator linked Twitch goes stale after a rename. Twitch's current login decides.
+      await pool.query("UPDATE twitch_identities SET login='oldname' WHERE subject=$1",[subject]);
+      assert.match(await (await fan()).text(),/ON AIR.*Verified stream/s);
+      await pool.query("UPDATE twitch_identities SET login='miravale' WHERE subject=$1",[subject]);
       assert.equal((await fan('/other')).status,404);
       assert.equal((await fan('/missing')).status,404);
       const next=structuredClone(current.content);
