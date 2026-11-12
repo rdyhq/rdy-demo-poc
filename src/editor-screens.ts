@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
 import { artPalette, skinPath } from './public/palette.js';
 import { channelPlatform } from './home-cards.ts';
-import { nextSession, type HomeContent, type ScheduleChange } from './domain.ts';
+import { futureSessions, nextSession, type HomeContent, type ScheduleChange } from './domain.ts';
 import type { HomeState } from './homes.ts';
 import { noticeCopy } from './page.ts';
 import { appStyles, lookCards } from './screens.ts';
@@ -11,10 +11,14 @@ import { discordSchedule, type Selection } from './sharing.ts';
 type Tab='page'|'look'|'link'|'account';
 // twitch: linb.io reads the linked Twitch channel for this Home, so the Page tab lists the parts from Twitch.
 // url: the full address of the published page, for the copy and share actions.
-export type EditorView={state:HomeState;csrf:string;error?:string;address?:string;path?:string;url?:string;twitch?:boolean};
+// now: the time of the request, to leave out a session that has passed.
+export type EditorView={state:HomeState;csrf:string;error?:string;address?:string;path?:string;url?:string;twitch?:boolean;now?:number};
 
 const hidden=(csrf:string)=>html`<input type="hidden" name="csrf" value="${csrf}">`;
 const shown=(url:string)=>url.replace(/^https:\/\/(www\.)?/,'').replace(/\/$/,'');
+
+// The named time zones that a session can use. UTC comes first.
+const zones=['UTC',...Intl.supportedValuesOf('timeZone').filter(zone=>zone!=='UTC')];
 
 // solo: a screen with one column and no preview of the page. script: the one script that the screen needs.
 function frame(title:string,tab:Tab,view:EditorView,body:unknown,options:{solo?:boolean;script?:string}={}) {
@@ -48,6 +52,8 @@ export function pageTab(view:EditorView) {
   const featured=offlineLead==='link'?content.links.findIndex(link=>link.url===offlineLink):-1;
   const lead=offlineLead==='clip'&&view.twitch?'clip':featured>=0?'link:'+featured:'next';
   const choice=(value:string,label:string)=>html`<option value="${value}"${lead===value?html` selected`:''}>${label}</option>`;
+  // The sessions that the creator entered. A new one starts in the zone of the last one.
+  const sessions=futureSessions(content,view.now??Date.now()), zone=content.sessions.at(-1)?.zone;
   const art=(kind:'avatar'|'banner',label:string,id:string|null)=>html`<div class="ed-row ed-art-row">
     ${id?html`<img class="ed-art" src="/editor/assets/${id}" alt="">`:html`<span class="ed-art" aria-hidden="true"></span>`}
     <form method="post" action="/editor/art" enctype="multipart/form-data">${hidden(csrf)}<input type="hidden" name="kind" value="${kind}">
@@ -73,6 +79,20 @@ export function pageTab(view:EditorView) {
     <form class="ed-row ed-add" method="post" action="/editor/links">${hidden(csrf)}<input type="hidden" name="action" value="add">
       <input name="label" required maxlength="32" placeholder="Label" aria-label="Link label">
       <input name="url" required type="url" inputmode="url" placeholder="https://" aria-label="Link address"><button>Add link</button></form>
+    <h2>Schedule</h2>
+    ${view.twitch?html`<p class="ed-fine ed-above">Your page shows these sessions when your Twitch schedule is empty.</p>`:''}
+    <ul class="ed-list">${sessions.map(session=>html`<li class="ed-row ed-link"><span><strong>${session.title}</strong><small>${session.local.replace('T',' ')} · ${session.zone}</small></span>
+      <form method="post" action="/editor/sessions">${hidden(csrf)}<input type="hidden" name="id" value="${session.id}">
+        <button name="action" value="postpone" aria-label="Postpone ${session.title}: the new time is not known">Postpone</button>
+        <button name="action" value="cancel" aria-label="Cancel ${session.title}">Cancel</button></form></li>`)}</ul>
+    <details class="ed-row ed-more-form"><summary>Add a session</summary>
+      <form class="ed-profile" method="post" action="/editor/sessions">${hidden(csrf)}<input type="hidden" name="action" value="add">
+        <label for="ed-session">Title</label><input id="ed-session" name="title" required maxlength="80">
+        <label for="ed-date">Date</label><input id="ed-date" name="date" type="date" required>
+        <label for="ed-time">Time</label><input id="ed-time" name="time" type="time" required>
+        <label for="ed-zone">Time zone</label><select id="ed-zone" name="zone"${zone?'':html` data-zone="auto"`}>${zones.map(name=>
+          html`<option value="${name}"${name===(zone??'UTC')?html` selected`:''}>${name}</option>`)}</select>
+        <button>Add session</button></form></details>
     <h2>Offline card</h2>
     <form class="ed-row ed-lead" method="post" action="/editor/lead">${hidden(csrf)}
       <label for="ed-lead">While you are offline, your card leads with</label>
@@ -82,7 +102,7 @@ export function pageTab(view:EditorView) {
     <ul class="ed-list">${([['schedule','Schedule',content.layout.supporting.find(card=>card.family==='schedule')?.hidden===true],
       ['clips','Clips',content.layout.clipsHidden]] as const).map(([part,label,off])=>html`<li class="ed-row ed-link"><i aria-hidden="true"><span class="app-icon" data-platform="twitch"></span></i>
       <span><strong>${label}</strong><small>Synced with Twitch</small></span>
-      <form method="post" action="/editor/twitch">${hidden(csrf)}<input type="hidden" name="part" value="${part}"><input type="hidden" name="show" value="${off?'1':'0'}"><button aria-pressed="${off?'false':'true'}" aria-label="Show the ${part} on my page">${off?'Off':'On'}</button></form></li>`)}</ul>`:''}`);
+      <form method="post" action="/editor/twitch">${hidden(csrf)}<input type="hidden" name="part" value="${part}"><input type="hidden" name="show" value="${off?'1':'0'}"><button aria-pressed="${off?'false':'true'}" aria-label="Show the ${part} on my page">${off?'Off':'On'}</button></form></li>`)}</ul>`:''}`,{script:'/assets/zone.js'});
 }
 
 export function lookTab(view:EditorView) {

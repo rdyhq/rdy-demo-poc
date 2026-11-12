@@ -10,7 +10,7 @@ import { transaction } from './db.ts';
 import { acceptReport, reportInbox, reportReasons } from './reports.ts';
 import { assetBytes, maxUpload, upload, type Objects } from './assets.ts';
 import { Auth, throttle, type SendMail } from './auth.ts';
-import { AppError, digest, equalSecret, invalid, mailbox, scheduleChange, themeNames, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
+import { AppError, digest, equalSecret, futureSessions, invalid, mailbox, scheduleChange, themeNames, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
 import { invite, inviteList, revokeInvite } from './enrollment.ts';
 import { channelPlatform, newHome, normalizeHome, platforms, readHome, type EditableHome, type StoredHome } from './home-cards.ts';
 import { TwitchActivity, type TwitchActivityConfig, type TwitchChannel } from './twitch-activity.ts';
@@ -32,7 +32,7 @@ const brandIcon=readFileSync(new URL('./public/linb.svg',import.meta.url),'utf8'
 const shareScript=readFileSync(new URL('./public/share.js',import.meta.url),'utf8');
 const verifyScript=readFileSync(new URL('./public/verify.js',import.meta.url),'utf8');
 const freshStyles=new Map(['page','app'].map(name=>[name+'.css',readFileSync(new URL('./public/'+name+'.css',import.meta.url),'utf8')]));
-const pageScripts=new Map(['handoff','localtime'].map(name=>[
+const pageScripts=new Map(['handoff','localtime','zone'].map(name=>[
   name+'.js',readFileSync(new URL('./public/'+name+'.js',import.meta.url),'utf8'),
 ]));
 const fonts=new Map(['inter','bricolage-grotesque','unbounded','jetbrains-mono','silkscreen'].map(name=>[
@@ -436,7 +436,7 @@ export function createApp(config:Configuration={}) {
     const db=requirePool(), state=await editor(db,owner);
     const handle=state.publication_id&&!state.held?await homeHandle(db,state.id):null;
     const path=state.publication_id&&!state.held?(handle?'/'+handle:'/h/'+state.id):undefined;
-    return {state,csrf:csrf(cookie(c)!),error,path,address:path&&(originHost??new URL(c.req.url).host)+path,
+    return {state,csrf:csrf(cookie(c)!),error,path,now:clock(),address:path&&(originHost??new URL(c.req.url).host)+path,
       url:path&&(origin??new URL(c.req.url).origin)+path,
       twitch:Boolean(await linkedChannel(db,owner,state.content))};
   };
@@ -494,6 +494,20 @@ export function createApp(config:Configuration={}) {
       [links[from],links[to]]=[links[to],links[from]];
     } else throw invalid('action','Choose an action.');
     await saveDraft(owner,state,{...state.content,links});
+  });
+  // The creator adds a session to the schedule, or takes one off (RDY r-PYW9E). A session that has passed leaves the draft.
+  editorAction('/editor/sessions',pageTab,'/editor',async(owner,state,fields)=>{
+    const kept=futureSessions(state.content,clock());
+    if(fields.action==='add') {
+      const part=(value:unknown)=>typeof value==='string'?value:'';
+      const sessions=[...kept,{id:randomUUID(),title:fields.title,local:part(fields.date)+'T'+part(fields.time),zone:fields.zone}];
+      await saveDraft(owner,state,{...state.content,sessions} as EditableHome);
+    } else if(fields.action==='cancel'||fields.action==='postpone') {
+      if(!kept.some(session=>session.id===fields.id)) throw invalid('id','Choose a session of your schedule.');
+      // The page tells fans what happened to a session that they saw: it is cancelled, or its new time is not known.
+      await saveDraft(owner,state,{...state.content,sessions:kept.filter(session=>session.id!==fields.id),
+        scheduleRemoval:fields.action==='cancel'?'cancelled':'unknown'});
+    } else throw invalid('action','Choose an action.');
   });
   // The creator chooses what leads the card while offline (RDY D-6DX8J): the next stream, the latest clip or one of the links.
   editorAction('/editor/lead',pageTab,'/editor',async(owner,state,fields)=>{
