@@ -62,6 +62,8 @@ Enable the pilot only after the RDY decision and exact deployment approval. Conf
 
 With `LINB_TWITCH_ACTIVITY=1`, a visitor can type a Twitch name on the landing page and see a preview of the page. The setup at `/start` builds the first draft of a creator from the linked channel. The server reads the display name, the bio, the avatar, the offline banner and the last stream category of the channel. It fetches images only from `static-cdn.jtvnw.net`, over HTTPS, with a 5 MiB limit, and puts them through the same checks as an upload. It suggests a look from the art: the art palette, the accent, the second colour, the font, the shape, the frame and the field. A preview is not saved. The draft stays private until the creator selects Publish.
 
+With `LINB_TWITCH_ACTIVITY=1`, a Home also shows the schedule and the clips of the linked Twitch channel. The server reads the next three streams of the Twitch schedule, and four clips: the clips that the creator featured at Twitch, or the most viewed clips of the last 30 days. It reads both again after five minutes at most, and it stores neither. It serves the picture of a clip from `/assets/clip/<id>`, only for a clip that a page showed, and keeps those pictures in memory. The creator can switch each part off in the editor, under From Twitch.
+
 Set `LINB_OPEN_SIGNUP=1` to let a new Twitch identity create an account. The sign-in then asks Twitch for the verified email of the account (scope `user:read:email`), and that email becomes the creator's mailbox. Without the setting, sign-up is by invitation. The handle comes from the login that the Twitch token check names. The ID token carries only the display name, which can differ from the login.
 
 #### Run against the real Twitch on this machine

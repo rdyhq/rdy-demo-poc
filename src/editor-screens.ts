@@ -6,7 +6,8 @@ import { appStyles, lookCards } from './screens.ts';
 
 // The editor of the fresh start (RDY D-TG9VX, section s-P8ZS4): three tabs, a list, and a preview of the page.
 type Tab='page'|'look'|'link';
-export type EditorView={state:HomeState;csrf:string;error?:string;address?:string;path?:string};
+// twitch: linb.io reads the linked Twitch channel for this Home, so the Page tab lists the parts from Twitch.
+export type EditorView={state:HomeState;csrf:string;error?:string;address?:string;path?:string;twitch?:boolean};
 
 const hidden=(csrf:string)=>html`<input type="hidden" name="csrf" value="${csrf}">`;
 const shown=(url:string)=>url.replace(/^https:\/\/(www\.)?/,'').replace(/\/$/,'');
@@ -59,7 +60,12 @@ export function pageTab(view:EditorView) {
         <button name="action" value="remove" aria-label="Remove ${link.label}">✕</button></form></li>`)}</ul>
     <form class="ed-row ed-add" method="post" action="/editor/links">${hidden(csrf)}<input type="hidden" name="action" value="add">
       <input name="label" required maxlength="32" placeholder="Label" aria-label="Link label">
-      <input name="url" required type="url" inputmode="url" placeholder="https://" aria-label="Link address"><button>Add link</button></form>`);
+      <input name="url" required type="url" inputmode="url" placeholder="https://" aria-label="Link address"><button>Add link</button></form>
+    ${view.twitch?html`<h2>From Twitch</h2>
+    <ul class="ed-list">${([['schedule','Schedule',content.layout.supporting.find(card=>card.family==='schedule')?.hidden===true],
+      ['clips','Clips',content.layout.clipsHidden]] as const).map(([part,label,off])=>html`<li class="ed-row ed-link"><i aria-hidden="true"><span class="app-icon" data-platform="twitch"></span></i>
+      <span><strong>${label}</strong><small>Synced with Twitch</small></span>
+      <form method="post" action="/editor/twitch">${hidden(csrf)}<input type="hidden" name="part" value="${part}"><input type="hidden" name="show" value="${off?'1':'0'}"><button aria-pressed="${off?'false':'true'}" aria-label="Show the ${part} on my page">${off?'Off':'On'}</button></form></li>`)}</ul>`:''}`);
 }
 
 export function lookTab(view:EditorView) {

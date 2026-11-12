@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createApp } from '../src/app.ts';
 import { defaultAura } from '../src/aura.ts';
 import { emptyHome, themeNames } from '../src/domain.ts';
-import { newHome, normalizeHome, readHome } from '../src/home-cards.ts';
+import { newHome, normalizeHome, readHome, writeHome } from '../src/home-cards.ts';
 import { liveState } from '../src/live-state.ts';
 import { accentPalettes, accentPasses, adjustAccent, contrast } from '../src/public/contrast.js';
 import { renderHome } from '../src/views.ts';
@@ -89,6 +89,20 @@ test('Aura is additive to v2 and validates every supplied setting',()=>{
   const stored={...base,aura:custom};
   const {aura:omitted,...payload}=content;
   assert.deepEqual(normalizeHome(payload,stored,now).aura,custom);
+});
+
+test('the choice to hide the clips is stored only when the clips are off',()=>{
+  assert.equal(base.layout.clipsHidden,false);
+  assert.ok(!('clipsHidden' in newHome(id)));
+  const off=normalizeHome({...content,layout:{...content.layout,clipsHidden:true}},base,now);
+  assert.equal(off.layout.clipsHidden,true);
+  assert.equal(writeHome(off).clipsHidden,true);
+  assert.equal(readHome(writeHome(off),id).layout.clipsHidden,true);
+  // An older editor sends no value. The choice stays.
+  const {clipsHidden,...older}=off.layout;
+  assert.equal(normalizeHome({...content,layout:older},off,now).layout.clipsHidden,true);
+  assert.equal(normalizeHome({...content,layout:{...off.layout,clipsHidden:false}},off,now).layout.clipsHidden,false);
+  assert.throws(()=>normalizeHome({...content,layout:{...content.layout,clipsHidden:'yes'}},base,now),fieldError('layout'));
 });
 
 test('only a verified live state adds live cues and the fixture requires both dev flags',async()=>{

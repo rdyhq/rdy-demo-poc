@@ -179,9 +179,12 @@ export function createApp(config:Configuration={}) {
     return clips.map(clip=>({title:clip.title,url:clip.url,views:clip.views,picture:'/assets/clip/'+clip.id}));
   }
   // The parts of a page that linb.io reads from the linked channel when the page is viewed (RDY D-TBSBC).
-  async function channelParts(channel:TwitchChannel|undefined) {
+  // A part that the creator switched off is not read.
+  async function channelParts(channel:TwitchChannel|undefined,content:EditableHome) {
     if(!channel) return {};
-    const [clips,schedule]=await Promise.all([clipCards(channel),activity!.schedule(channel)]);
+    const [clips,schedule]=await Promise.all([
+      content.layout.clipsHidden?undefined:clipCards(channel),
+      content.layout.supporting.find(card=>card.family==='schedule')?.hidden?undefined:activity!.schedule(channel)]);
     return {clips,schedule};
   }
   const requireHomeWrites=()=>{
@@ -330,7 +333,7 @@ export function createApp(config:Configuration={}) {
     c.header('Cache-Control','no-store');
     return c.html(renderPage(content,{now:clock(),claim:twitch?profile.login:undefined,
       liveState:await activity.get({subject:profile.subject,login:profile.login}),stream:'/preview/art/'+profile.login+'/stream',
-      ...await channelParts({subject:profile.subject,login:profile.login}),
+      ...await channelParts({subject:profile.subject,login:profile.login},content),
       asset:kind=>'/preview/art/'+profile.login+'/'+kind}));
   });
   app.get('/preview/art/:login/:kind',async c=>{
@@ -463,7 +466,8 @@ export function createApp(config:Configuration={}) {
     const db=requirePool(), state=await editor(db,owner);
     const handle=state.publication_id&&!state.held?await homeHandle(db,state.id):null;
     const path=state.publication_id&&!state.held?(handle?'/'+handle:'/h/'+state.id):undefined;
-    return {state,csrf:csrf(cookie(c)!),error,path,address:path&&(originHost??new URL(c.req.url).host)+path};
+    return {state,csrf:csrf(cookie(c)!),error,path,address:path&&(originHost??new URL(c.req.url).host)+path,
+      twitch:Boolean(await linkedChannel(db,owner,state.content))};
   };
   // One editor action: check the request, change the draft, and return to the tab. A refused change shows on the same tab.
   function editorAction(path:string,tab:(view:EditorView)=>unknown,back:string,
@@ -497,7 +501,7 @@ export function createApp(config:Configuration={}) {
     c.header('Cache-Control','no-store');
     // The preview of a draft shows the clips that the published page shows.
     const channel=await linkedChannel(requirePool(),owner,state.content);
-    return c.html(renderPage(state.content,{now:clock(),asset:id=>'/editor/assets/'+id,...await channelParts(channel)}));
+    return c.html(renderPage(state.content,{now:clock(),asset:id=>'/editor/assets/'+id,...await channelParts(channel,state.content)}));
   });
   editorAction('/editor/profile',pageTab,'/editor',async(owner,state,fields)=>{
     const {displayName,intro,game,streamUrl}=fields;
@@ -517,6 +521,16 @@ export function createApp(config:Configuration={}) {
       [links[from],links[to]]=[links[to],links[from]];
     } else throw invalid('action','Choose an action.');
     await saveDraft(owner,state,{...state.content,links});
+  });
+  // The creator switches a part from Twitch off or on (RDY r-RA9HG). The choice is in the draft, as every change is.
+  editorAction('/editor/twitch',pageTab,'/editor',async(owner,state,fields)=>{
+    const hidden=fields.show==='0'?true:fields.show==='1'?false:null;
+    if(hidden===null) throw invalid('show','Choose On or Off.');
+    const layout=structuredClone(state.content.layout);
+    if(fields.part==='clips') layout.clipsHidden=hidden;
+    else if(fields.part==='schedule') layout.supporting=layout.supporting.map(card=>card.family==='schedule'?{...card,hidden}:card);
+    else throw invalid('part','Choose the schedule or the clips.');
+    await saveDraft(owner,state,{...state.content,layout});
   });
   editorAction('/editor/art',pageTab,'/editor',async(owner,state,fields)=>{
     const field=fields.kind==='avatar'?'avatarId':fields.kind==='banner'?'coverId':null;
@@ -843,7 +857,7 @@ export function createApp(config:Configuration={}) {
     if(paid) return c.html(renderHome(home.content,{now:clock(),liveState:signal,refreshActivity:Boolean(channel),appHandoff:config.appHandoff,
       report:'/h/'+home.id+'/report',homeId:home.id,pro:paid,notice:home.schedule_change,asset,canonical,metadata}));
     return c.html(renderPage(home.content,{now:clock(),liveState:signal,stream:'/h/'+home.id+'/stream',
-      ...await channelParts(channel),appHandoff:config.appHandoff,
+      ...await channelParts(channel,home.content),appHandoff:config.appHandoff,
       report:'/h/'+home.id+'/report',notice:home.schedule_change,asset,canonical,metadata}));
   }
   app.get('/h/:homeId',c=>renderPublicHome(c,c.req.param('homeId')));

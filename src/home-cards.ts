@@ -34,6 +34,8 @@ export type HomeLayout = {
   dock: CardSettings;
   dockPosition: number;
   supporting: (ScheduleSettings | PromoCard)[];
+  // The creator switched the clips of the linked channel off (RDY r-RA9HG). The Schedule card holds the same choice for the schedule.
+  clipsHidden: boolean;
 };
 
 // Keep the established editor and service field names at the API boundary.
@@ -47,6 +49,7 @@ export type CardHome = {
   spotlight: StoredSettings<CardSettings> & Partial<Pick<SpotlightSettings,'offlineLead'|'offlineLink'>> & { url: string };
   dock: StoredSettings<CardSettings> & { links: HomeContent['links'] };
   dockPosition?: number;
+  clipsHidden?: boolean;
   supporting: ((StoredSettings<ScheduleSettings> & Pick<HomeContent, 'sessions' | 'scheduleRemoval'>) | StoredSettings<PromoCard>)[];
   updates: HomeContent['updates'];
 };
@@ -66,6 +69,7 @@ export function defaultLayout(homeId: string): HomeLayout {
     dock: fixed('dock'),
     dockPosition: 0,
     supporting: [{ ...fixed('schedule'), family: 'schedule', hidden: false }],
+    clipsHidden: false,
   };
 }
 
@@ -88,7 +92,7 @@ export function readHome(value: StoredHome, homeId: string): EditableHome {
       identity: readDimensions(identity),
       spotlight: readDimensions({...defaultOffline,...spotlight}),
       dock: readDimensions(dock),
-      dockPosition: value.dockPosition ?? 0, supporting,
+      dockPosition: value.dockPosition ?? 0, supporting, clipsHidden: value.clipsHidden === true,
     },
   };
 }
@@ -106,6 +110,7 @@ export function writeHome(value: EditableHome): CardHome {
     spotlight: { ...layout.spotlight, url: streamUrl },
     dock: { ...layout.dock, links },
     dockPosition: layout.dockPosition,
+    ...(layout.clipsHidden ? { clipsHidden: true } : {}),
     supporting: layout.supporting.map(card => card.family === 'schedule' ? { ...card, sessions, scheduleRemoval } : card),
     updates,
   };
@@ -153,7 +158,7 @@ export function normalizeHome(value: any, old: EditableHome, now: number, previe
   const content = normalize(value, old, now, preview);
   const input = value.layout === undefined ? old.layout : value.layout;
   if (!input || typeof input !== 'object' || Array.isArray(input) ||
-      Object.keys(input).some(key => !['identity', 'spotlight', 'dock', 'dockPosition', 'supporting'].includes(key))) {
+      Object.keys(input).some(key => !['identity', 'spotlight', 'dock', 'dockPosition', 'supporting', 'clipsHidden'].includes(key))) {
     throw invalid('layout', 'Use the Home card layout.');
   }
   const identity = {
@@ -200,7 +205,10 @@ export function normalizeHome(value: any, old: EditableHome, now: number, previe
   if (!Number.isInteger(dockPosition) || dockPosition < 0 || dockPosition > supporting.length) {
     throw invalid('layout', 'Place the Channel Dock below Spotlight among the supporting cards.');
   }
-  return { ...content, aura: normalizeAura(value.aura,content.theme,old.aura), layout: { identity, spotlight, dock, dockPosition, supporting } };
+  // An older editor sends no choice for the clips. The choice stays.
+  const clipsHidden = input.clipsHidden === undefined ? old.layout.clipsHidden : input.clipsHidden;
+  if (typeof clipsHidden !== 'boolean') throw invalid('layout', 'Choose whether the clips show.');
+  return { ...content, aura: normalizeAura(value.aura,content.theme,old.aura), layout: { identity, spotlight, dock, dockPosition, supporting, clipsHidden } };
 }
 
 export const platforms = {

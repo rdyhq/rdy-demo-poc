@@ -68,10 +68,14 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
   // The LIVE mark and the stream show only while a provider verifies the stream (RDY s-EY5PZ).
   const live=Boolean(content.streamUrl)&&state?.live===true&&state.verified===true;
   const viewers=live&&Number.isSafeInteger(state!.viewers)&&state!.viewers!>=0?state!.viewers:undefined;
-  const sessions=futureSessions(content,options.now);
+  // The creator can switch the schedule and the clips off (RDY r-RA9HG).
+  const layout='layout' in content?content.layout:undefined;
+  const scheduleOff=layout?.supporting.find(card=>card.family==='schedule')?.hidden===true;
+  const clips=layout?.clipsHidden?[]:options.clips??[];
+  const sessions=scheduleOff?[]:futureSessions(content,options.now);
   // The schedule of the Twitch channel shows in place of the sessions that the creator entered.
-  const streams=options.schedule?.length?options.schedule:null;
-  const spotlight='layout' in content?content.layout.spotlight:undefined;
+  const streams=!scheduleOff&&options.schedule?.length?options.schedule:null;
+  const spotlight=layout?.spotlight;
   const clip=!live&&spotlight?.offlineLead==='clip'&&state?.verified?state.clip:undefined;
   const app=options.appHandoff?appLink(content.streamUrl):undefined;
   const socials=content.links.map(link=>({...link,platform:channelPlatform(link.url)})).filter(link=>link.platform);
@@ -115,7 +119,7 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
     ${notice?html`<p class="pg-notice"><strong>Schedule change</strong> ${notice}</p>`:''}
     ${streams?html`<h2 class="pg-h">Schedule</h2><ul class="pg-rows">${streams.map(streamRow)}</ul>`
       :sessions.length?html`<h2 class="pg-h">Schedule</h2><ul class="pg-rows">${sessions.slice(0,4).map(sessionRow)}</ul>`:''}
-    ${options.clips?.length?html`<h2 class="pg-h">Clips</h2><ul class="pg-clips">${options.clips.map(clip=>
+    ${clips.length?html`<h2 class="pg-h">Clips</h2><ul class="pg-clips">${clips.map(clip=>
       html`<li><a class="pg-clip" href="${clip.url}"><img src="${clip.picture}" alt="" loading="lazy"><span>${clip.title}</span>${
         clip.views===undefined?'':html`<small>${clip.views.toLocaleString('en-US')} views</small>`}</a></li>`)}</ul>`:''}
     ${content.updates.length?html`<h2 class="pg-h">Updates</h2><ul class="pg-notes">${content.updates.map(update=>html`<li>${update.text}${
