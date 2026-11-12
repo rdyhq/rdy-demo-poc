@@ -196,7 +196,9 @@ test('a visitor sees a preview of a Twitch channel with no account',{skip:!datab
       assert.equal(unknown.status,303);
       assert.equal(unknown.headers.get('Location'),'/?missing=nobody_here');
       assert.match(await (await get('/?missing=nobody_here')).text(),/Twitch has no channel named nobody_here\./);
-      assert.doesNotMatch(await (await get('/?missing=%3Cscript%3E')).text(),/<script>|no channel named/);
+      // A value that is not a Twitch name never reaches the page.
+      const odd=(await (await get('/?missing=%3Cscript%3E')).text()).toLowerCase();
+      assert.ok(!odd.includes('script')&&!odd.includes('no channel named'));
     });
     await t.test('each client address gets a limited number of new previews',async()=>{
       address='198.51.100.9';
