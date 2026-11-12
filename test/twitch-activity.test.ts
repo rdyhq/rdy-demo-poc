@@ -91,3 +91,46 @@ test('a live stream carries the address of its picture, only from the Twitch ima
     assert.deepEqual(await read(),{live:true,verified:true,title:'Stream title',viewers:52});
   }
 });
+
+test('the clips of a channel are its featured clips, or the most viewed of 30 days',async()=>{
+  const time=Date.parse('2027-07-16T17:00:00Z');
+  const cdn='https://static-cdn.jtvnw.net/twitch-video-assets/';
+  const clip=(id:string,views:number,extra:Record<string,unknown>={})=>({id,broadcaster_id:channel.subject,title:'Clip '+id,view_count:views,
+    created_at:'2027-07-01T00:00:00Z',thumbnail_url:cdn+id+'-480x272.jpg',...extra});
+  let featured=[clip('B',40),clip('A',900),clip('C',7),clip('D',5),clip('E',3)];
+  let top=[clip('T1',99),clip('T2',98)];
+  let down=false;
+  const asked:string[]=[];
+  const make=()=>new TwitchActivity({clientId:'app',clientSecret:'fixture',http:(async(input:RequestInfo|URL)=>{
+    const url=new URL(String(input));
+    if(url.pathname==='/oauth2/token') return Response.json({access_token:'fixture-token',expires_in:600});
+    assert.equal(url.pathname,'/helix/clips');
+    assert.equal(url.searchParams.get('broadcaster_id'),channel.subject);
+    asked.push(url.search);
+    if(down) return new Response('',{status:503});
+    return Response.json({data:url.searchParams.get('is_featured')==='true'?featured:top});
+  }) as typeof fetch},()=>time);
+  const activity=make();
+  const first=await activity.clipList(channel);
+  // Most viewed first, four at most.
+  assert.deepEqual(first.map(item=>item.id),['A','B','C','D']);
+  assert.deepEqual(first[0],{id:'A',title:'Clip A',url:'https://clips.twitch.tv/A',views:900,picture:cdn+'A-480x272.jpg'});
+  assert.equal(asked.length,1);
+  // A second reading within five minutes asks Twitch nothing.
+  await activity.clipList(channel);
+  assert.equal(asked.length,1);
+  // With no featured clip, the most viewed clips of the last 30 days.
+  featured=[];
+  assert.deepEqual((await make().clipList(channel)).map(item=>item.id),['T1','T2']);
+  assert.match(asked.at(-1)!,/started_at=2027-06-16T17%3A00%3A00\.000Z/);
+  // A clip of another channel, with no title, with a wrong ID or with a picture from another host is left out.
+  top=[clip('ok',5),clip('other',4,{broadcaster_id:'9'}),clip('untitled',3,{title:' '}),clip('wrong id!',2),
+    clip('nopicture',1,{thumbnail_url:'https://example.test/x.jpg'})];
+  assert.deepEqual((await make().clipList(channel)).map(item=>item.id),['ok']);
+  // When Twitch does not answer, there are no clips, and the next reading asks again.
+  down=true;
+  const failing=make();
+  assert.deepEqual(await failing.clipList(channel),[]);
+  down=false;
+  assert.deepEqual((await failing.clipList(channel)).map(item=>item.id),['ok']);
+});

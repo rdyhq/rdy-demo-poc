@@ -61,6 +61,9 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
     if(url.pathname==='/helix/channels') return Response.json({data:[{broadcaster_id:who.sub,game_name:'Neon Drift 2'}]});
     if(url.pathname==='/helix/streams') return Response.json({data:streaming?[{type:'live',user_id:who.sub,user_login:who.login,
       title:'Any% practice',viewer_count:27,thumbnail_url:'https://static-cdn.jtvnw.net/previews-ttv/live_user_'+who.login+'-{width}x{height}.jpg'}]:[]});
+    if(url.pathname==='/helix/clips') return Response.json({data:url.searchParams.get('broadcaster_id')==='2002'&&url.searchParams.get('is_featured')==='true'?[
+      {id:'NovaClip-1',broadcaster_id:'2002',title:'World record pace',view_count:7263,created_at:'2026-11-01T00:00:00Z',
+        thumbnail_url:'https://static-cdn.jtvnw.net/twitch-video-assets/NovaClip-1-480x272.jpg'}]:[]});
     if(url.hostname==='static-cdn.jtvnw.net') {
       const bytes=url.pathname.includes('offline')?await bands(1200,400,[['#190838',.6],['#ff3d9a',.3],['#2ee6f0',.1]])
         :await bands(300,300,[['#1a0b3b',.6],['#ff5fae',.3],['#2ee6f0',.1]]);
@@ -187,6 +190,11 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       assert.equal(fan.status,200);
       const page=await fan.text();
       assert.match(page,/class="pg-name">NovaByte/);
+      // The published page shows the clips of the linked channel (RDY r-29W7N).
+      assert.ok(page.includes('<a class="pg-clip" href="https://clips.twitch.tv/NovaClip-1"><img src="/assets/clip/NovaClip-1" alt="" loading="lazy"><span>World record pace</span><small>7,263 views</small></a>'));
+      assert.equal((await get('/assets/clip/NovaClip-1')).status,200);
+      // The preview in the editor shows them too.
+      assert.match(await (await get('/editor/view',nova)).text(),/<img src="\/assets\/clip\/NovaClip-1"/);
       assert.match(page,/href="\/assets\/skin\/1\/190838-/);
       assert.match(page,/aria-label="YouTube"/);
     });

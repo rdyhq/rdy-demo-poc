@@ -4,6 +4,8 @@ import { artUrl } from './twitch-channel.ts';
 
 export type TwitchActivityConfig = {clientId:string;clientSecret:string;http?:typeof fetch};
 export type TwitchChannel = {subject:string;login:string};
+// A clip for the page. The picture is its address at the Twitch image host.
+export type TwitchClip = {id:string;title:string;url:string;views?:number;picture:string};
 export type TwitchProfile = {subject:string;login:string;displayName:string;bio:string;game:string;avatarUrl:string|null;bannerUrl:string|null};
 type CacheEntry<T> = {until:number;value:Promise<T>};
 const unavailable:LiveState={live:false,verified:false};
@@ -28,6 +30,7 @@ export class TwitchActivity {
   private pendingToken?:Promise<string>;
   private streams=new Map<string,CacheEntry<LiveState>>();
   private clips=new Map<string,CacheEntry<LiveState['clip']>>();
+  private clipLists=new Map<string,CacheEntry<TwitchClip[]>>();
 
   private config:TwitchActivityConfig;
   private clock:()=>number;
@@ -103,6 +106,30 @@ export class TwitchActivity {
       game:channel?.broadcaster_id===subject?cut(channel.game_name,80):'',
       avatarUrl:creatorArt(user.profile_image_url),bannerUrl:creatorArt(user.offline_image_url),
     };
+  }
+
+  // The clips of the page (RDY r-29W7N): the clips that the creator featured at Twitch, most viewed first,
+  // or the most viewed clips of the last 30 days. Any doubt leaves a clip out.
+  clipList(channel:TwitchChannel):Promise<TwitchClip[]> {
+    const key=channel.subject;
+    return this.cached(this.clipLists,key,300_000,async()=>{
+      const pick=(rows:any[])=>rows.flatMap(clip=>{
+        const picture=artUrl(clip?.thumbnail_url);
+        return clip?.broadcaster_id===channel.subject&&title(clip.title)&&typeof clip.id==='string'&&/^[A-Za-z0-9_-]{1,150}$/.test(clip.id)&&picture
+          ?[{id:clip.id as string,title:cut(clip.title,80),url:'https://clips.twitch.tv/'+clip.id,
+            views:validCount(clip.view_count)?clip.view_count:undefined,picture}]:[];
+      }).sort((a,b)=>(b.views??0)-(a.views??0)).slice(0,4);
+      try {
+        const featured=pick(await this.read('clips',new URLSearchParams({broadcaster_id:channel.subject,is_featured:'true',first:'20'})));
+        if(featured.length) return featured;
+        return pick(await this.read('clips',new URLSearchParams({broadcaster_id:channel.subject,
+          started_at:new Date(this.clock()-30*86400_000).toISOString(),first:'20'})));
+      } catch {
+        // A failed answer is not kept: the next reading asks Twitch again.
+        this.clipLists.delete(key);
+        return [];
+      }
+    });
   }
 
   async get(channel:TwitchChannel,includeClip=false):Promise<LiveState> {

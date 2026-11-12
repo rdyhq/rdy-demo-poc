@@ -52,7 +52,7 @@ a { color:inherit; }
 .pg-live { padding:4px 8px; border-radius:999px; background:#D6173A; color:#fff; font:700 11px/1 Inter,system-ui,sans-serif; letter-spacing:.06em; }
 .pg-bio { max-width:34ch; margin:0 auto 14px; color:var(--muted); }
 
-.pg-social, .pg-links, .pg-rows, .pg-notes { list-style:none; margin:0; padding:0; }
+.pg-social, .pg-links, .pg-rows, .pg-notes, .pg-clips { list-style:none; margin:0; padding:0; }
 .pg-social { display:flex; flex-wrap:wrap; justify-content:center; gap:4px; margin-bottom:14px; }
 .pg-social a { display:grid; place-items:center; width:44px; height:44px; border-radius:50%; }
 .pg-icon { display:block; width:22px; height:22px; background:currentColor; -webkit-mask:var(--platform) center / contain no-repeat; mask:var(--platform) center / contain no-repeat; }
@@ -90,6 +90,16 @@ a { color:inherit; }
 .pg-rows b { min-width:42px; padding:6px 8px; border-radius:9px; background:var(--second); color:var(--page); font:700 11px/1.25 Inter,system-ui,sans-serif; text-align:center; }
 .pg-rows small, .pg-notes small { display:block; color:var(--muted); font-size:13px; font-weight:450; }
 .pg-notes li { padding:12px 14px; border-radius:16px; text-align:left; }
+/* The clips of the channel (RDY r-29W7N): two columns, each clip with its picture, its title and its views. */
+.pg-clips { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.pg-clip {
+  display:block; height:100%; padding:6px 6px 10px; border-radius:16px; text-align:left; text-decoration:none;
+  background:color-mix(in srgb,var(--text) 7%,transparent); border:1px solid color-mix(in srgb,var(--text) 13%,transparent);
+}
+.pg-clip img { display:block; width:100%; aspect-ratio:16/9; margin-bottom:8px; border-radius:11px; object-fit:cover; }
+.pg-clip span { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; padding:0 4px; font-size:13.5px; font-weight:600; line-height:1.3; }
+.pg-clip small { display:block; padding:3px 4px 0; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+.pg-clip:hover span { text-decoration:underline; }
 .pg-tags { display:flex; flex-wrap:wrap; justify-content:center; gap:6px; margin:22px 0 0; }
 .pg-tags span { padding:4px 12px; border-radius:999px; color:var(--muted); font-size:13px; }
 .pg-foot { display:flex; flex-wrap:wrap; justify-content:center; gap:6px 16px; margin-top:28px; color:var(--muted); font-size:12.5px; }
