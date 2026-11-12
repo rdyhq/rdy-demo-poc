@@ -94,7 +94,7 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
     ${content.game?html`<p class="pg-tags"><span>${content.game}</span></p>`:''}
     <footer class="pg-foot">${options.report&&!options.claim?html`<a href="${options.report}">Report this page</a>`:''}<a href="/">Made with LINB</a></footer>
     </main>${options.claim?html`<aside class="pg-sheet">
-      <h2>That is you, ${name}.</h2><p>The colours and the font come from your channel.</p>
+      <h2>That is you, ${name}.</h2><p>${art?'The colours and the font come from your channel.':'You pick the look after you claim it.'}</p>
       <form method="post" action="/auth/twitch"><input type="hidden" name="claim" value="${options.claim}"><button>Claim linb.io/${options.claim}</button></form>
       <a href="/">Try another name</a></aside>`:''}
     </body></html>`;
