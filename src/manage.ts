@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { connect, migrate, transaction } from './db.ts';
 import { mailbox, uuidPattern } from './domain.ts';
+import { approveHandle } from './handles.ts';
 
 const [action,argument,daysArgument,reviewReason,approver]=process.argv.slice(2);
 const db=process.env.DATABASE_URL;
@@ -24,6 +25,9 @@ try {
       });
       console.log('Operator access revoked.');
     }
+  } else if(action==='approve-handle') {
+    await approveHandle(pool,argument??'',daysArgument);
+    console.log('Handle approved.');
   } else if(action==='retain-evidence') {
     const days=Number(daysArgument);
     if(!argument||!uuidPattern.test(argument)||!Number.isInteger(days)||days<1||days>30||
@@ -46,7 +50,7 @@ try {
     });
     console.log('Restored sessions and access proofs revoked.');
   } else {
-    throw new Error('Use migrate, designate-operator, revoke-operator, retain-evidence, prune-evidence, or revoke-restored-access.');
+    throw new Error('Use migrate, designate-operator, revoke-operator, approve-handle, retain-evidence, prune-evidence, or revoke-restored-access.');
   }
 } finally {
   await pool.end();

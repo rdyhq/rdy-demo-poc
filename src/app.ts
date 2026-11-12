@@ -16,7 +16,7 @@ import { invite, inviteList, revokeInvite } from './enrollment.ts';
 import { cardColumns, cardHeights, cardSpans, channelPlatform, normalizeHome, platforms, readHome, type EditableHome, type StoredHome } from './home-cards.ts';
 import { liveState } from './live-state.ts';
 import { TwitchActivity, type TwitchActivityConfig, type TwitchChannel } from './twitch-activity.ts';
-import type { HomeAlias } from './home-aliases.ts';
+import { acceptHandle, handleOffer, homeHandle, resolveHandle } from './handles.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
@@ -52,7 +52,7 @@ const platformIcons=new Map(Object.keys(platforms).map(name=>[
 ]));
 
 type Configuration={
-  twitchActivity?:TwitchActivityConfig; aliases?:ReadonlyMap<string,HomeAlias>;
+  twitchActivity?:TwitchActivityConfig;
   pool?:pg.Pool; origin?:string; twitch?:TwitchConfig; billing?:BillingConfig; pro?:{multipage:boolean}; redirectOrigins?:string[]; mail?:SendMail; objects?:Objects|null;
   reportContact?:string; clock?:()=>number; demo?:boolean; readOnlyHomes?:boolean;
   clientAddress?:(context:Context)=>string;
@@ -145,7 +145,16 @@ export function createApp(config:Configuration={}) {
       if(url.host!==originHost) {
         if(!redirectHosts.has(url.host)||!['GET','HEAD'].includes(c.req.method)) return c.notFound();
         const parts=url.pathname.split('/');
-        if(url.pathname!=='/') {
+        const target=new URL(origin);
+        target.pathname=url.pathname;
+        if(parts.length===2&&parts[1]) {
+          if(!pool) return c.notFound();
+          // A handle path forwards to the Home's current handle on the canonical origin.
+          const db=pool,found=await resolveHandle(db,parts[1]);
+          if(!found) return c.notFound();
+          await publicHome(db,found.homeId);
+          target.pathname='/'+found.canonical;
+        } else if(url.pathname!=='/') {
           const [,root,id,kind,item,file]=parts;
           const isImage=parts.length===5&&kind==='images'&&uuidPattern.test(item);
           const isSubpage=Boolean(pro?.multipage&&parts.length===5&&kind==='p'&&uuidPattern.test(item));
@@ -164,8 +173,6 @@ export function createApp(config:Configuration={}) {
           if(isShareImage&&(item!==home.publication_id||!(await approvedPreview(db,home))?.coverId)) return c.notFound();
           if(isImage&&!refers(home.content,item)) return c.notFound();
         }
-        const target=new URL(origin);
-        target.pathname=url.pathname;
         // None of the current public routes use query parameters. Never forward proofs or tracking.
         return c.redirect(target.href+'#',308);
       }
@@ -281,9 +288,20 @@ export function createApp(config:Configuration={}) {
     const change=await db.query(`SELECT old_proved,new_proved FROM mailbox_changes WHERE creator_id=$1
       AND finished_at IS NULL AND cancelled_at IS NULL`,[creator]);
     const connection=twitch?await db.query('SELECT login FROM twitch_identities WHERE creator_id=$1',[creator]):null;
+    const home=await db.query<{id:string}>('SELECT id FROM homes WHERE owner_id=$1',[creator]);
+    const host=new URL(origin??c.req.url).host;
+    const current=home.rows[0]?await homeHandle(db,home.rows[0].id):null,offer=(await handleOffer(db,creator))?.handle;
     return c.html(accountPage(rows[0].mailbox,change.rows[0],csrf(cookie(c)!),contact??null,
       c.req.query('sent')==='1'?'Check both mailboxes for verification links.':undefined,
-      connection?{linked:Boolean(connection.rowCount),login:connection.rows[0]?.login,status:c.req.query('twitch')}:undefined,Boolean(billing)));
+      connection?{linked:Boolean(connection.rowCount),login:connection.rows[0]?.login,status:c.req.query('twitch')}:undefined,Boolean(billing),
+      {current:current?host+'/'+current:null,offer:offer?host+'/'+offer:null}));
+  });
+  app.post('/account/handle',async c=>{
+    const creator=await principal(c,'creator'),fields=await c.req.parseBody();
+    checkCsrf(c,fields.csrf);
+    requireHomeWrites();
+    await acceptHandle(requirePool(),creator);
+    return c.redirect('/account',303);
   });
   if(billing) {
     app.get('/account/billing',async c=>{
@@ -368,7 +386,8 @@ export function createApp(config:Configuration={}) {
     const home=await publicHome(db,state.id);
     const selected=c.req.query('review')==='1'?selection(c.req.query()):null;
     const proof=selected?shareProof(cookie(c)!,home.publication_id,previewFingerprint(home.content,selected)):null;
-    return c.html(editorShare(home,(origin??new URL(c.req.url).origin)+'/h/'+home.id,csrf(cookie(c)!),
+    const handle=await homeHandle(db,home.id);
+    return c.html(editorShare(home,(origin??new URL(c.req.url).origin)+(handle?'/'+handle:'/h/'+home.id),csrf(cookie(c)!),
       await approvedPreview(db,home),selected,proof,clock()));
   });
   app.post('/editor/share',async c=>{
@@ -486,11 +505,13 @@ export function createApp(config:Configuration={}) {
       return c.html(message('Report received','An operator can review your report.','/h/'+home.id,'Return to the creator page'),201);
     });
   }
-  async function renderPublicHome(c:Context,id:string,alias?:{handle:string;twitchSubject:string}) {
-    const db=requirePool(),home=await publicHome(db,id,alias?.twitchSubject);
+  async function renderPublicHome(c:Context,id:string) {
+    const db=requirePool(),home=await publicHome(db,id);
     const siteOrigin=origin??new URL(c.req.url).origin;
     const homeUrl=siteOrigin+'/h/'+home.id;
-    const canonical=alias?siteOrigin+'/'+alias.handle:homeUrl;
+    // The stable ID address stays. A Home with a handle names the handle address as canonical.
+    const handle=await homeHandle(db,home.id);
+    const canonical=handle?siteOrigin+'/'+handle:homeUrl;
     const channel=await linkedChannel(db,home.owner_id,home.content);
     const fixture=await liveState(home.id,config.demo?c.req.query('demo-live'):undefined);
     const signal=fixture.live?fixture:channel?await activity!.get(channel,home.content.layout.spotlight.offlineLead==='clip'):fixture;
@@ -612,9 +633,15 @@ export function createApp(config:Configuration={}) {
       sessions:quiet?[]:[{id:randomUUID(),title:'Surface route practice',local:future.toISOString().slice(0,16),zone:'UTC',offset:'+00:00',instant:future.toISOString()}]};
     return c.html(renderHome(content,{now:clock(),asset:()=>'',demo:true,liveState:await liveState('demo',c.req.query('demo-live'))}));
   });
-  for(const [handle,alias] of config.aliases??[]) {
-    app.get('/'+handle,c=>renderPublicHome(c,alias.homeId,{handle,twitchSubject:alias.twitchSubject}));
-  }
+  // Every route above wins over a handle. An earlier handle or another letter case forwards to the current handle.
+  app.get('/:handle',async c=>{
+    if(!pool) return c.notFound();
+    const db=pool,raw=c.req.param('handle'),found=await resolveHandle(db,raw);
+    if(!found) return c.notFound();
+    if(raw===found.canonical) return renderPublicHome(c,found.homeId);
+    await publicHome(db,found.homeId);
+    return c.redirect('/'+found.canonical,308);
+  });
   app.notFound(c=>c.html(message('This home is not available','The requested page is unavailable.'),404));
   return app;
 }

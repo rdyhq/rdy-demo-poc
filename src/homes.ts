@@ -6,6 +6,7 @@ import { conflict, digest, invalid, scheduleChange, unavailable, uuidPattern, ty
 import { type ProDraft, type ProContent } from './pro.ts';
 import { normalizeHome, readHome, writeHome, type EditableHome, type StoredHome } from './home-cards.ts';
 import { previewFingerprint, type Selection } from './sharing.ts';
+import { homeHandle } from './handles.ts';
 
 export type HomeState = {
   id:string; owner_id:string; draft_revision:number; publication_id:string|null; published_revision:number|null;
@@ -133,7 +134,8 @@ export async function mutate(pool:pg.Pool,owner:string,action:'save'|'publish'|'
     }
     const {rows}=await client.query(`SELECT ${holdFlag} AS held FROM homes h WHERE id=$1`,[home.id]);
     const held=rows[0].held as boolean;
-    const response={homeId:home.id,revision,publicationId,held,publicPath:publicationId&&!held?'/h/'+home.id:null};
+    const handle=publicationId&&!held?await homeHandle(client,home.id):null;
+    const response={homeId:home.id,revision,publicationId,held,publicPath:publicationId&&!held?(handle?'/'+handle:'/h/'+home.id):null};
     await client.query('INSERT INTO mutation_receipts VALUES ($1,$2,$3,$4)',[home.id,value.operationId,fingerprint,response]);
     return response;
   });

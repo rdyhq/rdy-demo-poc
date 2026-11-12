@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { homeAliases } from './home-aliases.ts';
+import { importAliases } from './handles.ts';
 import { createApp } from './app.ts';
 import { clientAddress, trustedProxyHops } from './client-address.ts';
 import { postmark } from './auth.ts';
@@ -60,7 +61,10 @@ const trustedHops=trustedProxyHops(process.env.LOBBY_TRUST_PROXY);
 if(!trustedHops&&process.env.RENDER) {
   console.error('LINB rate limits share one address behind the proxy. Set LOBBY_TRUST_PROXY.');
 }
-const app=createApp({pool,origin:origin.origin,redirectOrigins,twitch,twitchActivity,aliases:homeAliases(process.env.LINB_HOME_ALIASES),billing,pro:process.env.LINB_PRO_SYNTHETIC==='1'?{multipage:process.env.LINB_MULTIPAGE_SYNTHETIC==='1'}:undefined,mail,objects,reportContact:process.env.REPORT_CONTACT,
+// Handles approved before handles were stored. The table may not exist until the migration runs.
+const approved=homeAliases(process.env.LINB_HOME_ALIASES);
+if(pool&&approved.size) await importAliases(pool,approved).catch(()=>console.error('LINB could not store the approved handles.'));
+const app=createApp({pool,origin:origin.origin,redirectOrigins,twitch,twitchActivity,billing,pro:process.env.LINB_PRO_SYNTHETIC==='1'?{multipage:process.env.LINB_MULTIPAGE_SYNTHETIC==='1'}:undefined,mail,objects,reportContact:process.env.REPORT_CONTACT,
   readOnlyHomes:process.env.LINB_HOME_READ_ONLY==='1',
   demo:Boolean(dev&&process.env.LOBBY_DEMO==='1'),
   clientAddress:context=>clientAddress(getConnInfo(context).remote.address,context.req.header('X-Forwarded-For'),trustedHops)});

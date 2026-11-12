@@ -60,6 +60,10 @@ Read [AGENTS.md](AGENTS.md) for the Rdy workflow. The approved design baseline i
 
 Enable the pilot only after the RDY decision and exact deployment approval. Configure Twitch sign-in using the existing Twitch settings. Set `LINB_TWITCH_ACTIVITY=1` to enable public activity using the same app credentials. The server uses app tokens to read Helix, without adding user scopes.
 
-Invite the creator through the existing admission flow. After they verify their mailbox and link Twitch, upload the artwork they approve and save their Home. Once the creator has reviewed and published it, configure `LINB_HOME_ALIASES`. For example, `{"nexzou":{"homeId":"<existing Home UUID>","twitchSubject":"<verified Twitch subject>"}}`. Keep each approved alias bound to its original Home. The existing UUID routes stay available. An alias returns 404 after a hold, unpublish or unlink.
+Invite the creator through the existing admission flow. After they verify their mailbox and link Twitch, their Home gets a handle: `/<verified Twitch login>`. The creator takes no step. The existing UUID routes stay available, and a Home with a handle names the handle address as canonical. A handle returns 404 after a hold, unpublish or unlink.
+
+A handle belongs to one Home and never moves to another. After the creator renames the Twitch account and signs in with Twitch, the Account page offers the new login. The earlier handle keeps working and forwards to the new one. A creator who linked Twitch before handles existed gets the handle at the next Twitch sign-in.
+
+When the creator has no linked account, or the login is reserved or already belongs to another Home, an operator approves a handle: `npm run manage approve-handle <Home UUID> <handle>`. `LINB_HOME_ALIASES` still works for handles approved earlier. For example, `{"nexzou":{"homeId":"<existing Home UUID>","twitchSubject":"<verified Twitch subject>"}}`. The server stores each entry as a handle at start.
 
 Verify the real Twitch integration before the creator shares the link. Check the live title, viewer count and watch link. Check the offline fallback and optional clip. On a provider error, the Home must keep its stream link and hide unverified activity. Keep demo fixtures disabled.
