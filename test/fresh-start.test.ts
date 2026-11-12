@@ -103,6 +103,19 @@ test('a custom accent on a theme reaches the page without script',async()=>{
   assert.equal((await app.request('/assets/app.css')).status,200);
 });
 
+test('the clips of the channel show in two columns under the schedule',()=>{
+  const clips=[{title:'World record pace',url:'https://clips.twitch.tv/A',views:7263,picture:'/assets/clip/A'},
+    {title:'The worst pun yet',url:'https://clips.twitch.tv/B',picture:'/assets/clip/B'}];
+  const html=page(home,{clips});
+  assert.ok(html.includes('<h2 class="pg-h">Clips</h2><ul class="pg-clips">'
+    +'<li><a class="pg-clip" href="https://clips.twitch.tv/A"><img src="/assets/clip/A" alt="" loading="lazy"><span>World record pace</span><small>7,263 views</small></a></li>'
+    +'<li><a class="pg-clip" href="https://clips.twitch.tv/B"><img src="/assets/clip/B" alt="" loading="lazy"><span>The worst pun yet</span></a></li></ul>'));
+  assert.ok(order(html,'class="pg-links"','class="pg-h">Schedule','class="pg-h">Clips','class="pg-tags"','class="pg-foot"'),'order');
+  // With no clips, the part does not show.
+  assert.doesNotMatch(page(home),/pg-clips|>Clips</);
+  assert.doesNotMatch(page(home,{clips:[]}),/pg-clips|>Clips</);
+});
+
 test('a part with no content does not show',()=>{
   const bare=page({...base,displayName:'Solo'});
   assert.doesNotMatch(bare,/pg-social|pg-card|pg-links|class="pg-h"|pg-bio|<img/);
@@ -197,6 +210,9 @@ function twitchStub() {
     if(url.pathname==='/helix/channels') return Response.json({data:[{broadcaster_id:'2002',game_name:'Neon Drift 2'}]});
     if(url.pathname==='/helix/streams') return Response.json({data:state.live?[{type:'live',user_id:'2002',user_login:'novabyte',
       title:'Any% practice',viewer_count:312,thumbnail_url:'https://static-cdn.jtvnw.net/previews-ttv/live_user_novabyte-{width}x{height}.jpg'}]:[]});
+    if(url.pathname==='/helix/clips') return Response.json({data:url.searchParams.get('broadcaster_id')==='2002'&&url.searchParams.get('is_featured')==='true'?[
+      {id:'BraveClip-1',broadcaster_id:'2002',title:'Clutch at the last gate',view_count:412,created_at:'2026-11-01T00:00:00Z',
+        thumbnail_url:'https://static-cdn.jtvnw.net/twitch-video-assets/BraveClip-1-480x272.jpg'}]:[]});
     if(url.hostname==='static-cdn.jtvnw.net') {
       const bytes=url.pathname.includes('offline')?await art(1200,400,'#190838'):await art(300,300,'#1a0b3b');
       return new Response(Uint8Array.from(bytes),{headers:{'Content-Type':'image/png'}});
@@ -262,6 +278,9 @@ test('a visitor sees a preview of a Twitch channel with no account',{skip:!datab
       assert.match(html,/<img class="pg-avatar" src="\/preview\/art\/novabyte\/avatar" alt="">/);
       assert.match(html,/href="\/assets\/skin\/1\/190838-/);
       assert.match(html,/<a class="pg-watch" href="https:\/\/www\.twitch\.tv\/novabyte">/);
+      // The preview shows the clips of the channel, as the published page does (RDY r-7WX75).
+      assert.ok(html.includes('<h2 class="pg-h">Clips</h2><ul class="pg-clips"><li><a class="pg-clip" href="https://clips.twitch.tv/BraveClip-1">'
+        +'<img src="/assets/clip/BraveClip-1" alt="" loading="lazy"><span>Clutch at the last gate</span><small>412 views</small></a></li></ul>'));
       assert.equal(ready.headers.get('Cache-Control'),'no-store');
     });
     await t.test('the preview serves its art and stores nothing',async()=>{
@@ -273,6 +292,16 @@ test('a visitor sees a preview of a Twitch channel with no account',{skip:!datab
       for(const table of ['creators','homes','drafts','assets']) {
         assert.equal((await pool.query('SELECT 1 FROM '+table)).rowCount,0,table);
       }
+      // linb.io serves the picture of a clip that a page showed, and of no other clip (RDY r-P20XP).
+      const asked=()=>stub.calls.filter(call=>call.startsWith('/twitch-video-assets/BraveClip-1')).length;
+      assert.equal(asked(),0);
+      const picture=await get('/assets/clip/BraveClip-1');
+      assert.equal(picture.status,200);
+      assert.equal(picture.headers.get('Content-Type'),'image/webp');
+      assert.equal(picture.headers.get('Cache-Control'),'public, max-age=3600');
+      assert.equal((await get('/assets/clip/BraveClip-1')).status,200);
+      assert.equal(asked(),1);
+      assert.equal((await get('/assets/clip/NoSuchClip')).status,404);
       // A second look at the same name asks Twitch nothing more.
       const before=stub.calls.length;
       assert.equal((await get('/preview/page?name=novabyte')).status,200);

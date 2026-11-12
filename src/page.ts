@@ -7,12 +7,14 @@ import type { LiveState } from './live-state.ts';
 import { accentPath, artPalette, skinPath } from './public/palette.js';
 
 // The Home of the fresh start (RDY D-TG9VX, section s-EY5PZ): one centred column, in a fixed order.
-export const pageStyles='/assets/page.css?v=1';
+export const pageStyles='/assets/page.css?v=2';
 
 export type PageOptions={
   now:number; asset:(id:string)=>string; liveState?:LiveState; canonical?:string;
   // The address on linb.io that serves the picture of the live stream.
-  stream?:string; report?:string; appHandoff?:boolean;
+  stream?:string;
+  // The clips of the linked channel (RDY r-29W7N). Each picture is an address on linb.io.
+  clips?:{title:string;url:string;views?:number;picture:string}[]; report?:string; appHandoff?:boolean;
   notice?:ScheduleChange|null;
   // A preview before sign-up names the Twitch login that the visitor can claim.
   claim?:string; metadata?:{title:string;description:string;image?:string};
@@ -93,6 +95,9 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
     })}</ul>`:''}
     ${notice?html`<p class="pg-notice"><strong>Schedule change</strong> ${notice}</p>`:''}
     ${sessions.length?html`<h2 class="pg-h">Schedule</h2><ul class="pg-rows">${sessions.slice(0,4).map(sessionRow)}</ul>`:''}
+    ${options.clips?.length?html`<h2 class="pg-h">Clips</h2><ul class="pg-clips">${options.clips.map(clip=>
+      html`<li><a class="pg-clip" href="${clip.url}"><img src="${clip.picture}" alt="" loading="lazy"><span>${clip.title}</span>${
+        clip.views===undefined?'':html`<small>${clip.views.toLocaleString('en-US')} views</small>`}</a></li>`)}</ul>`:''}
     ${content.updates.length?html`<h2 class="pg-h">Updates</h2><ul class="pg-notes">${content.updates.map(update=>html`<li>${update.text}${
       update.firstPublishedAt?html`<small>${update.firstPublishedAt.slice(0,10)}</small>`:''}</li>`)}</ul>`:''}
     ${content.game?html`<p class="pg-tags"><span>${content.game}</span></p>`:''}

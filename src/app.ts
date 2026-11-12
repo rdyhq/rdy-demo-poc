@@ -22,7 +22,7 @@ import { accentCss, artPalette, paletteCss, paletteVersion, skinColours, skinPat
 import { applySkin, chooseTheme } from './public/editor-support.js';
 import { matchColours, suggestSkin } from './public/art-match.js';
 import { linkTab, lookTab, pageTab, type EditorView } from './editor-screens.ts';
-import { artPixels, channelDraft, matchChannel, streamPicture, type ChannelMatch } from './twitch-channel.ts';
+import { artPixels, channelDraft, matchChannel, twitchPicture, type ChannelMatch } from './twitch-channel.ts';
 import { renderPage } from './page.ts';
 import { buildingPage, confirmPage, landingPage, leavingPage, linksStep, liveStep, lookStep, messagePage, signInPage } from './screens.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
@@ -161,9 +161,22 @@ export function createApp(config:Configuration={}) {
     if(waiting&&waiting.until>clock()) return waiting.value;
     shots.delete(channel.subject);
     if(shots.size>=200) shots.delete(shots.keys().next().value!);
-    const entry={until:clock()+60_000,value:streamPicture(state.picture,config.twitchActivity!.http)};
+    const entry={until:clock()+60_000,value:twitchPicture(state.picture,config.twitchActivity!.http)};
     shots.set(channel.subject,entry);
     return entry.value;
+  }
+  // The clips of a channel for a page. linb.io remembers the picture of each clip that a page showed,
+  // and serves only those pictures (RDY r-P20XP).
+  const clipShots=new Map<string,{url:string;until:number;bytes?:Promise<Buffer|null>}>();
+  async function clipCards(channel:TwitchChannel) {
+    const clips=await activity!.clipList(channel);
+    for(const clip of clips) {
+      const known=clipShots.get(clip.id);
+      if(known?.url===clip.picture) { known.until=clock()+3600_000; continue; }
+      if(!known&&clipShots.size>=400) clipShots.delete(clipShots.keys().next().value!);
+      clipShots.set(clip.id,{url:clip.picture,until:clock()+3600_000});
+    }
+    return clips.map(clip=>({title:clip.title,url:clip.url,views:clip.views,picture:'/assets/clip/'+clip.id}));
   }
   const requireHomeWrites=()=>{
     if(config.readOnlyHomes) throw new AppError(503,'home_writes_paused','Home changes are temporarily paused.');
@@ -311,6 +324,7 @@ export function createApp(config:Configuration={}) {
     c.header('Cache-Control','no-store');
     return c.html(renderPage(content,{now:clock(),claim:twitch?profile.login:undefined,
       liveState:await activity.get({subject:profile.subject,login:profile.login}),stream:'/preview/art/'+profile.login+'/stream',
+      clips:await clipCards({subject:profile.subject,login:profile.login}),
       asset:kind=>'/preview/art/'+profile.login+'/'+kind}));
   });
   app.get('/preview/art/:login/:kind',async c=>{
@@ -475,7 +489,9 @@ export function createApp(config:Configuration={}) {
     c.header('Content-Security-Policy',policy.replace("frame-ancestors 'none'","frame-ancestors 'self'"));
     c.header('X-Frame-Options','SAMEORIGIN');
     c.header('Cache-Control','no-store');
-    return c.html(renderPage(state.content,{now:clock(),asset:id=>'/editor/assets/'+id}));
+    // The preview of a draft shows the clips that the published page shows.
+    const channel=await linkedChannel(requirePool(),owner,state.content);
+    return c.html(renderPage(state.content,{now:clock(),asset:id=>'/editor/assets/'+id,clips:channel?await clipCards(channel):undefined}));
   });
   editorAction('/editor/profile',pageTab,'/editor',async(owner,state,fields)=>{
     const {displayName,intro,game,streamUrl}=fields;
@@ -747,6 +763,16 @@ export function createApp(config:Configuration={}) {
   const sendImage=(bytes:Uint8Array)=>new Response(Uint8Array.from(bytes),{headers:{
     'Content-Type':'image/webp','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',
   }});
+  app.get('/assets/clip/:id',async c=>{
+    const known=clipShots.get(c.req.param('id'));
+    if(!known||known.until<=clock()) throw unavailable();
+    known.bytes??=twitchPicture(known.url,config.twitchActivity!.http);
+    const bytes=await known.bytes;
+    if(!bytes) { known.bytes=undefined; throw unavailable(); }
+    // The picture of a clip does not change, so a browser can keep it.
+    return new Response(Uint8Array.from(bytes),{headers:{'Content-Type':'image/webp','Cache-Control':'public, max-age=3600',
+      'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}});
+  });
   app.get('/editor/assets/:id',async c=>sendImage(await assetBytes(requirePool(),objects,await principal(c,'creator'),c.req.param('id'))));
 
   app.get('/h/:homeId/calendar/:sessionId/:file',async c=>{
@@ -810,7 +836,8 @@ export function createApp(config:Configuration={}) {
     // A Home with Pro content keeps the old page until the Pro parts have a place on the new one.
     if(paid) return c.html(renderHome(home.content,{now:clock(),liveState:signal,refreshActivity:Boolean(channel),appHandoff:config.appHandoff,
       report:'/h/'+home.id+'/report',homeId:home.id,pro:paid,notice:home.schedule_change,asset,canonical,metadata}));
-    return c.html(renderPage(home.content,{now:clock(),liveState:signal,stream:'/h/'+home.id+'/stream',appHandoff:config.appHandoff,
+    return c.html(renderPage(home.content,{now:clock(),liveState:signal,stream:'/h/'+home.id+'/stream',
+      clips:channel?await clipCards(channel):undefined,appHandoff:config.appHandoff,
       report:'/h/'+home.id+'/report',notice:home.schedule_change,asset,canonical,metadata}));
   }
   app.get('/h/:homeId',c=>renderPublicHome(c,c.req.param('homeId')));
