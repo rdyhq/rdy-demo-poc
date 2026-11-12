@@ -64,13 +64,6 @@ export function leaderboardDemo(now:number,low:boolean) {
   </section>`,{wide:true});
 }
 
-export function retiredCalendar(homeId:string) {
-  const title='Calendar downloads have ended';
-  return frame(title,html`<section class="panel auth"><h1>${title}</h1>
-    <p>Open the creator’s page for their latest links and schedule.</p>
-    <a class="button" href="/h/${homeId}">Open creator page</a></section>`,{standalone:true});
-}
-
 // A Home with an art palette loads its colours from a stylesheet, so they show without script (RDY r-F1JJ7).
 function artSkin(aura:Aura) {
   const art=aura.palette&&artPalette({...aura.palette,accent:aura.accent});

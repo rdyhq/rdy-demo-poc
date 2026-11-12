@@ -132,7 +132,9 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const file=await get(calendarPath);
       assert.equal(file.status,410);
       assert.match(file.headers.get('content-type')!,/^text\/html/);
-      assert.match(await file.text(),/Calendar downloads have ended.*Open creator page/s);
+      const ended=await file.text();
+      assert.match(ended,/<h1>Calendar downloads have ended<\/h1><p class="app-lead">Open the creator’s page for their latest links and schedule\.<\/p><a class="app-secondary" href="\/h\/[0-9a-f-]+">Open creator page<\/a>/);
+      assert.doesNotMatch(ended,/lobby\.css/);
       for(const publicPath of ['/h/'+id,imagePath,calendarPath]) {
         const forwarded=await app.request('https://l1nb.io'+publicPath+'?token=drop');
         assert.equal(forwarded.status,308);
