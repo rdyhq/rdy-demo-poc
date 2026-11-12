@@ -217,10 +217,12 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
       const key={...publicKey.export({format:'jwk'}),kid:'fixture'};
       let nonce='';
+      const accepted=()=>Response.json({client_id:'fixture',user_id:'1001',expires_in:3600});
+      let validation:()=>Response=accepted;
       const http=async(input:RequestInfo|URL)=>{
         const path=new URL(String(input)).pathname;
         if(path.endsWith('/keys')) return Response.json({keys:[key]});
-        if(path.endsWith('/validate')) return Response.json({client_id:'fixture',user_id:'1001',expires_in:3600});
+        if(path.endsWith('/validate')) return validation();
         if(path.endsWith('/revoke')) return Response.json({});
         if(path.endsWith('/token')) {
           const b64=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -257,6 +259,23 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const replay=await twitchApp.request(signed.callback,{headers:{Cookie:signed.cookies}});
       assert.equal(replay.headers.get('Location'),'/sign-in?twitch=retry');
       assert.equal((await twitchApp.request(origin+'/ops',{headers:{Cookie:providerCookie}})).status,401);
+
+      // A Twitch outage keeps the session. Only an answer that rejects the token ends it.
+      const editorStatus=async()=>(await twitchApp.request(origin+'/api/editor',{headers:{Cookie:providerCookie}})).status;
+      const age=(minutes:number)=>pool.query("UPDATE twitch_sessions SET checked_at=checked_at-$1*interval '1 minute'",[minutes]);
+      await age(46);
+      validation=()=>new Response('',{status:503});
+      assert.equal(await editorStatus(),200);
+      validation=()=>{throw new TypeError('fetch failed');};
+      await age(46);
+      assert.equal(await editorStatus(),200);
+      // The failed check is not repeated on the next request, and it does not count as a passed check.
+      validation=()=>new Response('',{status:401});
+      assert.equal(await editorStatus(),200);
+      await age(6);
+      assert.equal(await editorStatus(),401);
+      validation=accepted;
+      assert.equal(await editorStatus(),401);
     });
     await t.test('test Stripe access gates atomic Pro pages and preserves the Free fallback',async()=>{
       const next='MiraNew@example.test';
