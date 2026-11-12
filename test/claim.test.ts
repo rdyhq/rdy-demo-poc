@@ -79,8 +79,9 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
   // The whole Twitch sign-in: the start here, the consent at Twitch (a stand-in), and the return.
   const signIn=async(target=app)=>{
     const begin=await post('/auth/twitch',{claim:who.login},'',target);
-    assert.equal(begin.status,303);
-    const upstream=new URL(begin.headers.get('Location')!);
+    assert.equal(begin.status,200);
+    // The browser leaves for Twitch from a page. The address is in its refresh.
+    const upstream=new URL((await begin.text()).match(/<meta http-equiv="refresh" content="0;url=([^"]+)">/)![1].replaceAll('&amp;','&'));
     nonce=upstream.searchParams.get('nonce')!;
     const result=await target.request(upstream.searchParams.get('redirect_uri')+'?code=example&state='+upstream.searchParams.get('state'),
       {headers:{Cookie:begin.headers.get('Set-Cookie')!.split(';')[0]}});
@@ -105,6 +106,20 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       assert.deepEqual((await pool.query('SELECT subject,login FROM twitch_identities')).rows,[{subject:'2002',login:'novabyte'}]);
       assert.deepEqual((await pool.query('SELECT handle,current FROM home_handles')).rows,[{handle:'novabyte',current:true}]);
       assert.equal((await draftOf('nova@example.test')).draft_revision,0);
+    });
+
+    await t.test('the sign-in leaves for Twitch from a page, not from a redirect of the form',async()=>{
+      // Twitch forwards its sign-in address to other hosts. A browser blocks a form post that is redirected
+      // to a host outside the form-action policy, so the form post must end on a page of linb.io.
+      const begin=await post('/auth/twitch',{claim:'novabyte'});
+      assert.equal(begin.status,200);
+      assert.equal(begin.headers.get('Location'),null);
+      assert.match(begin.headers.get('Content-Security-Policy')!,/form-action 'self';/);
+      const page=await begin.text();
+      assert.match(page,/<h1>Going to Twitch<\/h1>/);
+      assert.match(page,/<meta http-equiv="refresh" content="0;url=https:\/\/id\.twitch\.tv\/oauth2\/authorize\?client_id=fixture&amp;/);
+      assert.match(page,/<a class="app-primary" href="https:\/\/id\.twitch\.tv\/oauth2\/authorize\?client_id=fixture&amp;[^"]+">Continue to Twitch<\/a>/);
+      assert.equal(begin.headers.get('Referrer-Policy'),'same-origin');
     });
 
     await t.test('the first step builds the draft from the channel and asks for other platforms',async()=>{

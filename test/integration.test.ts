@@ -241,8 +241,8 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
         method:'POST',headers:{Origin:origin,...(cookie?{Cookie:cookie}:{})},body:new URLSearchParams(value),
       });
       const flow=async(begin:Response,sid='')=>{
-        assert.equal(begin.status,303);
-        const upstream=new URL(begin.headers.get('Location')!);
+        assert.equal(begin.status,200);
+        const upstream=new URL((await begin.text()).match(/<meta http-equiv="refresh" content="0;url=([^"]+)">/)![1].replaceAll('&amp;','&'));
         nonce=upstream.searchParams.get('nonce')!;
         const callback=upstream.searchParams.get('redirect_uri')+'?code=example&state='+upstream.searchParams.get('state');
         const cookies=[sessionCookie(begin),sid].filter(Boolean).join('; ');

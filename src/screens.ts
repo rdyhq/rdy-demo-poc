@@ -44,6 +44,14 @@ export function buildingPage(login:string) {
     {refresh:'/preview/page?name='+login});
 }
 
+// The browser leaves for Twitch from this screen. Twitch forwards its sign-in address to other hosts,
+// and a browser blocks a form post that is redirected to a host outside the form-action policy.
+export function leavingPage(url:string) {
+  return screen('Going to Twitch',html`${top(false)}
+    <h1>Going to Twitch</h1><p class="app-lead">Twitch asks you to sign in and to approve linb.io.</p>
+    <a class="app-primary" href="${url}">Continue to Twitch</a>`,{refresh:url});
+}
+
 const progress=(step:number)=>html`<header class="app-top"><a class="app-logo" href="/">LINB</a><span class="app-dots" aria-label="Step ${step} of 2"><i class="on"></i><i${step>1?html` class="on"`:''}></i></span></header>`;
 const hidden=(csrf:string,operation:string)=>html`<input type="hidden" name="csrf" value="${csrf}"><input type="hidden" name="operationId" value="${operation}">`;
 const platformFields=[['youtube','youtube.com/@','YouTube'],['tiktok','tiktok.com/@','TikTok'],['x','x.com/','X'],['instagram','instagram.com/','Instagram'],['kick','kick.com/','Kick']];
