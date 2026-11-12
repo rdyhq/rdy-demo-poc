@@ -121,6 +121,7 @@ test('the home page has one field for a Twitch name and one action',()=>{
   assert.doesNotMatch(html,/lobby\.css/);
   assert.match(String(landingPage({preview:true,missing:'nobody_here'})),/<p class="app-note" role="alert">Twitch has no channel named nobody_here\.<\/p>/);
   assert.match(String(landingPage({preview:true,limited:true})),/role="alert">Too many previews\. Try again in an hour\./);
+  assert.match(String(landingPage({preview:true,unavailable:true})),/<p class="app-note" role="alert">Twitch did not answer\. Try again in a minute\.<\/p>/);
   // Without the Twitch connection the page offers sign-in only.
   const closed=String(landingPage({preview:false}));
   assert.doesNotMatch(closed,/<form/);
@@ -164,9 +165,12 @@ const art=(width:number,height:number,color:string)=>sharp({create:{width,height
   .composite([{input:{create:{width:Math.round(width/3),height,channels:3,background:'#ff3d9a'}},left:0,top:0}]).png().toBuffer();
 function twitchStub() {
   const calls:string[]=[];
+  // Twitch gives no answer while this is set.
+  const state={down:false};
   const http=async(input:RequestInfo|URL)=>{
     const url=new URL(String(input));
     calls.push(url.pathname+url.search);
+    if(state.down) return new Response('',{status:503});
     if(url.pathname==='/oauth2/token') return Response.json({access_token:'fixture-token',expires_in:600});
     if(url.pathname==='/helix/users') {
       const login=url.searchParams.get('login'), known=login==='novabyte';
@@ -182,7 +186,7 @@ function twitchStub() {
     }
     return new Response('',{status:404});
   };
-  return {http:http as typeof fetch,calls};
+  return {http:http as typeof fetch,calls,state};
 }
 
 test('the Twitch adapter finds a channel by its login',async()=>{
@@ -191,6 +195,18 @@ test('the Twitch adapter finds a channel by its login',async()=>{
   assert.equal((await activity.profileByLogin('novabyte'))!.displayName,'NovaByte');
   assert.equal((await activity.profileByLogin('novabyte'))!.subject,'2002');
   assert.equal(await activity.profileByLogin('nobody_here'),null);
+});
+
+test('the Twitch adapter tells an absent channel from a failed answer',async()=>{
+  const stub=twitchStub();
+  stub.state.down=true;
+  const activity=new TwitchActivity({clientId:'app',clientSecret:'fixture',http:stub.http});
+  assert.equal(await activity.profileByLogin('novabyte'),'unavailable');
+  // The profile of a linked channel keeps its rule: any doubt gives no profile.
+  assert.equal(await activity.profile('2002'),null);
+  // Twitch refuses the keys of the app.
+  const refused=(async()=>new Response('',{status:400})) as typeof fetch;
+  assert.equal(await new TwitchActivity({clientId:'app',clientSecret:'wrong',http:refused}).profileByLogin('novabyte'),'unavailable');
 });
 
 const database=process.env.LOBBY_TEST_DATABASE_URL;
@@ -269,6 +285,20 @@ test('a visitor sees a preview of a Twitch channel with no account',{skip:!datab
       assert.equal((await get('/preview/page?name=novabyte')).status,200);
       address='198.51.100.10';
       assert.equal((await get('/preview/page?name=ghost_other')).headers.get('Location'),'/?missing=ghost_other');
+    });
+    await t.test('when Twitch does not answer, the visitor is told so and can try again',async()=>{
+      address='198.51.100.20';
+      stub.state.down=true;
+      const failed=await get('/preview/page?name=nightsignal');
+      assert.equal(failed.status,303);
+      assert.equal(failed.headers.get('Location'),'/?unavailable=1');
+      assert.equal((await get('/preview/art/nightsignal/avatar')).status,404);
+      const told=await (await get('/?unavailable=1')).text();
+      assert.match(told,/role="alert">Twitch did not answer\. Try again in a minute\./);
+      assert.ok(!told.includes('no channel named'));
+      // The failure is not kept. The next try asks Twitch again.
+      stub.state.down=false;
+      assert.equal((await get('/preview/page?name=nightsignal')).headers.get('Location'),'/?missing=nightsignal');
     });
     await t.test('without the Twitch connection the home page offers sign-in only',async()=>{
       const plain=createApp({pool,origin,mail:async()=>{}});

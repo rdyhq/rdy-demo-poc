@@ -131,13 +131,13 @@ export function createApp(config:Configuration={}) {
     return entry;
   }
   // A preview before sign-up waits here. linb.io does not store or publish it (RDY s-W8K47).
-  const previews=new Map<string,{until:number;value:Promise<ChannelMatch|null>}>();
+  const previews=new Map<string,{until:number;value:Promise<ChannelMatch|null|'unavailable'>}>();
   const previewHome='00000000-0000-4000-8000-000000000000';
   const twitchLogin=(value:unknown)=>{
     const name=typeof value==='string'?value.trim().toLowerCase():'';
     return /^[a-z0-9_]{3,25}$/.test(name)?name:null;
   };
-  async function channelPreview(login:string,address:string):Promise<ChannelMatch|null|'limited'> {
+  async function channelPreview(login:string,address:string):Promise<ChannelMatch|null|'limited'|'unavailable'> {
     const waiting=previews.get(login);
     if(waiting&&waiting.until>clock()) return waiting.value;
     // Each new name costs requests to Twitch, so each client address gets a limited number of them.
@@ -145,9 +145,11 @@ export function createApp(config:Configuration={}) {
     previews.delete(login);
     if(previews.size>=200) previews.delete(previews.keys().next().value!);
     const entry={until:clock()+10*60_000,
-      value:activity!.profileByLogin(login).then(profile=>profile?matchChannel(profile,config.twitchActivity!.http):null)};
+      value:activity!.profileByLogin(login).then(profile=>
+        profile&&profile!=='unavailable'?matchChannel(profile,config.twitchActivity!.http):profile)};
     previews.set(login,entry);
-    void entry.value.then(match=>{ if(!match&&previews.get(login)===entry) previews.delete(login); },()=>previews.delete(login));
+    // Only a built preview waits. An absent channel or a failed answer is asked again.
+    void entry.value.then(match=>{ if((!match||match==='unavailable')&&previews.get(login)===entry) previews.delete(login); },()=>previews.delete(login));
     return entry.value;
   }
   const requireHomeWrites=()=>{
@@ -277,7 +279,7 @@ export function createApp(config:Configuration={}) {
   app.get('/assets/preview.js',c=>c.text(previewScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/verify.js',c=>c.text(verifyScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/',c=>c.html(landingPage({preview:Boolean(activity&&pool),missing:twitchLogin(c.req.query('missing'))??undefined,
-    invalid:c.req.query('invalid')==='1',limited:c.req.query('limited')==='1',closed:!twitch?.openSignup,canonical:origin?origin+'/':undefined})));
+    invalid:c.req.query('invalid')==='1',limited:c.req.query('limited')==='1',unavailable:c.req.query('unavailable')==='1',closed:!twitch?.openSignup,canonical:origin?origin+'/':undefined})));
   app.get('/preview',c=>{
     if(!activity||!pool) return c.redirect('/',303);
     const login=twitchLogin(c.req.query('name'));
@@ -289,6 +291,7 @@ export function createApp(config:Configuration={}) {
     if(!login) return c.redirect('/?invalid=1',303);
     const match=await channelPreview(login,config.clientAddress?.(c)??'local');
     if(match==='limited') return c.redirect('/?limited=1',303);
+    if(match==='unavailable') return c.redirect('/?unavailable=1',303);
     if(!match) return c.redirect('/?missing='+login,303);
     const {profile,art}=match;
     const content=channelDraft(readHome(newHome(previewHome),previewHome),match,{avatar:art.avatar&&'avatar',banner:art.banner&&'banner'});
@@ -300,7 +303,7 @@ export function createApp(config:Configuration={}) {
     const waiting=previews.get(c.req.param('login'));
     const match=waiting&&waiting.until>clock()?await waiting.value:null;
     const kind=c.req.param('kind');
-    const bytes=match&&(kind==='avatar'||kind==='banner')?match.art[kind]:null;
+    const bytes=match&&match!=='unavailable'&&(kind==='avatar'||kind==='banner')?match.art[kind]:null;
     if(!bytes) throw unavailable();
     return sendImage(bytes);
   });
