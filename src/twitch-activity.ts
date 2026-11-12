@@ -6,6 +6,8 @@ export type TwitchActivityConfig = {clientId:string;clientSecret:string;http?:ty
 export type TwitchChannel = {subject:string;login:string};
 // A clip for the page. The picture is its address at the Twitch image host.
 export type TwitchClip = {id:string;title:string;url:string;views?:number;picture:string};
+// A stream of the Twitch schedule for the page. The start is an instant in UTC.
+export type TwitchSlot = {title:string;category:string;start:string};
 export type TwitchProfile = {subject:string;login:string;displayName:string;bio:string;game:string;avatarUrl:string|null;bannerUrl:string|null};
 type CacheEntry<T> = {until:number;value:Promise<T>};
 const unavailable:LiveState={live:false,verified:false};
@@ -31,6 +33,7 @@ export class TwitchActivity {
   private streams=new Map<string,CacheEntry<LiveState>>();
   private clips=new Map<string,CacheEntry<LiveState['clip']>>();
   private clipLists=new Map<string,CacheEntry<TwitchClip[]>>();
+  private schedules=new Map<string,CacheEntry<TwitchSlot[]>>();
 
   private config:TwitchActivityConfig;
   private clock:()=>number;
@@ -64,12 +67,17 @@ export class TwitchActivity {
     return this.pendingToken;
   }
 
-  private async read(path:'streams'|'clips'|'users'|'channels',query:URLSearchParams) {
+  private async ask(path:'streams'|'clips'|'users'|'channels'|'schedule',query:URLSearchParams) {
     const token=await this.accessToken();
     const response=await this.json('https://api.twitch.tv/helix/'+path+'?'+query,{
       headers:{'Client-Id':this.config.clientId,Authorization:'Bearer '+token},
     });
     if(response.status===401&&this.token?.value===token) this.token=undefined;
+    return response;
+  }
+
+  private async read(path:'streams'|'clips'|'users'|'channels',query:URLSearchParams) {
+    const response=await this.ask(path,query);
     if(!response.ok) throw new Error('Twitch activity unavailable.');
     const payload=await response.json();
     if(!Array.isArray(payload.data)) throw new Error('Invalid Twitch activity response.');
@@ -127,6 +135,31 @@ export class TwitchActivity {
       } catch {
         // A failed answer is not kept: the next reading asks Twitch again.
         this.clipLists.delete(key);
+        return [];
+      }
+    });
+  }
+
+  // The next streams of the Twitch schedule, three at most (RDY r-NQ9ZZ). Any doubt leaves a stream out.
+  schedule(channel:TwitchChannel):Promise<TwitchSlot[]> {
+    const key=channel.subject;
+    return this.cached(this.schedules,key,300_000,async()=>{
+      try {
+        const response=await this.ask('schedule',new URLSearchParams({broadcaster_id:channel.subject,first:'10'}));
+        // Twitch answers 404 for a channel with no schedule.
+        if(response.status===404) return [];
+        if(!response.ok) throw new Error('Twitch schedule unavailable.');
+        const data=(await response.json()).data;
+        if(data?.broadcaster_id!==channel.subject||!Array.isArray(data.segments)) return [];
+        const now=this.clock(),away=[data.vacation?.start_time,data.vacation?.end_time].map(value=>typeof value==='string'?Date.parse(value):NaN);
+        return (data.segments as any[]).flatMap(segment=>{
+          const start=typeof segment?.start_time==='string'?Date.parse(segment.start_time):NaN;
+          return Number.isFinite(start)&&start>now&&!segment.canceled_until&&!(start>=away[0]&&start<=away[1])
+            ?[{title:cut(segment.title,80)||'Stream',category:cut(segment.category?.name,80),start:new Date(start).toISOString()}]:[];
+        }).sort((a,b)=>a.start.localeCompare(b.start)).slice(0,3);
+      } catch {
+        // A failed answer is not kept: the next reading asks Twitch again.
+        this.schedules.delete(key);
         return [];
       }
     });

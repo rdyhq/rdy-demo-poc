@@ -13,6 +13,8 @@ export type PageOptions={
   now:number; asset:(id:string)=>string; liveState?:LiveState; canonical?:string;
   // The address on linb.io that serves the picture of the live stream.
   stream?:string;
+  // The next streams of the linked channel's schedule (RDY r-NQ9ZZ). Each start is an instant in UTC.
+  schedule?:{title:string;category:string;start:string}[];
   // The clips of the linked channel (RDY r-29W7N). Each picture is an address on linb.io.
   clips?:{title:string;url:string;views?:number;picture:string}[]; report?:string; appHandoff?:boolean;
   notice?:ScheduleChange|null;
@@ -24,6 +26,19 @@ const weekdays=['SUN','MON','TUE','WED','THU','FRI','SAT'];
 function sessionRow(slot:SessionSlot) {
   const [year,month,day]=slot.local.slice(0,10).split('-').map(Number);
   return html`<li><b>${weekdays[new Date(Date.UTC(year,month-1,day)).getUTCDay()]}<br>${day}</b><span>${slot.title}<small>${slot.local.slice(11)} · ${slot.zone}</small></span></li>`;
+}
+
+// A stream of the Twitch schedule. The page shows UTC, and a script shows the time zone of the fan (RDY r-ZN5Y9).
+const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const utcClock=(at:Date)=>at.toISOString().slice(11,16)+' UTC';
+function streamRow(slot:{title:string;category:string;start:string}) {
+  const at=new Date(slot.start);
+  return html`<li><b data-day="${slot.start}">${weekdays[at.getUTCDay()]}<br>${at.getUTCDate()}</b><span>${slot.title}<small><time datetime="${slot.start}" data-show="time">${
+    utcClock(at)}</time>${slot.category?' · '+slot.category:''}</small></span></li>`;
+}
+function streamDay(start:string) {
+  const at=new Date(start),day=weekdays[at.getUTCDay()];
+  return html`<time datetime="${start}" data-show="day">${day[0]+day.slice(1).toLowerCase()} ${at.getUTCDate()} ${months[at.getUTCMonth()]}, ${utcClock(at)}</time>`;
 }
 
 // A schedule change stays on the page until the later of its two times has passed.
@@ -54,6 +69,8 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
   const live=Boolean(content.streamUrl)&&state?.live===true&&state.verified===true;
   const viewers=live&&Number.isSafeInteger(state!.viewers)&&state!.viewers!>=0?state!.viewers:undefined;
   const sessions=futureSessions(content,options.now);
+  // The schedule of the Twitch channel shows in place of the sessions that the creator entered.
+  const streams=options.schedule?.length?options.schedule:null;
   const spotlight='layout' in content?content.layout.spotlight:undefined;
   const clip=!live&&spotlight?.offlineLead==='clip'&&state?.verified?state.clip:undefined;
   const app=options.appHandoff?appLink(content.streamUrl):undefined;
@@ -67,6 +84,7 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
       viewers===undefined?'':html`<p class="pg-card-meta">${viewers.toLocaleString('en-US')} watching</p>`}`
     :clip?html`<p class="pg-card-kicker">Latest clip</p><p class="pg-card-title"><a href="${clip.url}">${clip.title}</a></p>${
       clip.views===undefined?'':html`<p class="pg-card-meta">${clip.views.toLocaleString('en-US')} views</p>`}`
+    :streams?html`<p class="pg-card-kicker">Next stream</p><p class="pg-card-title">${streams[0].title}</p><p class="pg-card-meta">${streamDay(streams[0].start)}</p>`
     :sessions[0]?html`<p class="pg-card-kicker">Next stream</p><p class="pg-card-title">${sessions[0].title}</p><p class="pg-card-meta">${
       sessions[0].local.replace('T',' ')} ${sessions[0].zone}</p>`:'';
   return html`<!doctype html><html lang="en" data-theme="${content.theme}"><head>
@@ -80,6 +98,7 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
       <meta property="og:title" content="${options.metadata.title}"><meta property="og:description" content="${options.metadata.description}">
       ${options.metadata.image?html`<meta property="og:image" content="${options.metadata.image}">`:''}`:''}
     ${app?html`<script type="module" src="/assets/handoff.js"></script>`:''}
+    ${streams?html`<script src="/assets/localtime.js" defer></script>`:''}
     </head><body><main class="pg" data-font="${aura.font}">
     <div class="pg-hero">${content.coverId&&!live?html`<img src="${options.asset(content.coverId)}" alt="">`:''}</div>
     ${content.avatarId?html`<img class="pg-avatar" src="${options.asset(content.avatarId)}" alt="">`
@@ -94,7 +113,8 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
       return html`<li><a class="pg-pill" href="${link.url}"><i aria-hidden="true">${platform?icon(platform):'↗'}</i><span>${link.label}</span></a></li>`;
     })}</ul>`:''}
     ${notice?html`<p class="pg-notice"><strong>Schedule change</strong> ${notice}</p>`:''}
-    ${sessions.length?html`<h2 class="pg-h">Schedule</h2><ul class="pg-rows">${sessions.slice(0,4).map(sessionRow)}</ul>`:''}
+    ${streams?html`<h2 class="pg-h">Schedule</h2><ul class="pg-rows">${streams.map(streamRow)}</ul>`
+      :sessions.length?html`<h2 class="pg-h">Schedule</h2><ul class="pg-rows">${sessions.slice(0,4).map(sessionRow)}</ul>`:''}
     ${options.clips?.length?html`<h2 class="pg-h">Clips</h2><ul class="pg-clips">${options.clips.map(clip=>
       html`<li><a class="pg-clip" href="${clip.url}"><img src="${clip.picture}" alt="" loading="lazy"><span>${clip.title}</span>${
         clip.views===undefined?'':html`<small>${clip.views.toLocaleString('en-US')} views</small>`}</a></li>`)}</ul>`:''}

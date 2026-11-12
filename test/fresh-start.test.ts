@@ -103,6 +103,26 @@ test('a custom accent on a theme reaches the page without script',async()=>{
   assert.equal((await app.request('/assets/app.css')).status,200);
 });
 
+test('the schedule of the Twitch channel shows in place of the sessions that the creator entered',()=>{
+  const schedule=[{title:'La Team #10',category:'Talk Shows & Podcasts',start:'2027-07-21T16:00:00.000Z'},
+    {title:'Ranked grind',category:'',start:'2027-07-23T01:30:00.000Z'}];
+  const html=page(home,{schedule});
+  // Without script the page shows UTC and says so. The script shows the time zone of the fan (RDY r-ZN5Y9).
+  assert.ok(html.includes('<h2 class="pg-h">Schedule</h2><ul class="pg-rows">'
+    +'<li><b data-day="2027-07-21T16:00:00.000Z">WED<br>21</b><span>La Team #10<small><time datetime="2027-07-21T16:00:00.000Z" data-show="time">16:00 UTC</time> · Talk Shows &amp; Podcasts</small></span></li>'
+    +'<li><b data-day="2027-07-23T01:30:00.000Z">FRI<br>23</b><span>Ranked grind<small><time datetime="2027-07-23T01:30:00.000Z" data-show="time">01:30 UTC</time></small></span></li></ul>'));
+  assert.match(html,/<script src="\/assets\/localtime\.js" defer><\/script>/);
+  assert.doesNotMatch(html,/Saturday speedrun block/);
+  // Offline, the card leads with the next stream of that schedule.
+  assert.ok(html.includes('<p class="pg-card-kicker">Next stream</p><p class="pg-card-title">La Team #10</p>'
+    +'<p class="pg-card-meta"><time datetime="2027-07-21T16:00:00.000Z" data-show="day">Wed 21 Jul, 16:00 UTC</time></p>'));
+  // With no Twitch schedule, the sessions of the creator show, and the page loads no script.
+  for(const own of [page(home),page(home,{schedule:[]})]) {
+    assert.match(own,/<p class="pg-card-title">Saturday speedrun block<\/p>/);
+    assert.doesNotMatch(own,/localtime\.js|data-day/);
+  }
+});
+
 test('the clips of the channel show in two columns under the schedule',()=>{
   const clips=[{title:'World record pace',url:'https://clips.twitch.tv/A',views:7263,picture:'/assets/clip/A'},
     {title:'The worst pun yet',url:'https://clips.twitch.tv/B',picture:'/assets/clip/B'}];
@@ -210,6 +230,9 @@ function twitchStub() {
     if(url.pathname==='/helix/channels') return Response.json({data:[{broadcaster_id:'2002',game_name:'Neon Drift 2'}]});
     if(url.pathname==='/helix/streams') return Response.json({data:state.live?[{type:'live',user_id:'2002',user_login:'novabyte',
       title:'Any% practice',viewer_count:312,thumbnail_url:'https://static-cdn.jtvnw.net/previews-ttv/live_user_novabyte-{width}x{height}.jpg'}]:[]});
+    if(url.pathname==='/helix/schedule') return url.searchParams.get('broadcaster_id')==='2002'?Response.json({data:{broadcaster_id:'2002',vacation:null,
+      segments:[{id:'s1',start_time:'2099-07-21T16:00:00Z',end_time:'2099-07-21T18:00:00Z',title:'Any% practice',canceled_until:null,
+        category:{id:'1',name:'Neon Drift 2'},is_recurring:true}]}}):Response.json({message:'schedule was not found'},{status:404});
     if(url.pathname==='/helix/clips') return Response.json({data:url.searchParams.get('broadcaster_id')==='2002'&&url.searchParams.get('is_featured')==='true'?[
       {id:'BraveClip-1',broadcaster_id:'2002',title:'Clutch at the last gate',view_count:412,created_at:'2026-11-01T00:00:00Z',
         thumbnail_url:'https://static-cdn.jtvnw.net/twitch-video-assets/BraveClip-1-480x272.jpg'}]:[]});
@@ -278,6 +301,12 @@ test('a visitor sees a preview of a Twitch channel with no account',{skip:!datab
       assert.match(html,/<img class="pg-avatar" src="\/preview\/art\/novabyte\/avatar" alt="">/);
       assert.match(html,/href="\/assets\/skin\/1\/190838-/);
       assert.match(html,/<a class="pg-watch" href="https:\/\/www\.twitch\.tv\/novabyte">/);
+      // The preview shows the schedule of the channel, as the published page does (RDY r-7WX75).
+      assert.ok(html.includes('<li><b data-day="2099-07-21T16:00:00.000Z">TUE<br>21</b><span>Any% practice<small>'
+        +'<time datetime="2099-07-21T16:00:00.000Z" data-show="time">16:00 UTC</time> · Neon Drift 2</small></span></li>'));
+      const script=await get('/assets/localtime.js');
+      assert.equal(script.status,200);
+      assert.match(script.headers.get('Content-Type')!,/^application\/javascript/);
       // The preview shows the clips of the channel, as the published page does (RDY r-7WX75).
       assert.ok(html.includes('<h2 class="pg-h">Clips</h2><ul class="pg-clips"><li><a class="pg-clip" href="https://clips.twitch.tv/BraveClip-1">'
         +'<img src="/assets/clip/BraveClip-1" alt="" loading="lazy"><span>Clutch at the last gate</span><small>412 views</small></a></li></ul>'));
