@@ -10,7 +10,9 @@ import { accentPath, artPalette, skinPath } from './public/palette.js';
 export const pageStyles='/assets/page.css?v=1';
 
 export type PageOptions={
-  now:number; asset:(id:string)=>string; liveState?:LiveState; canonical?:string; report?:string; appHandoff?:boolean;
+  now:number; asset:(id:string)=>string; liveState?:LiveState; canonical?:string;
+  // The address on linb.io that serves the picture of the live stream.
+  stream?:string; report?:string; appHandoff?:boolean;
   notice?:ScheduleChange|null;
   // A preview before sign-up names the Twitch login that the visitor can claim.
   claim?:string; metadata?:{title:string;description:string;image?:string};
@@ -57,7 +59,8 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
   const promos='layout' in content?content.layout.supporting.flatMap(card=>
     card.family==='promo'&&!card.hidden&&card.title&&card.url?[{label:card.title,url:card.url}]:[]):[];
   const pills=[...content.links,...promos];
-  const lead=live?html`${content.coverId?html`<img class="pg-thumb" src="${options.asset(content.coverId)}" alt="">`:''}<p class="pg-card-title">${state!.title||'Live now'}</p>${
+  // The picture in the live card is the stream. The banner of the channel never stands in for it.
+  const lead=live?html`${state!.picture&&options.stream?html`<img class="pg-thumb" src="${options.stream}" alt="">`:''}<p class="pg-card-title">${state!.title||'Live now'}</p>${
       viewers===undefined?'':html`<p class="pg-card-meta">${viewers.toLocaleString('en-US')} watching</p>`}`
     :clip?html`<p class="pg-card-kicker">Latest clip</p><p class="pg-card-title"><a href="${clip.url}">${clip.title}</a></p>${
       clip.views===undefined?'':html`<p class="pg-card-meta">${clip.views.toLocaleString('en-US')} views</p>`}`

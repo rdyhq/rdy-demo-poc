@@ -37,6 +37,8 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
   // The person at Twitch for the next sign-in. As at Twitch, the ID token carries the display name
   // and the token check carries the login.
   let who={sub:'2002',login:'novabyte',name:'NovaByte',email:'nova@example.test' as string|null,verified:true};
+  // The channel of that person streams while this is set.
+  let streaming=false;
   let nonce='';
   const b64=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url');
   const http=(async(input:RequestInfo|URL)=>{
@@ -57,7 +59,8 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       description:'Speedruns, rhythm games and bad puns.',profile_image_url:cdn+'a-profile_image-300x300.png',
       offline_image_url:cdn+'a-channel_offline_image-1920x1080.png'}]:[]});
     if(url.pathname==='/helix/channels') return Response.json({data:[{broadcaster_id:who.sub,game_name:'Neon Drift 2'}]});
-    if(url.pathname==='/helix/streams') return Response.json({data:[]});
+    if(url.pathname==='/helix/streams') return Response.json({data:streaming?[{type:'live',user_id:who.sub,user_login:who.login,
+      title:'Any% practice',viewer_count:27,thumbnail_url:'https://static-cdn.jtvnw.net/previews-ttv/live_user_'+who.login+'-{width}x{height}.jpg'}]:[]});
     if(url.hostname==='static-cdn.jtvnw.net') {
       const bytes=url.pathname.includes('offline')?await bands(1200,400,[['#190838',.6],['#ff3d9a',.3],['#2ee6f0',.1]])
         :await bands(300,300,[['#1a0b3b',.6],['#ff5fae',.3],['#2ee6f0',.1]]);
@@ -258,6 +261,22 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       assert.equal(result.headers.get('Location'),'/start');
       assert.deepEqual((await pool.query(`SELECT login FROM twitch_identities WHERE subject='7007'`)).rows,[{login:'hoshizora'}]);
       assert.equal((await pool.query(`SELECT 1 FROM home_handles WHERE handle='hoshizora' AND current`)).rowCount,1);
+    });
+
+    await t.test('the published page of a live channel shows the picture of the stream',async()=>{
+      who={sub:'2002',login:'novabyte',name:'NovaByte',email:'nova@example.test',verified:true};
+      streaming=true;
+      const liveApp=createApp({...base,openSignup:true});
+      const {id}=await draftOf('nova@example.test');
+      const page=await (await get('/novabyte','',liveApp)).text();
+      assert.match(page,/<span class="pg-live">LIVE<\/span>/);
+      assert.ok(page.includes('<img class="pg-thumb" src="/h/'+id+'/stream" alt=""><p class="pg-card-title">Any% practice</p>'));
+      const shot=await get('/h/'+id+'/stream','',liveApp);
+      assert.equal(shot.status,200);
+      assert.equal(shot.headers.get('Content-Type'),'image/webp');
+      // An offline channel has no stream picture.
+      streaming=false;
+      assert.equal((await get('/h/'+id+'/stream','',createApp({...base,openSignup:true}))).status,404);
     });
   } finally {
     await pool.end();

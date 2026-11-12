@@ -74,3 +74,20 @@ test('Home aliases reserve application routes and validate the expected identity
   }
   assert.throws(()=>homeAliases(JSON.stringify({creator:{...alias,twitchSubject:'creator'}})),/Invalid approved Home alias/);
 });
+
+test('a live stream carries the address of its picture, only from the Twitch image host',async()=>{
+  let thumbnail:unknown='https://static-cdn.jtvnw.net/previews-ttv/live_user_creator-{width}x{height}.jpg';
+  const read=()=>new TwitchActivity({clientId:'app',clientSecret:'fixture',http:(async(input:RequestInfo|URL)=>{
+    const url=new URL(String(input));
+    if(url.pathname==='/oauth2/token') return Response.json({access_token:'fixture-token',expires_in:600});
+    return Response.json({data:[{type:'live',user_id:channel.subject,user_login:channel.login,title:'Stream title',viewer_count:52,
+      thumbnail_url:thumbnail}]});
+  }) as typeof fetch}).get(channel);
+  assert.deepEqual(await read(),{live:true,verified:true,title:'Stream title',viewers:52,
+    picture:'https://static-cdn.jtvnw.net/previews-ttv/live_user_creator-960x540.jpg'});
+  for(const other of ['https://example.test/live_user_creator-{width}x{height}.jpg',
+    'http://static-cdn.jtvnw.net/previews-ttv/live_user_creator-{width}x{height}.jpg','',undefined,42]) {
+    thumbnail=other;
+    assert.deepEqual(await read(),{live:true,verified:true,title:'Stream title',viewers:52});
+  }
+});
