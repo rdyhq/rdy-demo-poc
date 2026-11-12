@@ -94,7 +94,7 @@ a { color:inherit; }
 .ed-row { display:flex; flex-wrap:wrap; align-items:center; gap:10px 12px; margin:0 0 8px; padding:14px 16px; border:1px solid #ECEAE5; border-radius:16px; background:#fff; }
 .ed-profile { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
 .ed-profile label, .ed-art-row label { font-size:13.5px; font-weight:600; color:var(--soft); }
-.ed input:not([type=file],[type=radio],[type=hidden]), .ed textarea { width:100%; min-height:46px; padding:10px 12px; border:1.5px solid var(--line); border-radius:12px; background:#fff; color:var(--ink); font:500 16px/1.4 Inter,system-ui,sans-serif; }
+.ed input:not([type=file],[type=radio],[type=hidden],[type=checkbox]), .ed textarea { width:100%; min-height:46px; padding:10px 12px; border:1.5px solid var(--line); border-radius:12px; background:#fff; color:var(--ink); font:500 16px/1.4 Inter,system-ui,sans-serif; }
 .ed textarea { resize:vertical; }
 .ed-profile button { justify-self:start; margin-top:8px; }
 .ed-art { flex:none; width:48px; height:48px; border-radius:12px; object-fit:cover; background:#F4F3EF; }
@@ -118,6 +118,29 @@ a { color:inherit; }
 .ed-match { margin-top:26px; padding-top:20px; border-top:1px solid #ECEAE5; color:var(--soft); }
 .ed-match p { margin:0 0 12px; }
 .ed-down { margin-top:26px; }
+/* The account, the billing test and the texts to share: one column, no preview of the page. */
+.ed-account { color:var(--soft); font-size:14.5px; font-weight:600; text-decoration:none; }
+.ed-account:hover, .ed-account[aria-current=page] { color:var(--ink); text-decoration:underline; }
+.ed-solo { grid-template-columns:minmax(0,640px); justify-content:center; }
+.ed-lead { margin:0 0 18px; color:var(--soft); }
+.ed-stack { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; justify-items:start; }
+.ed-stack p, .ed-stack h2, .ed-stack h3 { margin:0; }
+.ed-stack h3 { font-size:16px; }
+.ed-inline { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; width:100%; }
+.ed-inline input[type=email] { flex:1 1 220px; width:auto; }
+.ed-check { display:flex; align-items:center; gap:8px; font-size:15px; }
+.ed-check input { flex:none; width:18px; height:18px; margin:0; accent-color:var(--ink); }
+.ed-fine { margin:0; color:var(--faint); font-size:13.5px; }
+.ed-note { margin:0 0 14px; padding:10px 14px; border-radius:12px; background:#EAF5EC; color:#1D5A2B; font-size:15px; }
+.ed-more { margin:18px 0 0; color:var(--soft); font-size:14.5px; }
+.ed-out { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-top:28px; padding-top:20px; border-top:1px solid #ECEAE5; color:var(--soft); font-size:14.5px; }
+.ed-share { display:grid; gap:8px; margin-bottom:14px; }
+.ed-share .app-copy { margin-bottom:0; }
+.ed .app-copy input { min-height:54px; padding:0; border:0; background:transparent; font-weight:600; }
+.ed-share-actions { display:flex; gap:8px; }
+.ed-share-actions:not(:has(button:not([hidden]))) { display:none; }
+.ed-text { display:grid; gap:6px; margin-bottom:12px; color:var(--soft); font-size:13.5px; font-weight:600; }
+.ed-card-image { display:block; width:100%; max-width:320px; aspect-ratio:1200/630; border-radius:12px; object-fit:cover; }
 .ed-main .app-primary { margin-bottom:0; }
 .ed-main .app-claim { max-width:420px; }
 .ed-side { position:sticky; top:92px; align-self:start; }

@@ -21,14 +21,14 @@ import { describeFailure } from './failure.ts';
 import { accentCss, artPalette, paletteCss, paletteVersion, skinColours, skinPath } from './public/palette.js';
 import { applySkin, chooseTheme } from './public/editor-support.js';
 import { matchColours, suggestSkin } from './public/art-match.js';
-import { linkTab, lookTab, pageTab, type EditorView } from './editor-screens.ts';
+import { accountTab, billingTab, linkTab, lookTab, pageTab, shareTexts, type EditorView } from './editor-screens.ts';
 import { artPixels, channelDraft, matchChannel, twitchPicture, type ChannelMatch } from './twitch-channel.ts';
 import { renderPage } from './page.ts';
 import { buildingPage, confirmPage, landingPage, leavingPage, linksStep, liveStep, lookStep, messagePage, reportPage, signInPage } from './screens.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
-import { accountPage, billingPage, editorShare, invitesPage, leaderboardDemo, proEditor, opsCase, opsPage, renderHome, retiredCalendar } from './views.ts';
+import { invitesPage, leaderboardDemo, proEditor, opsCase, opsPage, renderHome, retiredCalendar } from './views.ts';
 
 const stylesheet=[
   readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8'),
@@ -418,10 +418,10 @@ export function createApp(config:Configuration={}) {
     const home=await db.query<{id:string}>('SELECT id FROM homes WHERE owner_id=$1',[creator]);
     const host=new URL(origin??c.req.url).host;
     const current=home.rows[0]?await homeHandle(db,home.rows[0].id):null,offer=(await handleOffer(db,creator))?.handle;
-    return c.html(accountPage(rows[0].mailbox,change.rows[0],csrf(cookie(c)!),contact??null,
-      c.req.query('sent')==='1'?'Check both mailboxes for verification links.':undefined,
-      connection?{linked:Boolean(connection.rowCount),login:connection.rows[0]?.login,status:c.req.query('twitch')}:undefined,Boolean(billing),
-      {current:current?host+'/'+current:null,offer:offer?host+'/'+offer:null}));
+    return c.html(accountTab(await editorView(c,creator),{email:rows[0].mailbox,change:change.rows[0],contact:contact??null,
+      notice:c.req.query('sent')==='1'?'Check both mailboxes for verification links.':undefined,
+      twitch:connection?{linked:Boolean(connection.rowCount),login:connection.rows[0]?.login,status:c.req.query('twitch')}:undefined,billing:Boolean(billing),
+      handle:{current:current?host+'/'+current:null,offer:offer?host+'/'+offer:null}}));
   });
   app.post('/account/handle',async c=>{
     const creator=await principal(c,'creator'),fields=await c.req.parseBody();
@@ -434,7 +434,7 @@ export function createApp(config:Configuration={}) {
     app.get('/account/billing',async c=>{
       const owner=await principal(c,'creator'),db=requirePool(),state=await editor(db,owner);
       const home=state.publication_id&&!state.held?await publicHome(db,state.id):null;
-      return c.html(billingPage(home,csrf(cookie(c)!),await billing.status(owner),c.req.query('return')==='1'));
+      return c.html(billingTab(await editorView(c,owner),home,await billing.status(owner),c.req.query('return')==='1'));
     });
     app.post('/account/billing',async c=>{
       const owner=await principal(c,'creator'),db=requirePool(),fields=await c.req.parseBody();
@@ -467,6 +467,7 @@ export function createApp(config:Configuration={}) {
     const handle=state.publication_id&&!state.held?await homeHandle(db,state.id):null;
     const path=state.publication_id&&!state.held?(handle?'/'+handle:'/h/'+state.id):undefined;
     return {state,csrf:csrf(cookie(c)!),error,path,address:path&&(originHost??new URL(c.req.url).host)+path,
+      url:path&&(origin??new URL(c.req.url).origin)+path,
       twitch:Boolean(await linkedChannel(db,owner,state.content))};
   };
   // One editor action: check the request, change the draft, and return to the tab. A refused change shows on the same tab.
@@ -705,7 +706,7 @@ export function createApp(config:Configuration={}) {
     const selected=c.req.query('review')==='1'?selection(c.req.query()):null;
     const proof=selected?shareProof(cookie(c)!,home.publication_id,previewFingerprint(home.content,selected)):null;
     const handle=await homeHandle(db,home.id);
-    return c.html(editorShare(home,(origin??new URL(c.req.url).origin)+(handle?'/'+handle:'/h/'+home.id),csrf(cookie(c)!),
+    return c.html(shareTexts(await editorView(c,owner),home,(origin??new URL(c.req.url).origin)+(handle?'/'+handle:'/h/'+home.id),
       await approvedPreview(db,home),selected,proof,clock()));
   });
   app.post('/editor/share',async c=>{
