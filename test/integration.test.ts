@@ -384,6 +384,10 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const initial=await response.text();
       assert.match(initial,/data-refresh-activity.*ON AIR.*Verified stream.*data-viewer-count="27"/s);
       assert.match(initial,/rel="canonical" href="https:\/\/lobby.example.test\/miravale"/);
+      // The login stored when the creator linked Twitch goes stale after a rename. Twitch's current login decides.
+      await pool.query("UPDATE twitch_identities SET login='oldname' WHERE subject=$1",[subject]);
+      assert.match(await (await fan()).text(),/ON AIR.*Verified stream/s);
+      await pool.query("UPDATE twitch_identities SET login='miravale' WHERE subject=$1",[subject]);
       assert.equal((await fan('/other')).status,404);
       assert.equal((await fan('/missing')).status,404);
       const next=structuredClone(current.content);
