@@ -575,6 +575,32 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.match(emptyPage,/data-card="identity"/);
       assert.doesNotMatch(emptyPage,/data-card="(?:spotlight|dock|promo|schedule)"/);
     });
+    await t.test('sign-in forgives letter case when exactly one stored mailbox matches',async()=>{
+      const stored='Casey.Stream@example.test', twin='casey.stream@example.test';
+      const invite=(email:string,alias:string)=>post('/ops/invites',{csrf:csrf(operator),mailbox:email,alias},operator);
+      const homeOf=async(response:Response)=>(await (await get('/api/editor',sessionCookie(response))).json()).id;
+      assert.equal((await invite(stored,'Casey synthetic')).status,303);
+      const before=mail.length;
+      assert.equal((await post('/sign-in',{mailbox:twin})).status,303);
+      assert.equal(mail.length,before+1);
+      assert.equal(mail.at(-1)!.to,stored);
+      const first=await post('/verify',{token:token(stored)!});
+      assert.equal(first.status,303);
+      const home=await homeOf(first);
+      // The account keeps the address as it was stored.
+      assert.deepEqual((await pool.query('SELECT mailbox FROM creators WHERE lower(mailbox)=$1',[twin])).rows,[{mailbox:stored}]);
+      assert.equal((await post('/sign-in',{mailbox:'CASEY.STREAM@example.test'})).status,303);
+      assert.equal(mail.at(-1)!.to,stored);
+      assert.equal(await homeOf(await post('/verify',{token:token(stored)!})),home);
+      // A second stored mailbox that differs only in case stays its own account.
+      assert.equal((await invite(twin,'Casey twin synthetic')).status,303);
+      const count=mail.length;
+      assert.equal((await post('/sign-in',{mailbox:'CASEY.stream@example.test'})).status,303);
+      assert.equal(mail.length,count);
+      assert.equal((await post('/sign-in',{mailbox:twin})).status,303);
+      assert.equal(mail.at(-1)!.to,twin);
+      assert.notEqual(await homeOf(await post('/verify',{token:token(twin)!})),home);
+    });
   } finally {
     await pool.end();
     await admin.query('DROP SCHEMA '+schema+' CASCADE');

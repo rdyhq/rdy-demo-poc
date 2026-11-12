@@ -18,6 +18,13 @@ async function throttle(client: pg.PoolClient, key: string, limit: number) {
   return rows.length>0;
 }
 
+// Sign-in forgives letter case only when it cannot choose between two accounts.
+export function storedMailbox(typed:string,stored:string[]) {
+  const distinct=[...new Set(stored)];
+  if (distinct.includes(typed)) return typed;
+  return distinct.length===1?distinct[0]:null;
+}
+
 async function newProof(client: pg.PoolClient,purpose: Purpose,email: string,creator: string|null,change: string|null) {
   const token=secret();
   await client.query(`INSERT INTO access_proofs(digest,purpose,mailbox,creator_id,change_id,expires_at)
@@ -49,17 +56,22 @@ export class Auth {
   async requestLink(raw: unknown,ip: string,kind: 'login'|'operator') {
     const email=mailbox(raw);
     if (!email) return;
-    const token=await transaction(this.pool,async client=>{
-      if (!(await throttle(client,'ip:'+ip,30)) || !(await throttle(client,'mailbox:'+email,5))) return null;
-      const {rows}=kind==='operator'
-        ? await client.query('SELECT id FROM operators WHERE mailbox=$1 AND active',[email])
-        : await client.query(`SELECT id FROM creators WHERE mailbox=$1 UNION ALL
-             SELECT NULL::uuid AS id FROM invites WHERE mailbox=$1 AND revoked_at IS NULL
-             AND consumed_at IS NULL AND expires_at>now() LIMIT 1`,[email]);
-      if (!rows[0]) return null;
-      return newProof(client,kind,email,kind==='login'?rows[0].id:null,null);
+    const proof=await transaction(this.pool,async client=>{
+      // Letter case must not give one mailbox more attempts.
+      if (!(await throttle(client,'ip:'+ip,30)) || !(await throttle(client,'mailbox:'+email.toLowerCase(),5))) return null;
+      if (kind==='operator') {
+        const {rowCount}=await client.query('SELECT 1 FROM operators WHERE mailbox=$1 AND active',[email]);
+        return rowCount?{to:email,token:await newProof(client,kind,email,null,null)}:null;
+      }
+      const {rows}=await client.query(`SELECT mailbox,id FROM creators WHERE lower(mailbox)=lower($1) UNION ALL
+        SELECT mailbox,NULL::uuid FROM invites WHERE lower(mailbox)=lower($1) AND revoked_at IS NULL
+        AND consumed_at IS NULL AND expires_at>now()`,[email]);
+      const stored=storedMailbox(email,rows.map(row=>row.mailbox));
+      if (!stored) return null;
+      const creator=rows.find(row=>row.mailbox===stored&&row.id)?.id??null;
+      return {to:stored,token:await newProof(client,kind,stored,creator,null)};
     });
-    if (token) this.deliver(email,kind==='operator'?'Confirm LINB operator access':'Confirm your LINB sign-in',token);
+    if (proof) this.deliver(proof.to,kind==='operator'?'Confirm LINB operator access':'Confirm your LINB sign-in',proof.token);
   }
 
   deliver(email: string,subject: string,token: string) {
