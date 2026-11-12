@@ -112,7 +112,7 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       assert.equal(step.status,200);
       const html=await step.text();
       assert.match(html,/<h1>Where else are you\?<\/h1>/);
-      for(const platform of ['youtube','tiktok','x','instagram','kick']) assert.match(html,new RegExp('<input id="link-'+platform+'" name="'+platform+'"'));
+      for(const platform of ['youtube','tiktok','x','instagram','kick']) assert.match(html,new RegExp('<input id="link-'+platform+'" name="'+platform+'" aria-label="Your '));
       assert.match(html,/<a class="app-skip" href="\/start\/look">Skip<\/a>/);
       const draft=await draftOf('nova@example.test');
       assert.equal(draft.draft_revision,1);
@@ -177,7 +177,7 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       assert.equal(live.status,200);
       const html=await live.text();
       assert.match(html,/<h1>Your page is live<\/h1>/);
-      assert.match(html,/<input id="address" readonly value="lobby\.example\.test\/novabyte">/);
+      assert.match(html,/<input id="address" aria-label="The address of your page" readonly value="lobby\.example\.test\/novabyte">/);
       assert.match(html,/<a class="app-primary" href="\/novabyte">View my page<\/a>/);
       assert.match(html,/<a class="app-secondary" href="\/editor">Edit my page<\/a>/);
       // The old review of a matched draft is gone.

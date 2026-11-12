@@ -14,7 +14,7 @@ a { color:inherit; }
 .app h1 { margin:0 0 14px; font:700 clamp(40px,11vw,52px)/1 "Bricolage Grotesque",system-ui,sans-serif; letter-spacing:-.035em; }
 .app-lead { margin:0 0 22px; color:var(--soft); font-size:17px; }
 .app-note { margin:0 0 14px; padding:10px 14px; border-radius:12px; background:#FDECEC; color:#8A1C1C; font-size:15px; }
-.app-claim { display:grid; gap:10px; }
+.app-claim { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; }
 .app-field { display:flex; align-items:center; min-height:58px; padding:0 18px; border:1.5px solid var(--line); border-radius:16px; font-size:17px; cursor:text; }
 .app-field:focus-within { border-color:var(--ink); }
 .app-field span { color:var(--faint); }
