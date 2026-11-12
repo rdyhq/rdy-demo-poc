@@ -686,6 +686,10 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const twinPublished=await change('publish',{operationId:randomUUID(),revision:(await twinDraft.json()).revision,publicationId:null},twinCookie);
       assert.equal((await twinPublished.json()).publicPath,'/caseytwin');
       assert.match(await (await get('/caseytwin')).text(),/Casey Twin/);
+      // The app hand-off stays off until it is released.
+      assert.doesNotMatch(await (await get('/caseytwin')).text(),/data-app-link/);
+      const released=createApp({pool,origin,clock:()=>now,mail:async()=>{},appHandoff:true});
+      assert.match(await (await released.request(origin+'/caseytwin')).text(),/data-app-link="twitch:\/\/stream\/miravale"/);
     });
   } finally {
     await pool.end();

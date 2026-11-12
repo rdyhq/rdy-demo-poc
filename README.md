@@ -66,4 +66,8 @@ A handle belongs to one Home and never moves to another. After the creator renam
 
 When the creator has no linked account, or the login is reserved or already belongs to another Home, an operator approves a handle: `npm run manage approve-handle <Home UUID> <handle>`. `LINB_HOME_ALIASES` still works for handles approved earlier. For example, `{"nexzou":{"homeId":"<existing Home UUID>","twitchSubject":"<verified Twitch subject>"}}`. The server stores each entry as a handle at start.
 
+### App hand-off on a phone
+
+On a phone, the watch action can open the Twitch app, with the web link as the fallback. The hand-off is off by default. Before release, test it on a real iPhone and a real Android phone, inside the TikTok and Instagram in-app browsers and in the phone's own browser. Check three cases: the app is installed, the app is not installed, and the fan returns to the page. Then set `LINB_APP_HANDOFF=1`. Twitch is the only provider that documents an app link for a channel (`twitch://stream/<channel>`). Other providers keep the web link.
+
 Verify the real Twitch integration before the creator shares the link. Check the live title, viewer count and watch link. Check the offline fallback and optional clip. On a provider error, the Home must keep its stream link and hide unverified activity. Keep demo fixtures disabled.

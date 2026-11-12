@@ -41,7 +41,7 @@ const editorScript=readFileSync(new URL('./public/editor.js',import.meta.url),'u
 const cardLayoutScript=readFileSync(new URL('./public/card-layout.js',import.meta.url),'utf8');
 const previewScript=readFileSync(new URL('./public/preview.js',import.meta.url),'utf8');
 const verifyScript=readFileSync(new URL('./public/verify.js',import.meta.url),'utf8');
-const auraScripts=new Map(['aura','contrast','art-accent'].map(name=>[
+const auraScripts=new Map(['aura','contrast','art-accent','handoff'].map(name=>[
   name+'.js',readFileSync(new URL('./public/'+name+'.js',import.meta.url),'utf8'),
 ]));
 const fonts=new Map(['inter','bricolage-grotesque','unbounded','jetbrains-mono','silkscreen'].map(name=>[
@@ -54,7 +54,7 @@ const platformIcons=new Map(Object.keys(platforms).map(name=>[
 type Configuration={
   twitchActivity?:TwitchActivityConfig;
   pool?:pg.Pool; origin?:string; twitch?:TwitchConfig; billing?:BillingConfig; pro?:{multipage:boolean}; redirectOrigins?:string[]; mail?:SendMail; objects?:Objects|null;
-  reportContact?:string; clock?:()=>number; demo?:boolean; readOnlyHomes?:boolean;
+  reportContact?:string; clock?:()=>number; demo?:boolean; readOnlyHomes?:boolean; appHandoff?:boolean;
   clientAddress?:(context:Context)=>string;
 };
 
@@ -522,7 +522,7 @@ export function createApp(config:Configuration={}) {
       const current=await publicHome(db,id,channel.subject);
       if(current.publication_id!==home.publication_id) throw unavailable();
     }
-    return c.html(renderHome(home.content,{now:clock(),liveState:signal,refreshActivity:Boolean(channel),
+    return c.html(renderHome(home.content,{now:clock(),liveState:signal,refreshActivity:Boolean(channel),appHandoff:config.appHandoff,
       report:'/h/'+home.id+'/report',homeId:home.id,pro:paid,notice:home.schedule_change,asset:id=>'/h/'+home.id+'/images/'+id,canonical,
       metadata:{title:preview.title,description:preview.description,
         image:preview.coverId?homeUrl+'/share-image/'+home.publication_id:undefined}}));
