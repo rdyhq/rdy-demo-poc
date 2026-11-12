@@ -8,8 +8,8 @@ export const accentPalettes = {
 
 export const hexColor = /^#[0-9a-f]{6}$/i;
 
-const rgb = color => [1,3,5].map(start=>parseInt(color.slice(start,start+2),16)/255);
-function luminance(color) {
+export const rgb = color => [1,3,5].map(start=>parseInt(color.slice(start,start+2),16)/255);
+export function luminance(color) {
   const [r,g,b]=rgb(color).map(c=>c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4);
   return .2126*r+.7152*g+.0722*b;
 }
@@ -32,7 +32,7 @@ export function toHsl([r,g,b]) {
   return [(sector+6)%6,chroma/(1-Math.abs(2*lightness-1)),lightness];
 }
 
-function toHex(hue,saturation,lightness) {
+export function toHex(hue,saturation,lightness) {
   const chroma=(1-Math.abs(2*lightness-1))*saturation;
   const x=chroma*(1-Math.abs(hue%2-1));
   const offset=lightness-chroma/2;

@@ -1,5 +1,6 @@
 import { invalid, type Theme } from './domain.ts';
 import { accentPalettes, accentPasses, hexColor } from './public/contrast.js';
+import { artPalette, nearestTheme } from './public/palette.js';
 
 export const auraOptions = {
   accentSource: ['theme','swatch','custom','art'],
@@ -13,20 +14,23 @@ export const auraOptions = {
 export type Aura = {[K in keyof typeof auraOptions]: typeof auraOptions[K][number]} & {
   accent:string|null;
   liveSurge:boolean;
+  // The source colours of an art palette (RDY r-VRTS9). The theme of the Home is its nearest theme.
+  palette:{base:string;second:string|null}|null;
 };
 
 export const defaultAura:Readonly<Aura> = {
   accent:null, accentSource:'theme', font:'grotesk', shape:'round',
-  frame:'clean', field:'drift', intensity:'calm', liveSurge:true,
+  frame:'clean', field:'drift', intensity:'calm', liveSurge:true, palette:null,
 };
 
 export function normalizeAura(input:unknown,theme:Theme,previous:Readonly<Aura>):Aura {
   if(input===undefined) {
-    // An older editor can change the theme without supplying an accent for it.
-    if(previous.accent!==null&&!accentPasses(previous.accent,accentPalettes[theme])) {
-      return {...previous,accent:null,accentSource:'theme'};
+    // An older editor can change the theme without supplying an accent or a palette for it.
+    const palette=previous.palette&&nearestTheme(previous.palette.base)===theme?previous.palette:null;
+    if(previous.accent!==null&&!accentPasses(previous.accent,surfaces(theme,palette,previous.accent))) {
+      return {...previous,palette,accent:null,accentSource:'theme'};
     }
-    return {...previous};
+    return {...previous,palette};
   }
   if(!input||typeof input!=='object'||Array.isArray(input)||
       Object.keys(input).some(key=>!Object.hasOwn(defaultAura,key))) {
@@ -44,9 +48,32 @@ export function normalizeAura(input:unknown,theme:Theme,previous:Readonly<Aura>)
   if((aura.accent===null)!==(aura.accentSource==='theme')) {
     throw invalid('aura-accent','Choose the theme accent or set an accent color.');
   }
+  aura.palette=normalizePalette(aura.palette,theme);
   if(aura.accent!==null) {
-    if(!accentPasses(aura.accent,accentPalettes[theme])) throw invalid('aura-accent','Choose an accent with enough contrast.');
+    if(!accentPasses(aura.accent,surfaces(theme,aura.palette,aura.accent))) throw invalid('aura-accent','Choose an accent with enough contrast.');
     aura.accent=aura.accent.toLowerCase();
   }
   return aura;
+}
+
+// The contrast guard checks an accent on the art palette when the Home has one, and on the theme when it has none.
+function surfaces(theme:Theme,palette:Aura['palette'],accent:string) {
+  const art=palette&&artPalette({...palette,accent:null});
+  return art?{page:art.page,raised:art.raised,on:art.on,accent}:accentPalettes[theme];
+}
+
+function normalizePalette(input:unknown,theme:Theme):Aura['palette'] {
+  if(input===null) return null;
+  const refuse=(message:string)=>invalid('aura-palette',message);
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).sort().join()!=='base,second') {
+    throw refuse('Use the base colour and the second colour of an art palette.');
+  }
+  const {base,second}=input as {base:unknown;second:unknown};
+  if(typeof base!=='string'||!hexColor.test(base)||(second!==null&&(typeof second!=='string'||!hexColor.test(second)))) {
+    throw refuse('Choose six-digit hex colors.');
+  }
+  const palette={base:base.toLowerCase(),second:second===null?null:second.toLowerCase()};
+  if(nearestTheme(palette.base)!==theme) throw refuse('Use the nearest theme of the art palette.');
+  if(!artPalette({...palette,accent:null})) throw refuse('These colours do not pass the contrast check. Choose a theme.');
+  return palette;
 }
