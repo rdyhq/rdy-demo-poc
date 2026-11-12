@@ -3,6 +3,7 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { homeAliases } from './home-aliases.ts';
 import { createApp } from './app.ts';
 import { postmark } from './auth.ts';
 import { localObjects, r2Objects } from './assets.ts';
@@ -39,17 +40,21 @@ const mail=dev
 const objects=dev?localObjects(resolve(dev,'objects')):
   R2_ENDPOINT&&R2_BUCKET&&R2_ACCESS_KEY_ID&&R2_SECRET_ACCESS_KEY?r2Objects(R2_ENDPOINT,R2_BUCKET,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY):null;
 
-const {TWITCH_CLIENT_ID,TWITCH_CLIENT_SECRET,TWITCH_SESSION_KEY,LINB_TWITCH}=process.env;
+const {TWITCH_CLIENT_ID,TWITCH_CLIENT_SECRET,TWITCH_SESSION_KEY,LINB_TWITCH,LINB_TWITCH_ACTIVITY}=process.env;
 if(LINB_TWITCH==='1'&&(!TWITCH_CLIENT_ID||!TWITCH_CLIENT_SECRET||!TWITCH_SESSION_KEY?.match(/^[0-9a-f]{64}$/i))) {
   throw new Error('Twitch requires client ID, secret and a 32-byte hex session key');
 }
 const twitch=LINB_TWITCH==='1'?{clientId:TWITCH_CLIENT_ID!,clientSecret:TWITCH_CLIENT_SECRET!,key:Buffer.from(TWITCH_SESSION_KEY!,'hex')}:undefined;
+if(LINB_TWITCH_ACTIVITY==='1'&&(!TWITCH_CLIENT_ID||!TWITCH_CLIENT_SECRET)) {
+  throw new Error('Twitch activity requires app credentials.');
+}
+const twitchActivity=LINB_TWITCH_ACTIVITY==='1'?{clientId:TWITCH_CLIENT_ID!,clientSecret:TWITCH_CLIENT_SECRET!}:undefined;
 const {LINB_STRIPE_TEST,STRIPE_TEST_SECRET,STRIPE_TEST_PRICE,STRIPE_TEST_WEBHOOK_SECRET}=process.env;
 if(LINB_STRIPE_TEST==='1'&&(!STRIPE_TEST_SECRET||!STRIPE_TEST_PRICE||!STRIPE_TEST_WEBHOOK_SECRET)) {
   throw new Error('Stripe test mode requires its secret, price and webhook secret');
 }
 const billing=LINB_STRIPE_TEST==='1'?{secret:STRIPE_TEST_SECRET!,price:STRIPE_TEST_PRICE!,webhookSecret:STRIPE_TEST_WEBHOOK_SECRET!}:undefined;
-const app=createApp({pool,origin:origin.origin,redirectOrigins,twitch,billing,pro:process.env.LINB_PRO_SYNTHETIC==='1'?{multipage:process.env.LINB_MULTIPAGE_SYNTHETIC==='1'}:undefined,mail,objects,reportContact:process.env.REPORT_CONTACT,
+const app=createApp({pool,origin:origin.origin,redirectOrigins,twitch,twitchActivity,aliases:homeAliases(process.env.LINB_HOME_ALIASES),billing,pro:process.env.LINB_PRO_SYNTHETIC==='1'?{multipage:process.env.LINB_MULTIPAGE_SYNTHETIC==='1'}:undefined,mail,objects,reportContact:process.env.REPORT_CONTACT,
   readOnlyHomes:process.env.LINB_HOME_READ_ONLY==='1',
   demo:Boolean(dev&&process.env.LOBBY_DEMO==='1'),
   clientAddress:context=>{

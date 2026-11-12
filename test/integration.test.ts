@@ -326,6 +326,47 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal((await event('evt_fixture_3')).status,200);
       assert.equal((await request(path)).status,410);
     });
+    await t.test('Twitch aliases honor the linked identity and explicit publication',async()=>{
+      const cookie=await login('MiraNew@example.test');
+      const current=await (await get('/api/editor',cookie)).json();
+      let live=true;
+      const subject='1001';
+      const product=createApp({pool,origin,clock:()=>now,mail:async()=>{},
+        aliases:new Map([['miravale',{homeId:id,twitchSubject:subject}],['other',{homeId:id,twitchSubject:'9999'}]]),
+        twitchActivity:{clientId:'fixture',clientSecret:'fixture',http:async input=>{
+          const url=new URL(String(input));
+          if(url.pathname==='/oauth2/token') return Response.json({access_token:'fixture',expires_in:600});
+          if(url.pathname==='/helix/users') return Response.json({data:[{id:subject,login:'miravale'}]});
+          if(url.pathname==='/helix/clips') return Response.json({data:[{broadcaster_id:subject,id:'RecentClip',
+            title:'Verified clip',created_at:new Date(now-60_000).toISOString(),view_count:36}]});
+          return Response.json({data:live?[{user_id:subject,user_login:'miravale',type:'live',title:'Verified stream',viewer_count:27}]:[]});
+        }}});
+      const fan=(path='/miravale')=>product.request(origin+path);
+      const response=await fan();
+      assert.equal(response.status,200,await response.clone().text());
+      const initial=await response.text();
+      assert.match(initial,/data-refresh-activity.*ON AIR.*Verified stream.*data-viewer-count="27"/s);
+      assert.match(initial,/rel="canonical" href="https:\/\/lobby.example.test\/miravale"/);
+      assert.equal((await fan('/other')).status,404);
+      assert.equal((await fan('/missing')).status,404);
+      const next=structuredClone(current.content);
+      next.layout.spotlight.offlineLead='clip';
+      const draft=await change('save',{operationId:randomUUID(),revision:current.draft_revision,content:next},cookie);
+      assert.equal(draft.status,200);
+      assert.match(await (await fan()).text(),/Verified stream/);
+      const saved=await draft.json();
+      const published=await change('publish',{operationId:randomUUID(),revision:saved.revision,publicationId:current.publication_id},cookie);
+      assert.equal(published.status,200);
+      live=false;
+      now+=26_000;
+      const offline=await (await fan()).text();
+      assert.match(offline,/RECENT TWITCH CLIP.*Verified clip.*36 views.*Open stream on Twitch/s);
+      assert.doesNotMatch(offline,/ON AIR|data-live-surge/);
+      assert.equal((await fan('/h/'+id)).status,200);
+      const state=await (await get('/api/editor',cookie)).json();
+      assert.equal((await change('unpublish',{operationId:randomUUID(),publicationId:state.publication_id},cookie)).status,200);
+      assert.equal((await fan()).status,404);
+    });
     await t.test('retained Homes map to cards without changing their published revision',async()=>{
       const homeId=randomUUID(), owner=randomUUID(), oldPublication=randomUUID();
       const email='retained@example.test';

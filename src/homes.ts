@@ -33,11 +33,12 @@ export async function editor(pool:pg.Pool,owner:string) {
   return {...rows[0],content:readHome(rows[0].content,rows[0].id)};
 }
 
-export async function publicHome(pool:pg.Pool,id:string) {
+export async function publicHome(pool:pg.Pool,id:string,linkedSubject?:string) {
   if (!uuidPattern.test(id)) throw unavailable();
   const {rows}=await pool.query<Omit<PublicHome, 'content'> & {content:StoredHome}>(`SELECT h.id,h.owner_id,h.publication_id,p.committed_at,p.content,p.schedule_change
     FROM homes h JOIN publications p ON p.home_id=h.id AND p.id=h.publication_id
-    WHERE h.id=$1 AND NOT ${holdFlag}`,[id]);
+    WHERE h.id=$1 AND NOT ${holdFlag}
+    AND ($2::text IS NULL OR EXISTS (SELECT 1 FROM twitch_identities t WHERE t.creator_id=h.owner_id AND t.subject=$2))`,[id,linkedSubject??null]);
   if (!rows[0]) throw unavailable();
   return {...rows[0],content:readHome(rows[0].content,rows[0].id)};
 }
