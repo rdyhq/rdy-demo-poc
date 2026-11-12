@@ -24,7 +24,7 @@ import { matchColours, suggestSkin } from './public/art-match.js';
 import { linkTab, lookTab, pageTab, type EditorView } from './editor-screens.ts';
 import { artPixels, channelDraft, matchChannel, type ChannelMatch } from './twitch-channel.ts';
 import { renderPage } from './page.ts';
-import { buildingPage, confirmPage, landingPage, linksStep, liveStep, lookStep, messagePage, signInPage } from './screens.ts';
+import { buildingPage, confirmPage, landingPage, leavingPage, linksStep, liveStep, lookStep, messagePage, signInPage } from './screens.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
@@ -183,7 +183,7 @@ export function createApp(config:Configuration={}) {
       c.header('Referrer-Policy','same-origin');
       c.header('X-Content-Type-Options','nosniff');
       c.header('X-Frame-Options','DENY');
-      const allowedForms=(twitch?' https://id.twitch.tv':'')+(billing?' https://checkout.stripe.com https://billing.stripe.com':'');
+      const allowedForms=billing?' https://checkout.stripe.com https://billing.stripe.com':'';
       const frameSources=[...(['/editor','/editor/look','/editor/link'].includes(c.req.path)?["'self'"]:[]),...(pro?['https://www.youtube-nocookie.com']:[])];
       const allowedFrames=frameSources.length?'frame-src '+frameSources.join(' ')+'; ':'';
       c.header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'"+allowedForms+"; "+allowedFrames+"base-uri 'none'; frame-ancestors 'none'");
@@ -322,7 +322,7 @@ export function createApp(config:Configuration={}) {
       sameOrigin(c);
       const started=await twitch.begin('sign-in');
       setCookie(c,twitchState,started.state,twitchCookie);
-      return c.redirect(started.url,303);
+      return c.html(leavingPage(started.url));
     });
     app.post('/account/twitch',async c=>{
       const creator=await principal(c,'creator'),fields=await c.req.parseBody(),sid=cookie(c)!;
@@ -334,7 +334,7 @@ export function createApp(config:Configuration={}) {
       }
       const started=await twitch.begin('link',sid);
       setCookie(c,twitchState,started.state,twitchCookie);
-      return c.redirect(started.url,303);
+      return c.html(leavingPage(started.url));
     });
     app.get(twitchCallback,async c=>{
       c.header('Referrer-Policy','no-referrer');
