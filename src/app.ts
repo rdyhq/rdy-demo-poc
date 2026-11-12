@@ -19,14 +19,16 @@ import { TwitchActivity, type TwitchActivityConfig, type TwitchChannel } from '.
 import { acceptHandle, handleOffer, homeHandle, resolveHandle } from './handles.ts';
 import { describeFailure } from './failure.ts';
 import { accentCss, artPalette, paletteCss, paletteVersion, skinColours, skinPath } from './public/palette.js';
-import { chooseTheme } from './public/editor-support.js';
-import { channelDraft, matchChannel, type ChannelMatch } from './twitch-channel.ts';
+import { applySkin, chooseTheme } from './public/editor-support.js';
+import { matchColours, suggestSkin } from './public/art-match.js';
+import { linkTab, lookTab, pageTab, type EditorView } from './editor-screens.ts';
+import { artPixels, channelDraft, matchChannel, type ChannelMatch } from './twitch-channel.ts';
 import { renderPage } from './page.ts';
 import { buildingPage, landingPage, linksStep, liveStep, lookStep } from './screens.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
-import { accountPage, billingPage, confirmation, editorPage, editorShare, invitesPage, leaderboardDemo, message, proEditor, opsCase, opsPage, renderHome, reportPage, retiredCalendar, signIn } from './views.ts';
+import { accountPage, billingPage, confirmation, editorShare, invitesPage, leaderboardDemo, message, proEditor, opsCase, opsPage, renderHome, reportPage, retiredCalendar, signIn } from './views.ts';
 
 const stylesheet=[
   readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8'),
@@ -181,7 +183,7 @@ export function createApp(config:Configuration={}) {
       c.header('X-Content-Type-Options','nosniff');
       c.header('X-Frame-Options','DENY');
       const allowedForms=(twitch?' https://id.twitch.tv':'')+(billing?' https://checkout.stripe.com https://billing.stripe.com':'');
-      const frameSources=[...(c.req.path==='/editor'?["'self'"]:[]),...(pro?['https://www.youtube-nocookie.com']:[])];
+      const frameSources=[...(['/editor','/editor/look','/editor/link'].includes(c.req.path)?["'self'"]:[]),...(pro?['https://www.youtube-nocookie.com']:[])];
       const allowedFrames=frameSources.length?'frame-src '+frameSources.join(' ')+'; ':'';
       c.header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'"+allowedForms+"; "+allowedFrames+"base-uri 'none'; frame-ancestors 'none'");
     }
@@ -224,7 +226,7 @@ export function createApp(config:Configuration={}) {
       }
     }
     if(['POST','PUT','PATCH'].includes(c.req.method)) {
-      await (c.req.path==='/api/editor/assets'?fileLimit:limit)(c,next);
+      await (c.req.path==='/api/editor/assets'||c.req.path==='/editor/art'?fileLimit:limit)(c,next);
     } else await next();
   });
 
@@ -419,12 +421,97 @@ export function createApp(config:Configuration={}) {
   });
   app.get('/account/proof-received',c=>c.html(message('Proof received','Confirm the other mailbox to complete the change.','/account','Return to account')));
   app.get('/account/mailbox-changed',c=>c.html(message('Mailbox changed','Sign in with your new mailbox.','/sign-in','Sign in')));
-  app.get('/editor',async c=>{
+  // The editor of the fresh start (RDY s-P8ZS4). Each action saves to the draft by itself; Publish puts the draft online.
+  const editorView=async(c:Context,owner:string,error?:string):Promise<EditorView>=>{
+    const db=requirePool(), state=await editor(db,owner);
+    const handle=state.publication_id&&!state.held?await homeHandle(db,state.id):null;
+    const path=state.publication_id&&!state.held?(handle?'/'+handle:'/h/'+state.id):undefined;
+    return {state,csrf:csrf(cookie(c)!),error,path,address:path&&(originHost??new URL(c.req.url).host)+path};
+  };
+  // One editor action: check the request, change the draft, and return to the tab. A refused change shows on the same tab.
+  function editorAction(path:string,tab:(view:EditorView)=>unknown,back:string,
+    act:(owner:string,state:Awaited<ReturnType<typeof editor>>,fields:Record<string,unknown>)=>Promise<void>) {
+    app.post(path,async c=>{
+      const owner=await principal(c,'creator');
+      const fields=await c.req.parseBody();
+      checkCsrf(c,fields.csrf);
+      requireHomeWrites();
+      try {
+        await act(owner,await editor(requirePool(),owner),fields);
+      } catch(error) {
+        if(!(error instanceof AppError)||error.status!==422) throw error;
+        const message=Object.values(error.fields??{})[0]??error.message;
+        return c.html(tab(await editorView(c,owner,message)) as string,422);
+      }
+      return c.redirect(back,303);
+    });
+  }
+  const saveDraft=(owner:string,state:{draft_revision:number},content:EditableHome)=>
+    mutate(requirePool(),owner,'save',{operationId:randomUUID(),revision:state.draft_revision,content},clock());
+  app.get('/editor',async c=>c.html(pageTab(await editorView(c,await principal(c,'creator')))));
+  app.get('/editor/look',async c=>c.html(lookTab(await editorView(c,await principal(c,'creator')))));
+  app.get('/editor/link',async c=>c.html(linkTab(await editorView(c,await principal(c,'creator')))));
+  app.get('/editor/view',async c=>{
     const owner=await principal(c,'creator');
     const state=await editor(requirePool(),owner);
-    const linked=twitch&&!state.draft_revision?await requirePool().query('SELECT login FROM twitch_identities WHERE creator_id=$1',[owner]):null;
-    const clips=Boolean(await linkedChannel(requirePool(),owner,state.content));
-    return c.html(editorPage(state,csrf(cookie(c)!),Boolean(objects),linked?.rows[0]?.login,Boolean(pro&&state.publication_id),clips));
+    const policy=c.res.headers.get('Content-Security-Policy')!;
+    c.header('Content-Security-Policy',policy.replace("frame-ancestors 'none'","frame-ancestors 'self'"));
+    c.header('X-Frame-Options','SAMEORIGIN');
+    c.header('Cache-Control','no-store');
+    return c.html(renderPage(state.content,{now:clock(),asset:id=>'/editor/assets/'+id}));
+  });
+  editorAction('/editor/profile',pageTab,'/editor',async(owner,state,fields)=>{
+    const {displayName,intro,game,streamUrl}=fields;
+    await saveDraft(owner,state,{...state.content,displayName,intro,game,streamUrl} as EditableHome);
+  });
+  editorAction('/editor/links',pageTab,'/editor',async(owner,state,fields)=>{
+    const links=[...state.content.links], index=Number(fields.index);
+    const at=()=>{
+      if(!Number.isInteger(index)||index<0||index>=links.length) throw invalid('index','Choose a link of your page.');
+      return index;
+    };
+    if(fields.action==='add') links.push({label:fields.label,url:fields.url} as EditableHome['links'][number]);
+    else if(fields.action==='remove') links.splice(at(),1);
+    else if(fields.action==='up'||fields.action==='down') {
+      const from=at(), to=from+(fields.action==='up'?-1:1);
+      if(to<0||to>=links.length) throw invalid('index','That link is already at the end.');
+      [links[from],links[to]]=[links[to],links[from]];
+    } else throw invalid('action','Choose an action.');
+    await saveDraft(owner,state,{...state.content,links});
+  });
+  editorAction('/editor/art',pageTab,'/editor',async(owner,state,fields)=>{
+    const field=fields.kind==='avatar'?'avatarId':fields.kind==='banner'?'coverId':null;
+    if(!field) throw invalid('kind','Choose the avatar or the banner.');
+    let id:string|null=null;
+    if(fields.action!=='remove') {
+      if(!objects) throw new AppError(503,'storage_unavailable','Image storage is unavailable.');
+      id=(await upload(requirePool(),objects,owner,fields.image as File)).id;
+    }
+    await saveDraft(owner,state,{...state.content,[field]:id});
+  });
+  editorAction('/editor/look',lookTab,'/editor/look',async(owner,state,fields)=>{
+    const content=structuredClone(state.content);
+    if(fields.action==='match') {
+      // Match my art reads the stored avatar and banner again (RDY r-GXT5V).
+      const read=async(id:string|null)=>id?artPixels(await assetBytes(requirePool(),objects,owner,id).catch(()=>null)):null;
+      const [avatar,banner]=[await read(content.avatarId),await read(content.coverId)];
+      const skin=suggestSkin(matchColours({avatar,banner}),banner?'banner':'avatar');
+      if(!skin) throw invalid('look','Add an avatar or a banner first.');
+      applySkin(content,skin);
+    } else if(fields.look==='art') {
+      if(!content.aura.palette) throw invalid('look','Match your art first.');
+      return;
+    } else {
+      if(typeof fields.look!=='string'||!(themeNames as readonly string[]).includes(fields.look)) throw invalid('look','Choose a look.');
+      chooseTheme(content,fields.look,null);
+    }
+    await saveDraft(owner,state,content);
+  });
+  editorAction('/editor/publish',pageTab,'/editor',async(owner,state)=>{
+    await mutate(requirePool(),owner,'publish',{operationId:randomUUID(),revision:state.draft_revision,publicationId:state.publication_id},clock());
+  });
+  editorAction('/editor/unpublish',linkTab,'/editor/link',async(owner,state)=>{
+    if(state.publication_id) await mutate(requirePool(),owner,'unpublish',{operationId:randomUUID(),publicationId:state.publication_id},clock());
   });
 
   // The setup after a claim (RDY r-FYDDP): two steps that the creator can skip, then the address of the page.

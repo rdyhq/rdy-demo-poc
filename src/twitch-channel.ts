@@ -47,6 +47,11 @@ async function checked(bytes:Buffer|null) {
   } catch { return null; }
 }
 
+// The pixels of a stored image for the art match, or nothing when the image cannot be read.
+export async function artPixels(bytes:Uint8Array|null) {
+  return bytes?(await checked(Buffer.from(bytes)))?.pixels??null:null;
+}
+
 export type ChannelMatch={profile:TwitchProfile;art:{avatar:Buffer|null;banner:Buffer|null};skin:ReturnType<typeof suggestSkin>};
 
 // The first draft of a creator: the fields of the Twitch channel on top of a Home (RDY r-KQGNH).
