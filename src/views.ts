@@ -26,7 +26,7 @@ function frame(title:string,body:any,options:{theme?:string;skin?:{path:string;s
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.skin?.scheme??(options.theme==='Paper'?'light':'dark')}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=art-palette">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=art-match">
     ${options.skin?html`<link rel="stylesheet" href="${options.skin.path}">`:''}
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.newTabLinks?html`<base target="_blank">`:''}
@@ -37,8 +37,8 @@ function frame(title:string,body:any,options:{theme?:string;skin?:{path:string;s
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js?v=2" defer></script>`:''}
     ${options.cardLayout?html`<script src="/assets/card-layout.js?v=1" defer></script>`:''}
-    ${options.script?html`<script type="module" src="/assets/editor.js?v=twitch-activity" defer></script>`:''}
-    ${options.aura?html`<script src="/assets/aura.js?v=twitch-activity" defer></script>`: ''}
+    ${options.script?html`<script type="module" src="/assets/editor.js?v=art-match" defer></script>`:''}
+    ${options.aura?html`<script src="/assets/aura.js?v=art-match" defer></script>`: ''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     ${options.handoff?html`<script type="module" src="/assets/handoff.js"></script>`:''}
@@ -446,18 +446,24 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
         <div id="updates"></div><button type="button" class="secondary" data-add="updates">Add an update</button>
       </section>
       <section data-inspector="skin" hidden><h2>Skin</h2><p class="editor-description">Choose how your Home looks to visitors.</p>
+        <fieldset><legend>Your art</legend>
+          <button class="secondary" id="aura-match" type="button" aria-describedby="aura-match-help">Match my art</button>
+          <p id="aura-match-help" class="editor-description"></p><p id="aura-match-note" role="status" hidden></p>
+          <ul id="aura-match-changes" hidden></ul>
+          <button class="secondary" id="aura-match-undo" type="button" hidden>Undo match</button>
+        </fieldset>
         <fieldset><legend>Identity presets</legend><div class="aura-choices">
           ${['Cozy','Retro','Night Ops'].map(name=>html`<button type="button" class="secondary" data-aura-preset="${name}">${name}</button>`)}
         </div></fieldset><fieldset><legend>Theme</legend><div class="theme-picker">${themeNames.map(theme=>html`<label>
-        <input name="theme" type="radio" value="${theme}" ${state.content.theme===theme?raw('checked'):''}><span class="swatch" data-swatch="${theme}"></span>${theme}</label>`)}</div></fieldset>
+        <input name="theme" type="radio" value="${theme}" ${state.content.theme===theme?raw('checked'):''}><span class="swatch" data-swatch="${theme}"></span>${theme}</label>`)}
+        <label id="theme-art" hidden><input name="theme" type="radio" value="art"><span class="swatch" data-swatch="art"></span>My art</label></div></fieldset>
         <fieldset><legend id="aura" tabindex="-1">Accent</legend>
           <div class="aura-choices"><button id="aura-accentSource" class="secondary" type="button" data-aura-swatch="">Theme accent</button>
           ${[['#b69cff','Lilac'],['#ff7ab6','Pink'],['#ffb547','Amber'],['#5ee0c1','Mint'],['#7cc4ff','Sky']].map(([color,label])=>html`
             <button class="secondary aura-swatch" type="button" data-aura-swatch="${color}" aria-label="${label} accent"><span aria-hidden="true"></span></button>`)}
           </div>
           <label for="aura-accent">Custom accent color</label><input id="aura-accent" type="color">
-          <button class="secondary" id="aura-match" type="button" aria-describedby="aura-match-help">Match my art</button>
-          <p id="aura-match-help" class="editor-description"></p><p id="aura-note" role="status" hidden></p>
+          <p id="aura-note" role="status" hidden></p>
         </fieldset>
         ${editorSelect('aura-font','Display font',[['grotesk','Grotesk'],['wide','Wide'],['mono','Mono'],['pixel','Pixel']])}
         ${(['shape','frame','field','intensity'] as const).map(key=>editorSelect('aura-'+key,

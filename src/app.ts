@@ -43,7 +43,7 @@ const editorScript=readFileSync(new URL('./public/editor.js',import.meta.url),'u
 const cardLayoutScript=readFileSync(new URL('./public/card-layout.js',import.meta.url),'utf8');
 const previewScript=readFileSync(new URL('./public/preview.js',import.meta.url),'utf8');
 const verifyScript=readFileSync(new URL('./public/verify.js',import.meta.url),'utf8');
-const auraScripts=new Map(['aura','contrast','art-accent','handoff','editor-support'].map(name=>[
+const auraScripts=new Map(['aura','contrast','palette','art-match','art-pixels','handoff','editor-support'].map(name=>[
   name+'.js',readFileSync(new URL('./public/'+name+'.js',import.meta.url),'utf8'),
 ]));
 const fonts=new Map(['inter','bricolage-grotesque','unbounded','jetbrains-mono','silkscreen'].map(name=>[

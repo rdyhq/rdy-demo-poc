@@ -581,5 +581,7 @@ body:has([data-aura-home]) { font-family:Inter,system-ui,sans-serif; isolation:i
 [data-aura-swatch="#5ee0c1"] { --swatch:#5EE0C1; }
 [data-aura-swatch="#7cc4ff"] { --swatch:#7CC4FF; }
 #aura-match { margin-block-start:8px; }
+#aura-match-changes { margin:8px 0; padding-inline-start:18px; color:var(--muted); font-size:14px; }
+#aura-match-changes strong { color:var(--text); }
 
 [data-inspector=skin] .check { min-height:44px; }

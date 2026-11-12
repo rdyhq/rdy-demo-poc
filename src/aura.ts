@@ -1,6 +1,6 @@
 import { invalid, type Theme } from './domain.ts';
-import { accentPalettes, accentPasses, hexColor } from './public/contrast.js';
-import { artPalette, nearestTheme } from './public/palette.js';
+import { accentPasses, hexColor } from './public/contrast.js';
+import { artPalette, guardSurfaces, nearestTheme } from './public/palette.js';
 
 export const auraOptions = {
   accentSource: ['theme','swatch','custom','art'],
@@ -27,7 +27,7 @@ export function normalizeAura(input:unknown,theme:Theme,previous:Readonly<Aura>)
   if(input===undefined) {
     // An older editor can change the theme without supplying an accent or a palette for it.
     const palette=previous.palette&&nearestTheme(previous.palette.base)===theme?previous.palette:null;
-    if(previous.accent!==null&&!accentPasses(previous.accent,surfaces(theme,palette,previous.accent))) {
+    if(previous.accent!==null&&!accentPasses(previous.accent,guardSurfaces(theme,palette))) {
       return {...previous,palette,accent:null,accentSource:'theme'};
     }
     return {...previous,palette};
@@ -50,16 +50,10 @@ export function normalizeAura(input:unknown,theme:Theme,previous:Readonly<Aura>)
   }
   aura.palette=normalizePalette(aura.palette,theme);
   if(aura.accent!==null) {
-    if(!accentPasses(aura.accent,surfaces(theme,aura.palette,aura.accent))) throw invalid('aura-accent','Choose an accent with enough contrast.');
+    if(!accentPasses(aura.accent,guardSurfaces(theme,aura.palette))) throw invalid('aura-accent','Choose an accent with enough contrast.');
     aura.accent=aura.accent.toLowerCase();
   }
   return aura;
-}
-
-// The contrast guard checks an accent on the art palette when the Home has one, and on the theme when it has none.
-function surfaces(theme:Theme,palette:Aura['palette'],accent:string) {
-  const art=palette&&artPalette({...palette,accent:null});
-  return art?{page:art.page,raised:art.raised,on:art.on,accent}:accentPalettes[theme];
 }
 
 function normalizePalette(input:unknown,theme:Theme):Aura['palette'] {
