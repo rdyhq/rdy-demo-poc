@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createPublicKey, randomBytes, verify 
 import type pg from 'pg';
 import { transaction } from './db.ts';
 import { AppError, conflict, digest, secret, tokenPattern } from './domain.ts';
+import { assignHandle } from './handles.ts';
 
 export const issuer='https://id.twitch.tv/oauth2';
 export const twitchCallback='/auth/twitch/callback';
@@ -99,6 +100,9 @@ export class Twitch {
         return {pending,destination:'/sign-in?twitch=mailbox'};
       }
       const next=secret(),key=digest(next),creator=rows[0].creator_id;
+      // Twitch names the current login at each sign-in. A new login is offered as the handle.
+      if(identity.login) await client.query('UPDATE twitch_identities SET login=$2 WHERE subject=$1',[identity.subject,identity.login]);
+      await assignHandle(client,creator,identity);
       await client.query('UPDATE sessions SET revoked_at=now() WHERE creator_id=$1 AND revoked_at IS NULL',[creator]);
       await client.query(`INSERT INTO sessions(digest,creator_id,expires_at) VALUES($1,$2,now()+$3*interval '1 second')`,
         [key,creator,Math.min(expiry,7*86400)]);
@@ -158,9 +162,10 @@ export class Twitch {
 export async function attachTwitch(client:pg.PoolClient,creator:string,identity:Identity) {
   const result=await client.query(`INSERT INTO twitch_identities(subject,creator_id,login) VALUES($1,$2,$3)
     ON CONFLICT DO NOTHING RETURNING subject`,[identity.subject,creator,identity.login]);
-  if(result.rowCount) return true;
-  const existing=await client.query('SELECT 1 FROM twitch_identities WHERE creator_id=$1 AND subject=$2',[creator,identity.subject]);
-  return Boolean(existing.rowCount);
+  const attached=Boolean(result.rowCount)||
+    Boolean((await client.query('SELECT 1 FROM twitch_identities WHERE creator_id=$1 AND subject=$2',[creator,identity.subject])).rowCount);
+  if(attached) await assignHandle(client,creator,identity);
+  return attached;
 }
 
 export async function consumePendingTwitch(client:pg.PoolClient,pending:string,creator:string) {

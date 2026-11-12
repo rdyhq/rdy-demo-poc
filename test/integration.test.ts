@@ -5,6 +5,8 @@ import sharp from 'sharp';
 import { createApp } from '../src/app.ts';
 import { connect, migrate, transaction } from '../src/db.ts';
 import { digest, emptyHome, normalize } from '../src/domain.ts';
+import { approveHandle, importAliases } from '../src/handles.ts';
+import { attachTwitch } from '../src/twitch.ts';
 
 const database=process.env.LOBBY_TEST_DATABASE_URL;
 
@@ -43,6 +45,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
   const creator='Mira@example.test';
   const reviewer='reviewer@example.test', applier='applier@example.test';
   let operator:string, second:string, creatorCookie:string, id:string, revision:number, publication:string, calendarPath:string, imagePath:string, avatar:string;
+  let caseyCookie:string, twinCookie:string;
   const slot=randomUUID(), update=randomUUID();
   const content={...emptyHome,displayName:'Mira Vale',intro:'Cozy strategy, questionable shortcuts.',game:'Hades II',
     theme:'Tide',streamUrl:'https://www.twitch.tv/miravale',links:[{label:'Archive',url:'https://example.test/archive'}],
@@ -250,6 +253,9 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const emailCookie=await login('MiraNew@example.test');
       const linked=await flow(await postT('/account/twitch',{csrf:csrf(emailCookie),action:'link'},emailCookie),emailCookie);
       assert.equal(linked.result.headers.get('Location'),'/account?twitch=linked');
+      // Linking the verified account gives the Home its handle. The creator takes no step.
+      assert.deepEqual((await pool.query('SELECT handle,source,current FROM home_handles WHERE home_id=$1',[id])).rows,
+        [{handle:'miravale',source:'twitch',current:true}]);
       const signed=await flow(await postT('/auth/twitch',{}));
       assert.equal(signed.result.headers.get('Location'),'/editor');
       const providerCookie=signed.result.headers.getSetCookie().find(x=>x.startsWith('__Host-lobby='))!.split(';')[0];
@@ -368,8 +374,9 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const current=await (await get('/api/editor',cookie)).json();
       let live=true;
       const subject='1001';
+      // A handle from LINB_HOME_ALIASES is stored. One for an account that is not linked stays unavailable.
+      await importAliases(pool,new Map([['miravale',{homeId:id,twitchSubject:subject}],['other',{homeId:id,twitchSubject:'9999'}]]));
       const product=createApp({pool,origin,clock:()=>now,mail:async()=>{},
-        aliases:new Map([['miravale',{homeId:id,twitchSubject:subject}],['other',{homeId:id,twitchSubject:'9999'}]]),
         twitchActivity:{clientId:'fixture',clientSecret:'fixture',http:async input=>{
           const url=new URL(String(input));
           if(url.pathname==='/oauth2/token') return Response.json({access_token:'fixture',expires_in:600});
@@ -591,7 +598,9 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.deepEqual((await pool.query('SELECT mailbox FROM creators WHERE lower(mailbox)=$1',[twin])).rows,[{mailbox:stored}]);
       assert.equal((await post('/sign-in',{mailbox:'CASEY.STREAM@example.test'})).status,303);
       assert.equal(mail.at(-1)!.to,stored);
-      assert.equal(await homeOf(await post('/verify',{token:token(stored)!})),home);
+      const again=await post('/verify',{token:token(stored)!});
+      caseyCookie=sessionCookie(again);
+      assert.equal(await homeOf(again),home);
       // A second stored mailbox that differs only in case stays its own account.
       assert.equal((await invite(twin,'Casey twin synthetic')).status,303);
       const count=mail.length;
@@ -599,7 +608,84 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal(mail.length,count);
       assert.equal((await post('/sign-in',{mailbox:twin})).status,303);
       assert.equal(mail.at(-1)!.to,twin);
-      assert.notEqual(await homeOf(await post('/verify',{token:token(twin)!})),home);
+      const other=await post('/verify',{token:token(twin)!});
+      twinCookie=sessionCookie(other);
+      assert.notEqual(await homeOf(other),home);
+    });
+    await t.test('every linked creator gets a handle from the verified login',async()=>{
+      const ownerOf=async(home:string)=>(await pool.query('SELECT owner_id FROM homes WHERE id=$1',[home])).rows[0].owner_id;
+      const link=(owner:string,subject:string,login:string)=>transaction(pool,client=>attachTwitch(client,owner,{subject,login}));
+      const handles=async(home:string)=>(await pool.query('SELECT handle,source,current FROM home_handles WHERE home_id=$1 ORDER BY created_at,handle',[home])).rows;
+      const canonical=(handle:string)=>new RegExp('rel="canonical" href="https://lobby.example.test/'+handle+'"');
+      const state=await (await get('/api/editor',caseyCookie)).json();
+      const home=state.id;
+      const draft=await change('save',{operationId:randomUUID(),revision:state.draft_revision,content:{...content,displayName:'Casey Stream',sessions:[]}},caseyCookie);
+      assert.equal(draft.status,200,await draft.clone().text());
+      const published=await change('publish',{operationId:randomUUID(),revision:(await draft.json()).revision,publicationId:null},caseyCookie);
+      assert.equal(published.status,200,await published.clone().text());
+      assert.equal((await published.json()).publicPath,'/h/'+home);
+      assert.equal((await get('/caseystream')).status,404);
+
+      await link(await ownerOf(home),'2002','CaseyStream');
+      assert.deepEqual(await handles(home),[{handle:'caseystream',source:'twitch',current:true}]);
+      const page=await get('/caseystream');
+      assert.equal(page.status,200,await page.clone().text());
+      assert.match(await page.text(),canonical('caseystream'));
+      // The stable address stays. It names the handle address as canonical.
+      const stable=await get('/h/'+home);
+      assert.equal(stable.status,200);
+      assert.match(await stable.text(),canonical('caseystream'));
+      assert.match(await (await get('/editor/share',caseyCookie)).text(),/https:\/\/lobby\.example\.test\/caseystream/);
+      // Letter case does not matter.
+      const upper=await get('/CaseyStream');
+      assert.equal(upper.status,308);
+      assert.equal(upper.headers.get('Location'),'/caseystream');
+      assert.equal((await get('/nobody_here')).status,404);
+      // An alternate host forwards a handle path to the canonical origin.
+      const forwarded=await app.request('https://l1nb.io/caseystream?token=drop');
+      assert.equal(forwarded.status,308);
+      assert.equal(forwarded.headers.get('Location'),origin+'/caseystream#');
+      assert.equal((await app.request('https://l1nb.io/nobody_here')).status,404);
+
+      // A handle never goes to another Home.
+      const twinHome=(await (await get('/api/editor',twinCookie)).json()).id;
+      await link(await ownerOf(twinHome),'2003','caseystream');
+      assert.deepEqual(await handles(twinHome),[]);
+      assert.match(await (await get('/caseystream')).text(),/Casey Stream/);
+
+      // After a rename the creator is offered the new login. The earlier handle forwards.
+      await pool.query("UPDATE twitch_identities SET login='Casey_Live' WHERE subject='2002'");
+      assert.match(await (await get('/account',caseyCookie)).text(),/Use lobby\.example\.test\/casey_live/);
+      assert.equal((await post('/account/handle',{csrf:'wrong'},caseyCookie)).status,403);
+      assert.equal((await post('/account/handle',{csrf:csrf(caseyCookie)},caseyCookie)).status,303);
+      assert.deepEqual(await handles(home),[{handle:'caseystream',source:'twitch',current:false},{handle:'casey_live',source:'twitch',current:true}]);
+      const earlier=await get('/caseystream');
+      assert.equal(earlier.status,308);
+      assert.equal(earlier.headers.get('Location'),'/casey_live');
+      assert.match(await (await get('/casey_live')).text(),canonical('casey_live'));
+      assert.doesNotMatch(await (await get('/account',caseyCookie)).text(),/Use lobby\.example\.test/);
+
+      // A handle is served only while the verified account stays linked.
+      await pool.query("DELETE FROM twitch_identities WHERE subject='2002'");
+      assert.equal((await get('/casey_live')).status,404);
+      assert.equal((await get('/caseystream')).status,404);
+      assert.equal((await app.request('https://l1nb.io/casey_live')).status,404);
+      const unlinked=await get('/h/'+home);
+      assert.equal(unlinked.status,200);
+      assert.match(await unlinked.text(),canonical('h/'+home));
+
+      // An operator can approve a handle for a Home with no verified account.
+      await assert.rejects(approveHandle(pool,twinHome,'casey_live'),/another Home/);
+      await assert.rejects(approveHandle(pool,twinHome,'editor'),/3 to 25/);
+      await approveHandle(pool,twinHome,'CaseyTwin');
+      assert.deepEqual(await handles(twinHome),[{handle:'caseytwin',source:'operator',current:true}]);
+      assert.equal((await get('/caseytwin')).status,404);
+      const twinState=await (await get('/api/editor',twinCookie)).json();
+      const twinDraft=await change('save',{operationId:randomUUID(),revision:twinState.draft_revision,content:{...content,displayName:'Casey Twin',sessions:[]}},twinCookie);
+      assert.equal(twinDraft.status,200,await twinDraft.clone().text());
+      const twinPublished=await change('publish',{operationId:randomUUID(),revision:(await twinDraft.json()).revision,publicationId:null},twinCookie);
+      assert.equal((await twinPublished.json()).publicPath,'/caseytwin');
+      assert.match(await (await get('/caseytwin')).text(),/Casey Twin/);
     });
   } finally {
     await pool.end();

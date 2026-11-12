@@ -605,7 +605,8 @@ export function editorShare(home:{id:string;publication_id:string;content:HomeCo
 }
 
 function hidden(csrf:string) {return html`<input type="hidden" name="csrf" value="${csrf}">`;}
-export function accountPage(email:string,change:any,csrf:string,contact:string|null,notice?:string,twitch?:{linked:boolean;login?:string;status?:string},billing=false) {
+export function accountPage(email:string,change:any,csrf:string,contact:string|null,notice?:string,twitch?:{linked:boolean;login?:string;status?:string},billing=false,
+    handle:{current:string|null;offer:string|null}={current:null,offer:null}) {
   return frame('Account',html`<section class="panel auth"><p class="eyebrow">ACCOUNT</p><h1>Creator account</h1><p>Verified mailbox: <strong>${email}</strong></p>
     ${notice?html`<p class="notice">${notice}</p>`:''}
     ${change?html`<p>Current mailbox: ${change.old_proved?'Verified':'Awaiting proof'}. New mailbox: ${change.new_proved?'Verified':'Awaiting proof'}.</p>
@@ -614,6 +615,11 @@ export function accountPage(email:string,change:any,csrf:string,contact:string|n
       ${change?html`<label class="check"><input type="checkbox" name="replace" required> Replace the pending mailbox change</label>`:''}
       <button>${change?'Start replacement change':'Send verification links'}</button></form>
     ${billing?html`<p><a href="/account/billing">Pro test billing</a></p>`:''}
+    ${handle.current||handle.offer?html`<section><h2>Page address</h2>
+      ${handle.current?html`<p>Your page address: <strong>${handle.current}</strong></p>`:''}
+      ${handle.offer?html`<p>Your streaming login changed. ${handle.current?'Your earlier address keeps working and forwards to the new one.':''}</p>
+        <form method="post" action="/account/handle">${hidden(csrf)}<button class="secondary">Use ${handle.offer}</button></form>`:''}
+    </section>`:''}
     ${twitch?html`<section><h2>Twitch</h2>
       ${twitch.status==='verify'?html`<p>Sign in again with your verified mailbox to manage Twitch.</p><a href="/sign-in">Verify by email</a>`:''}
       <p>${twitch.linked?'Connected'+(twitch.login?': '+twitch.login:''):'Use Twitch to sign in after connecting it. Your verified mailbox remains available.'}</p>
