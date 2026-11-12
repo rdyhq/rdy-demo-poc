@@ -221,7 +221,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
       const key={...publicKey.export({format:'jwk'}),kid:'fixture'};
       let nonce='';
-      const accepted=()=>Response.json({client_id:'fixture',user_id:'1001',expires_in:3600});
+      const accepted=()=>Response.json({client_id:'fixture',login:'miravale',user_id:'1001',expires_in:3600});
       let validation:()=>Response=accepted;
       const http=async(input:RequestInfo|URL)=>{
         const path=new URL(String(input)).pathname;
@@ -231,7 +231,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
         if(path.endsWith('/token')) {
           const b64=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url');
           const unsigned=b64({alg:'RS256',kid:'fixture'})+'.'+b64({iss:'https://id.twitch.tv/oauth2',
-            aud:'fixture',sub:'1001',preferred_username:'miravale',nonce,iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+600});
+            aud:'fixture',sub:'1001',preferred_username:'MiraVale',nonce,iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+600});
           return Response.json({id_token:unsigned+'.'+sign('RSA-SHA256',Buffer.from(unsigned),privateKey).toString('base64url'),access_token:'synthetic-access'});
         }
         return new Response('',{status:404});
@@ -257,6 +257,8 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       // Linking the verified account gives the Home its handle. The creator takes no step.
       assert.deepEqual((await pool.query('SELECT handle,source,current FROM home_handles WHERE home_id=$1',[id])).rows,
         [{handle:'miravale',source:'twitch',current:true}]);
+      // The stored login is the login of the token check. The ID token carries the display name.
+      assert.deepEqual((await pool.query('SELECT login FROM twitch_identities')).rows,[{login:'miravale'}]);
       const signed=await flow(await postT('/auth/twitch',{}));
       assert.equal(signed.result.headers.get('Location'),'/editor');
       const providerCookie=signed.result.headers.getSetCookie().find(x=>x.startsWith('__Host-lobby='))!.split(';')[0];
