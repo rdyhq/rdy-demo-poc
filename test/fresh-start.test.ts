@@ -64,6 +64,33 @@ test('the live card shows a stream only while a provider verifies it',()=>{
   }
 });
 
+test('a schedule change shows on the page while it is current',()=>{
+  const slot=home.sessions[0];
+  const notice={prior:slot,next:null,status:'Cancelled' as const};
+  assert.match(page(home,{notice}),/<p class="pg-notice"><strong>Schedule change<\/strong> Saturday speedrun block: Cancelled\. Previous time: 2027-07-17 19:00 America\/Chicago \(-05:00\)\.<\/p>/);
+  assert.doesNotMatch(page(home,{notice,now:Date.parse('2027-07-19T00:00:00Z')}),/pg-notice/);
+  assert.doesNotMatch(page(home),/pg-notice/);
+});
+
+test('an offline card can lead with the latest clip',()=>{
+  const clipHome={...home,layout:{...home.layout,spotlight:{...home.layout.spotlight,offlineLead:'clip' as const}}};
+  const html=page(clipHome,{liveState:{live:false,verified:true,clip:{title:'World record pace',url:'https://clips.twitch.tv/Example',views:36}}});
+  assert.match(html,/<p class="pg-card-kicker">Latest clip<\/p><p class="pg-card-title"><a href="https:\/\/clips\.twitch\.tv\/Example">World record pace<\/a><\/p><p class="pg-card-meta">36 views<\/p>/);
+});
+
+test('a custom accent on a theme reaches the page without script',async()=>{
+  const themed={...home,theme:'Paper' as const,aura:{...defaultAura,accent:'#5a3cf0',accentSource:'custom' as const}};
+  assert.match(page(themed),/<link rel="stylesheet" href="\/assets\/page\.css\?v=[\w-]+">\s*<link rel="stylesheet" href="\/assets\/skin\/1\/accent-5a3cf0\.css">/);
+  const app=createApp();
+  const styles=await app.request('/assets/skin/1/accent-5a3cf0.css');
+  assert.equal(styles.status,200);
+  assert.equal(await styles.text(),':root{--accent:#5a3cf0;}');
+  assert.equal(styles.headers.get('Cache-Control'),'public, max-age=31536000, immutable');
+  assert.equal((await app.request('/assets/skin/1/accent-5a3cfg.css')).status,404);
+  assert.equal((await app.request('/assets/page.css')).status,200);
+  assert.equal((await app.request('/assets/app.css')).status,200);
+});
+
 test('a part with no content does not show',()=>{
   const bare=page({...base,displayName:'Solo'});
   assert.doesNotMatch(bare,/pg-social|pg-card|pg-links|class="pg-h"|pg-bio|<img/);
