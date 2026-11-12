@@ -111,6 +111,55 @@ test('the editor is a list with a preview, and each change saves by itself',{ski
       }
     });
 
+    await t.test('the creator adds a session to the schedule and takes one off',async()=>{
+      type Stored={id:string;title:string;local:string;zone:string;offset:string;instant:string};
+      const schedule=async()=>(await draft()).content.supporting.find((card:{family:string})=>card.family==='schedule') as {sessions:Stored[];scheduleRemoval?:string};
+      const add=(title:string,date:string,time:string,zone='America/Phoenix')=>send('/editor/sessions',{action:'add',title,date,time,zone});
+      const tab=await (await get('/editor',nova)).text();
+      assert.match(tab,/<h2>Schedule<\/h2>/);
+      assert.match(tab,/<details class="ed-row ed-more-form"><summary>Add a session<\/summary>/);
+      // With no session yet, the zone starts at UTC and the script picks the zone of the browser.
+      assert.match(tab,/<select id="ed-zone" name="zone" data-zone="auto"><option value="UTC" selected>UTC<\/option>.*<option value="America\/Phoenix">America\/Phoenix<\/option>/s);
+      assert.match(tab,/<script src="\/assets\/zone\.js" defer><\/script>/);
+      assert.equal((await get('/assets/zone.js')).status,200);
+
+      assert.equal((await add('Saturday speedrun block','2099-07-18','19:00')).status,303);
+      const first=(await schedule()).sessions;
+      assert.deepEqual(first.map(({id,...rest})=>rest),[{title:'Saturday speedrun block',local:'2099-07-18T19:00',zone:'America/Phoenix',
+        offset:'-07:00',instant:'2099-07-19T02:00:00.000Z'}]);
+      const listed=await (await get('/editor',nova)).text();
+      assert.match(listed,/<li class="ed-row ed-link">.*?<strong>Saturday speedrun block<\/strong><small>2099-07-18 19:00 · America\/Phoenix<\/small>/s);
+      // The next session starts in the zone of the last one.
+      assert.match(listed,/<select id="ed-zone" name="zone"><option value="UTC">UTC<\/option>.*<option value="America\/Phoenix" selected>America\/Phoenix<\/option>/s);
+      assert.match(await (await get('/editor/view',nova)).text(),/class="pg-h">Schedule.*Saturday speedrun block/s);
+
+      // A session needs a title, a real date, a time, a named zone and a start in the future.
+      for(const [title,date,time,zone] of [['Past','2020-01-01','10:00','UTC'],['','2099-07-19','10:00','UTC'],['Wrong date','2099-02-31','10:00','UTC'],
+        ['Wrong zone','2099-07-19','10:00','Mars/Base'],['No time','2099-07-19','','UTC']]) {
+        const refused=await add(title,date,time,zone);
+        assert.equal(refused.status,422,title);
+        assert.match(await refused.text(),/role="alert">/);
+      }
+      // Seven sessions at most.
+      for(let day=1;day<=6;day++) assert.equal((await add('Extra '+day,'2099-08-0'+day,'10:00','UTC')).status,303);
+      assert.equal((await add('One too many','2099-08-09','10:00','UTC')).status,422);
+      assert.equal((await schedule()).sessions.length,7);
+
+      // Cancel says that the session is cancelled. Postpone says that its new time is not known.
+      const all=(await schedule()).sessions;
+      assert.equal((await send('/editor/sessions',{action:'cancel',id:all[0].id})).status,303);
+      assert.equal((await schedule()).scheduleRemoval,'cancelled');
+      assert.equal((await send('/editor/sessions',{action:'postpone',id:all[1].id})).status,303);
+      const left=await schedule();
+      assert.equal(left.scheduleRemoval,'unknown');
+      assert.deepEqual(left.sessions.map(session=>session.title),['Extra 2','Extra 3','Extra 4','Extra 5','Extra 6']);
+      assert.equal((await send('/editor/sessions',{action:'cancel',id:randomUUID()})).status,422);
+      assert.equal((await send('/editor/sessions',{action:'move',id:all[2].id})).status,422);
+      for(const session of left.sessions) assert.equal((await send('/editor/sessions',{action:'cancel',id:session.id})).status,303);
+      assert.equal((await schedule()).sessions.length,0);
+      assert.doesNotMatch(await (await get('/editor/view',nova)).text(),/class="pg-h">Schedule/);
+    });
+
     await t.test('the creator sets and removes the avatar and the banner',async()=>{
       const png=await sharp({create:{width:300,height:300,channels:3,background:'#190838'}}).png().toBuffer();
       const form=new FormData();

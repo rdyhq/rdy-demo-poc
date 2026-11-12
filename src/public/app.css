@@ -99,6 +99,11 @@ a { color:inherit; }
 .ed textarea { resize:vertical; }
 .ed select { min-height:46px; padding:8px 12px; border:1.5px solid var(--line); border-radius:12px; background:#fff; color:var(--ink); font:500 16px/1.4 Inter,system-ui,sans-serif; }
 .ed-lead label { flex:1 1 100%; color:var(--soft); font-size:13.5px; font-weight:600; }
+/* A form that stays closed until the creator opens it, so the list stays short. */
+.ed-more-form { display:block; border-style:dashed; }
+.ed-more-form summary { cursor:pointer; font-weight:650; }
+.ed-more-form[open] summary { margin-bottom:12px; }
+.ed-above { margin:-4px 0 10px; }
 .ed-lead select { flex:1; min-width:0; }
 .ed-profile button { justify-self:start; margin-top:8px; }
 .ed-art { flex:none; width:48px; height:48px; border-radius:12px; object-fit:cover; background:#F4F3EF; }
