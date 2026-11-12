@@ -48,6 +48,8 @@ test('the editor is a list with a preview, and each change saves by itself',{ski
       assert.match(html,/<nav class="ed-tabs" aria-label="Editor"><a href="\/editor" aria-current="page">Page<\/a><a href="\/editor\/look">Look<\/a><a href="\/editor\/link">Share<\/a><\/nav>/);
       assert.match(html,/<h1>Your page<\/h1>/);
       assert.match(html,/<form class="ed-row ed-profile" method="post" action="\/editor\/profile">/);
+      // A creator with no linked Twitch channel has no parts from Twitch.
+      assert.doesNotMatch(html,/From Twitch|Synced with Twitch/);
       for(const field of ['displayName','intro','game','streamUrl']) assert.match(html,new RegExp('name="'+field+'"'));
       assert.match(html,/<iframe class="ed-preview" title="Preview of your page" src="\/editor\/view"><\/iframe>/);
       assert.match(page.headers.get('Content-Security-Policy')!,/frame-src 'self'/);

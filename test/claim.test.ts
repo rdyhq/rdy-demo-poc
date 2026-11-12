@@ -61,6 +61,9 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
     if(url.pathname==='/helix/channels') return Response.json({data:[{broadcaster_id:who.sub,game_name:'Neon Drift 2'}]});
     if(url.pathname==='/helix/streams') return Response.json({data:streaming?[{type:'live',user_id:who.sub,user_login:who.login,
       title:'Any% practice',viewer_count:27,thumbnail_url:'https://static-cdn.jtvnw.net/previews-ttv/live_user_'+who.login+'-{width}x{height}.jpg'}]:[]});
+    if(url.pathname==='/helix/schedule') return url.searchParams.get('broadcaster_id')==='2002'?Response.json({data:{broadcaster_id:'2002',vacation:null,
+      segments:[{id:'s1',start_time:'2099-07-21T16:00:00Z',end_time:'2099-07-21T18:00:00Z',title:'Any% practice',canceled_until:null,
+        category:{id:'1',name:'Neon Drift 2'},is_recurring:true}]}}):Response.json({message:'schedule was not found'},{status:404});
     if(url.pathname==='/helix/clips') return Response.json({data:url.searchParams.get('broadcaster_id')==='2002'&&url.searchParams.get('is_featured')==='true'?[
       {id:'NovaClip-1',broadcaster_id:'2002',title:'World record pace',view_count:7263,created_at:'2026-11-01T00:00:00Z',
         thumbnail_url:'https://static-cdn.jtvnw.net/twitch-video-assets/NovaClip-1-480x272.jpg'}]:[]});
@@ -210,6 +213,41 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       // The old review of a matched draft is gone.
       assert.equal((await get('/editor',nova)).status,200);
       assert.equal((await get('/editor/match',nova)).status,404);
+    });
+
+    await t.test('the creator switches the Twitch schedule and the clips off and on',async()=>{
+      const part=(name:string,show:'0'|'1')=>'<input type="hidden" name="part" value="'+name+'"><input type="hidden" name="show" value="'+show+'">'
+        +'<button aria-pressed="'+(show==='0')+'" aria-label="Show the '+name+' on my page">'+(show==='0'?'On':'Off')+'</button>';
+      const tab=await (await get('/editor',nova)).text();
+      assert.match(tab,/<h2>From Twitch<\/h2>/);
+      assert.ok(tab.includes('<span><strong>Schedule</strong><small>Synced with Twitch</small></span>'));
+      assert.ok(tab.includes('<span><strong>Clips</strong><small>Synced with Twitch</small></span>'));
+      assert.ok(tab.includes(part('schedule','0'))&&tab.includes(part('clips','0')));
+      const fan=async()=>(await get('/novabyte')).text(), draft=async()=>(await get('/editor/view',nova)).text();
+      assert.match(await fan(),/class="pg-h">Schedule.*class="pg-clips"/s);
+      // The switch changes the draft. The published page changes after Publish.
+      const off=await post('/editor/twitch',{csrf:csrf(nova),part:'clips',show:'0'},nova);
+      assert.equal(off.status,303);
+      assert.equal(off.headers.get('Location'),'/editor');
+      assert.doesNotMatch(await draft(),/pg-clips/);
+      assert.match(await draft(),/class="pg-h">Schedule/);
+      assert.match(await fan(),/pg-clips/);
+      assert.ok((await (await get('/editor',nova)).text()).includes(part('clips','1')));
+      assert.equal((await post('/editor/publish',{csrf:csrf(nova)},nova)).status,303);
+      assert.doesNotMatch(await fan(),/pg-clips/);
+      assert.match(await fan(),/class="pg-h">Schedule/);
+      // With the schedule off, the page shows no schedule and its card does not lead with the next stream.
+      await post('/editor/twitch',{csrf:csrf(nova),part:'schedule',show:'0'},nova);
+      assert.doesNotMatch(await draft(),/class="pg-h">Schedule|Next stream|localtime\.js/);
+      // Both go back on.
+      await post('/editor/twitch',{csrf:csrf(nova),part:'schedule',show:'1'},nova);
+      await post('/editor/twitch',{csrf:csrf(nova),part:'clips',show:'1'},nova);
+      assert.equal((await post('/editor/publish',{csrf:csrf(nova)},nova)).status,303);
+      assert.match(await fan(),/Next stream.*class="pg-h">Schedule.*class="pg-clips"/s);
+      // Another part or value is refused.
+      assert.equal((await post('/editor/twitch',{csrf:csrf(nova),part:'banner',show:'0'},nova)).status,422);
+      assert.equal((await post('/editor/twitch',{csrf:csrf(nova),part:'clips',show:'maybe'},nova)).status,422);
+      assert.equal((await post('/editor/twitch',{part:'clips',show:'0'},nova)).status,403);
     });
 
     await t.test('a creator can pick a theme in place of the matched colours',async()=>{

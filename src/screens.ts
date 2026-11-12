@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
 
 // The screens of the fresh start (RDY D-TG9VX, section s-W8K47): one main action and few words on each.
-export const appStyles='/assets/app.css?v=5';
+export const appStyles='/assets/app.css?v=6';
 
 function screen(title:string,body:unknown,options:{refresh?:string;canonical?:string;skin?:string;script?:string}={}) {
   return html`<!doctype html><html lang="en"><head>

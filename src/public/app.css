@@ -103,6 +103,10 @@ a { color:inherit; }
 .ed-link small { color:var(--faint); font-size:13.5px; }
 .ed-link form { display:flex; gap:6px; }
 .ed-link button { min-width:44px; padding:8px 10px; border:1.5px solid var(--line); background:#fff; color:var(--ink); }
+/* The switch of a part from Twitch: filled while the part shows on the page. */
+.ed-link button[aria-pressed] { min-width:60px; border-radius:999px; font-weight:700; }
+.ed-link button[aria-pressed=true] { border-color:var(--ink); background:var(--ink); color:#fff; }
+.ed-link button[aria-pressed=false] { color:var(--faint); }
 .ed-add { border-style:dashed; }
 .ed-add input { flex:1 1 150px; }
 .ed-match { margin-top:26px; padding-top:20px; border-top:1px solid #ECEAE5; color:var(--soft); }
