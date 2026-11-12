@@ -84,6 +84,12 @@ export function artPalette({base,second=null,accent=null}) {
   return paletteReadable(palette)?palette:null;
 }
 
+// The contrast guard checks an accent on the art palette when the skin has one, and on the theme when it has none.
+export function guardSurfaces(theme,palette) {
+  const art=palette&&artPalette({...palette,accent:null});
+  return art?{page:art.page,raised:art.raised,on:art.on,accent:accentPalettes[theme].accent}:accentPalettes[theme];
+}
+
 export function paletteCss(palette) {
   const tokens=[['page','page'],['raised-page','raisedPage'],['surface','surface'],['raised-surface','raised'],['text','text'],
     ['muted','muted'],['accent','accent'],['on','on'],['card-edge','cardEdge'],['border','border'],['glow','glow'],['second','second']];

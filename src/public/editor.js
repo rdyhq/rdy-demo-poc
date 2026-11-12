@@ -1,6 +1,8 @@
 import { accentPalettes, adjustAccent } from './contrast.js';
-import { matchArtAccent } from './art-accent.js';
-import { auraSummary, guardUnsaved } from './editor-support.js';
+import { readArtPixels } from './art-pixels.js';
+import { matchColours, suggestSkin } from './art-match.js';
+import { artPalette, guardSurfaces } from './palette.js';
+import { applySkin, auraSummary, chooseTheme, guardUnsaved, restoreSkin } from './editor-support.js';
 
 const root = document.querySelector('#workspace');
 const by = (id) => document.getElementById(id);
@@ -67,6 +69,9 @@ const deviceWidths={phone:390,tablet:768,desktop:1024};
 const dockOutline=by('card-outline-supporting').querySelector('[data-edit-card=dock]');
 let drag;
 let matchingArt=false;
+// The art palette that this draft had last, so My art stays a choice after the creator tries a theme.
+let artChoice=null;
+let beforeMatch=null;
 let offlineOptionsKey;
 const auraControls=['font','shape','frame','field','intensity'];
 const auraPresets={
@@ -83,8 +88,26 @@ function auraNotice(message) {
   note.hidden=!message;
 }
 
+function matchNotice(message) {
+  const note=by('aura-match-note');
+  note.textContent=message;
+  note.hidden=!message;
+}
+
+// The editor lists each change of a match with its reason (RDY r-GXT5V).
+function showMatch(skin) {
+  const list=by('aura-match-changes');
+  list.replaceChildren(...(skin?.reasons??[]).map(({control,value,reason})=>{
+    const item=document.createElement('li'), name=document.createElement('strong');
+    name.textContent=control+': '+value+'.';
+    item.append(name,' '+reason);
+    return item;
+  }));
+  list.hidden=!skin;
+}
+
 function setAccent(requested,source) {
-  const accent=requested===null?null:adjustAccent(requested,accentPalettes[content.theme]);
+  const accent=requested===null?null:adjustAccent(requested,guardSurfaces(content.theme,content.aura.palette));
   content.aura.accent=accent;
   content.aura.accentSource=source;
   auraNotice(accent!==requested?'Adjusted for readability':'');
@@ -93,18 +116,22 @@ function setAccent(requested,source) {
 
 function syncAuraFields() {
   const {aura,theme}=content;
-  for(const radio of form.querySelectorAll('[name=theme]')) radio.checked=radio.value===theme;
+  if(aura.palette) artChoice={...aura.palette};
+  by('theme-art').hidden=!artChoice;
+  if(artChoice) by('theme-art').querySelector('.swatch').style.setProperty('--swatch',artChoice.base);
+  for(const radio of form.querySelectorAll('[name=theme]')) radio.checked=aura.palette?radio.value==='art':radio.value===theme;
   for(const key of auraControls) by('aura-'+key).value=aura[key];
   by('aura-liveSurge').checked=aura.liveSurge;
-  by('aura-accent').value=aura.accent??accentPalettes[theme].accent;
+  by('aura-accent').value=aura.accent??(aura.palette?artPalette({...aura.palette,accent:null}).accent:accentPalettes[theme].accent);
+  by('aura-match-undo').hidden=!beforeMatch;
   for(const button of form.querySelectorAll('[data-aura-swatch]')) {
     const {auraSwatch:swatch}=button.dataset;
-    const pressed=swatch?aura.accentSource==='swatch'&&aura.accent===adjustAccent(swatch,accentPalettes[theme]):aura.accentSource==='theme';
+    const pressed=swatch?aura.accentSource==='swatch'&&aura.accent===adjustAccent(swatch,guardSurfaces(theme,aura.palette)):aura.accentSource==='theme';
     button.setAttribute('aria-pressed',String(pressed));
   }
   for(const button of form.querySelectorAll('[data-aura-preset]')) {
     const {theme:expected,...values}=auraPresets[button.dataset.auraPreset];
-    const pressed=theme===expected&&aura.accentSource==='theme'&&aura.liveSurge&&
+    const pressed=!aura.palette&&theme===expected&&aura.accentSource==='theme'&&aura.liveSurge&&
       Object.entries(values).every(([key,value])=>aura[key]===value);
     button.setAttribute('aria-pressed',String(pressed));
   }
@@ -139,8 +166,8 @@ function syncAuraPreview(article=canvasArticle()) {
 }
 
 for(const radio of form.querySelectorAll('[name=theme]')) radio.addEventListener('input',()=>{
-  content.theme=radio.value;
-  setAccent(content.aura.accent,content.aura.accentSource);
+  auraNotice(chooseTheme(content,radio.value,artChoice)?'Adjusted for readability':'');
+  syncAuraFields();
 });
 for(const key of auraControls) by('aura-'+key).addEventListener('input',event=>{
   content.aura[key]=event.target.value;
@@ -153,7 +180,7 @@ by('aura-liveSurge').addEventListener('input',event=>{
 for(const button of form.querySelectorAll('[data-aura-preset]')) button.addEventListener('click',()=>{
   const {theme,...values}=auraPresets[button.dataset.auraPreset];
   content.theme=theme;
-  Object.assign(content.aura,values,{liveSurge:true});
+  Object.assign(content.aura,values,{liveSurge:true,palette:null});
   setAccent(null,'theme');
   changed();
 });
@@ -167,26 +194,45 @@ by('aura-accent').addEventListener('change',event=>{
   changed();
 });
 by('aura-match').addEventListener('click',async()=>{
-  const ids=artIds();
-  if(!ids.length||matchingArt) return;
-  const before=content.aura.accent, theme=content.theme;
+  if(!artIds().length||matchingArt) return;
+  const state=()=>JSON.stringify([content.theme,content.aura,artIds()]);
+  const started=state();
   matchingArt=true;
-  auraNotice('Sampling your art…');
+  matchNotice('Reading your art…');
   updateControls();
   try {
-    const match=await matchArtAccent(ids);
-    if(content.theme!==theme||content.aura.accent!==before||ids.join(',')!==artIds().join(',')) {
-      if(by('aura-note').textContent==='Sampling your art…') auraNotice('');
-    } else if(match) {
-      setAccent(match,'art');
-      changed();
-    } else auraNotice('Your art has no vivid color to match. Choose an accent instead.');
+    const pixels=await readArtPixels({avatarId:content.avatarId,coverId:content.coverId});
+    // The creator changed the skin or the art while the images loaded. Their values stay.
+    if(started!==state()) {
+      matchNotice('');
+      return;
+    }
+    const skin=suggestSkin(matchColours(pixels),pixels.banner?'banner':'avatar');
+    if(!skin) {
+      matchNotice('Your art has no colour to read. Choose a theme instead.');
+      return;
+    }
+    beforeMatch=applySkin(content,skin);
+    showMatch(skin);
+    matchNotice(skin.palette?'Your Home now matches your art.':'Your art gave no readable palette, so this is the nearest theme.');
+    auraNotice('');
+    syncAuraFields();
+    changed();
   } catch {
-    auraNotice('Could not read the images. Try again or choose an accent.');
+    matchNotice('Could not read the images. Try again or choose a theme.');
   } finally {
     matchingArt=false;
     updateControls();
   }
+});
+by('aura-match-undo').addEventListener('click',()=>{
+  if(!beforeMatch) return;
+  restoreSkin(content,beforeMatch);
+  beforeMatch=null;
+  showMatch(null);
+  matchNotice('The look from before the match is back.');
+  syncAuraFields();
+  changed();
 });
 auraPreview.addEventListener('input',()=>syncAuraPreview());
 by('offlineLead').addEventListener('input',event=>{
@@ -222,7 +268,8 @@ function updateControls() {
   for(const button of form.querySelectorAll('[data-aura-preset], [data-aura-swatch]')) button.disabled=blocked;
   const hasArt=artIds().length>0;
   by('aura-match').disabled=writesBlocked||matchingArt||!hasArt;
-  by('aura-match-help').textContent=hasArt?'Sample the colors in your avatar and cover.':'Add an avatar or cover to match its colors.';
+  by('aura-match-help').textContent=hasArt?'Take the page colours, the accent and the style from your avatar and cover.':'Add an avatar or cover to match your art.';
+  by('aura-match-undo').disabled=blocked;
   by('retry').disabled=writesBlocked;
   for(const button of form.querySelectorAll('[data-add]')) {
     button.disabled=blocked||!canAddBlock(button.dataset.add);
@@ -231,7 +278,7 @@ function updateControls() {
   by('add-block').disabled=blocked;
   if(blockPicker.open) filterBlockPicker();
   by('supporting-budget').textContent=linkCount+' of 5 supporting links';
-  root.querySelector('[data-edit-card=skin] small').textContent=content.theme;
+  root.querySelector('[data-edit-card=skin] small').textContent=content.aura.palette?'My art':content.theme;
 }
 
 function updatePreview() {
@@ -286,6 +333,25 @@ function canvasArticle() {
   return canvas.contentDocument?.querySelector('[data-edit-canvas]');
 }
 
+// The canvas keeps its document. The skin stylesheet, the blurred banner and the colour scheme are copied into it.
+function syncSkin(article,fresh,next) {
+  const doc=article.ownerDocument, skin='link[href^="/assets/skin/"]';
+  const link=fresh.querySelector(skin);
+  let current=doc.querySelector(skin);
+  if(link&&current?.getAttribute('href')!==link.getAttribute('href')) {
+    current?.remove();
+    current=doc.importNode(link);
+    // The field effect reads its colours from the page, so it looks again when the new colours arrive.
+    current.addEventListener('load',()=>article.dispatchEvent(new Event('aura-update')));
+    doc.head.append(current);
+  } else if(!link) current?.remove();
+  article.toggleAttribute('data-art-palette',next.hasAttribute('data-art-palette'));
+  doc.querySelector('.art-backdrop')?.remove();
+  const backdrop=fresh.querySelector('.art-backdrop');
+  if(backdrop) doc.querySelector('.aura-field').before(doc.importNode(backdrop,true));
+  doc.querySelector('meta[name=color-scheme]').content=fresh.querySelector('meta[name=color-scheme]').content;
+}
+
 function syncCanvasMode(article) {
   const editing=canvasMode==='edit';
   article.dataset.canvasMode=canvasMode;
@@ -335,6 +401,7 @@ async function refreshCanvas() {
     article.toggleAttribute('data-live-surge',next.hasAttribute('data-live-surge'));
     for(const name of ['accent','font','shape','frame','field','intensity']) article.dataset[name]=next.dataset[name];
     article.ownerDocument.documentElement.dataset.theme=fresh.documentElement.dataset.theme;
+    syncSkin(article,fresh,next);
     article.ownerDocument.title=fresh.title;
     renderedEditKey=key;
     syncCanvasMode(article);

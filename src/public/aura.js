@@ -38,11 +38,13 @@
       for(const card of home.querySelectorAll('[data-aura-tilt]')) resetTilt(card);
       for(const spark of home.querySelectorAll('.aura-spark')) spark.remove();
     }
-    const next=[document.documentElement.dataset.theme,accent,home.dataset.field,home.dataset.intensity].join(':');
+    // The colours come from the theme, the accent or the skin stylesheet of an art palette.
+    const style=getComputedStyle(home);
+    const colours=[style.getPropertyValue('--accent').trim(),style.getPropertyValue('--glow').trim()];
+    const next=[...colours,home.dataset.field,home.dataset.intensity].join(':');
     if(appearance!==next) {
       appearance=next;
-      const style=getComputedStyle(home);
-      palette=[style.getPropertyValue('--accent').trim(),style.getPropertyValue('--glow').trim()];
+      palette=colours;
       const bold=home.dataset.intensity==='bold';
       const drift=home.dataset.field==='drift';
       particles=Array.from({length:drift?(bold?14:8):bold?60:30},()=>({
