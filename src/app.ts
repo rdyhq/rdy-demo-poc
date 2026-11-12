@@ -49,7 +49,7 @@ const cardLayoutScript=readFileSync(new URL('./public/card-layout.js',import.met
 const previewScript=readFileSync(new URL('./public/preview.js',import.meta.url),'utf8');
 const verifyScript=readFileSync(new URL('./public/verify.js',import.meta.url),'utf8');
 const freshStyles=new Map(['page','app'].map(name=>[name+'.css',readFileSync(new URL('./public/'+name+'.css',import.meta.url),'utf8')]));
-const auraScripts=new Map(['aura','handoff'].map(name=>[
+const auraScripts=new Map(['aura','handoff','localtime'].map(name=>[
   name+'.js',readFileSync(new URL('./public/'+name+'.js',import.meta.url),'utf8'),
 ]));
 const fonts=new Map(['inter','bricolage-grotesque','unbounded','jetbrains-mono','silkscreen'].map(name=>[
@@ -177,6 +177,12 @@ export function createApp(config:Configuration={}) {
       clipShots.set(clip.id,{url:clip.picture,until:clock()+3600_000});
     }
     return clips.map(clip=>({title:clip.title,url:clip.url,views:clip.views,picture:'/assets/clip/'+clip.id}));
+  }
+  // The parts of a page that linb.io reads from the linked channel when the page is viewed (RDY D-TBSBC).
+  async function channelParts(channel:TwitchChannel|undefined) {
+    if(!channel) return {};
+    const [clips,schedule]=await Promise.all([clipCards(channel),activity!.schedule(channel)]);
+    return {clips,schedule};
   }
   const requireHomeWrites=()=>{
     if(config.readOnlyHomes) throw new AppError(503,'home_writes_paused','Home changes are temporarily paused.');
@@ -324,7 +330,7 @@ export function createApp(config:Configuration={}) {
     c.header('Cache-Control','no-store');
     return c.html(renderPage(content,{now:clock(),claim:twitch?profile.login:undefined,
       liveState:await activity.get({subject:profile.subject,login:profile.login}),stream:'/preview/art/'+profile.login+'/stream',
-      clips:await clipCards({subject:profile.subject,login:profile.login}),
+      ...await channelParts({subject:profile.subject,login:profile.login}),
       asset:kind=>'/preview/art/'+profile.login+'/'+kind}));
   });
   app.get('/preview/art/:login/:kind',async c=>{
@@ -491,7 +497,7 @@ export function createApp(config:Configuration={}) {
     c.header('Cache-Control','no-store');
     // The preview of a draft shows the clips that the published page shows.
     const channel=await linkedChannel(requirePool(),owner,state.content);
-    return c.html(renderPage(state.content,{now:clock(),asset:id=>'/editor/assets/'+id,clips:channel?await clipCards(channel):undefined}));
+    return c.html(renderPage(state.content,{now:clock(),asset:id=>'/editor/assets/'+id,...await channelParts(channel)}));
   });
   editorAction('/editor/profile',pageTab,'/editor',async(owner,state,fields)=>{
     const {displayName,intro,game,streamUrl}=fields;
@@ -837,7 +843,7 @@ export function createApp(config:Configuration={}) {
     if(paid) return c.html(renderHome(home.content,{now:clock(),liveState:signal,refreshActivity:Boolean(channel),appHandoff:config.appHandoff,
       report:'/h/'+home.id+'/report',homeId:home.id,pro:paid,notice:home.schedule_change,asset,canonical,metadata}));
     return c.html(renderPage(home.content,{now:clock(),liveState:signal,stream:'/h/'+home.id+'/stream',
-      clips:channel?await clipCards(channel):undefined,appHandoff:config.appHandoff,
+      ...await channelParts(channel),appHandoff:config.appHandoff,
       report:'/h/'+home.id+'/report',notice:home.schedule_change,asset,canonical,metadata}));
   }
   app.get('/h/:homeId',c=>renderPublicHome(c,c.req.param('homeId')));

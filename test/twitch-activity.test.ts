@@ -134,3 +134,51 @@ test('the clips of a channel are its featured clips, or the most viewed of 30 da
   down=false;
   assert.deepEqual((await failing.clipList(channel)).map(item=>item.id),['ok']);
 });
+
+test('the schedule of a channel is its next streams, three at most',async()=>{
+  const time=Date.parse('2027-07-16T17:00:00Z');
+  const segment=(id:string,start:string,extra:Record<string,unknown>={})=>({id,start_time:start,end_time:start,title:'Stream '+id,
+    canceled_until:null,category:{id:'1',name:'Neon Drift 2'},is_recurring:false,...extra});
+  let answer:()=>Response=()=>Response.json({data:{broadcaster_id:channel.subject,vacation:null,segments:[
+    segment('late','2027-07-25T18:00:00Z'),segment('soon','2027-07-17T18:00:00Z'),segment('past','2027-07-16T16:00:00Z'),
+    segment('off','2027-07-18T18:00:00Z',{canceled_until:'2027-07-19T00:00:00Z'}),segment('plain','2027-07-19T18:00:00Z',{title:' ',category:null}),
+    segment('next','2027-07-20T18:00:00Z'),
+  ]}});
+  let asked=0;
+  const make=()=>new TwitchActivity({clientId:'app',clientSecret:'fixture',http:(async(input:RequestInfo|URL)=>{
+    const url=new URL(String(input));
+    if(url.pathname==='/oauth2/token') return Response.json({access_token:'fixture-token',expires_in:600});
+    assert.equal(url.pathname,'/helix/schedule');
+    assert.equal(url.searchParams.get('broadcaster_id'),channel.subject);
+    asked++;
+    return answer();
+  }) as typeof fetch},()=>time);
+  const activity=make();
+  // The earliest first. A past stream and a cancelled stream are left out. A stream with no title is named Stream.
+  assert.deepEqual(await activity.schedule(channel),[
+    {title:'Stream soon',category:'Neon Drift 2',start:'2027-07-17T18:00:00.000Z'},
+    {title:'Stream',category:'',start:'2027-07-19T18:00:00.000Z'},
+    {title:'Stream next',category:'Neon Drift 2',start:'2027-07-20T18:00:00.000Z'},
+  ]);
+  // A second reading within five minutes asks Twitch nothing.
+  await activity.schedule(channel);
+  assert.equal(asked,1);
+  // Twitch answers 404 for a channel with no schedule. That answer is kept.
+  answer=()=>Response.json({error:'Not Found',status:404,message:'segments were not found'},{status:404});
+  const none=make();
+  assert.deepEqual(await none.schedule(channel),[]);
+  await none.schedule(channel);
+  assert.equal(asked,2);
+  // The schedule of another channel and a stream inside a vacation are left out.
+  answer=()=>Response.json({data:{broadcaster_id:'9',segments:[segment('soon','2027-07-17T18:00:00Z')]}});
+  assert.deepEqual(await make().schedule(channel),[]);
+  answer=()=>Response.json({data:{broadcaster_id:channel.subject,vacation:{start_time:'2027-07-17T00:00:00Z',end_time:'2027-07-18T00:00:00Z'},
+    segments:[segment('soon','2027-07-17T18:00:00Z'),segment('next','2027-07-20T18:00:00Z')]}});
+  assert.deepEqual((await make().schedule(channel)).map(slot=>slot.title),['Stream next']);
+  // When Twitch does not answer, there is no schedule, and the next reading asks again.
+  answer=()=>new Response('',{status:503});
+  const failing=make(),before=asked;
+  assert.deepEqual(await failing.schedule(channel),[]);
+  assert.deepEqual(await failing.schedule(channel),[]);
+  assert.equal(asked,before+2);
+});
