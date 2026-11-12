@@ -7,7 +7,7 @@ import { defaultAura } from '../src/aura.ts';
 import { connect, migrate } from '../src/db.ts';
 import { newHome, readHome } from '../src/home-cards.ts';
 import { renderPage } from '../src/page.ts';
-import { landingPage } from '../src/screens.ts';
+import { confirmPage, landingPage, messagePage, signInPage } from '../src/screens.ts';
 import { TwitchActivity } from '../src/twitch-activity.ts';
 
 const id='00000000-0000-4000-8000-000000000001';
@@ -125,6 +125,38 @@ test('the home page has one field for a Twitch name and one action',()=>{
   const closed=String(landingPage({preview:false}));
   assert.doesNotMatch(closed,/<form/);
   assert.match(closed,/<a class="app-primary" href="\/sign-in">Sign in<\/a>/);
+});
+
+test('the sign-in screens use the look of the app',async()=>{
+  const creator=String(signInPage({twitch:true}));
+  assert.match(creator,/href="\/assets\/app\.css\?v=[\w-]+"/);
+  assert.doesNotMatch(creator,/lobby\.css/);
+  assert.match(creator,/<h1>Sign in<\/h1>/);
+  // Twitch comes first. The email link follows.
+  assert.ok(creator.indexOf('<form method="post" action="/auth/twitch"><button class="app-twitch">Continue with Twitch</button></form>')
+    <creator.indexOf('<form class="app-claim" method="post" action="/sign-in">'));
+  assert.match(creator,/<input id="mailbox" name="mailbox" aria-label="Email address" autocomplete="email" type="email" maxlength="254" required placeholder="you@example\.com">/);
+  assert.match(creator,/<button>Email me a sign-in link<\/button>/);
+  assert.doesNotMatch(String(signInPage({twitch:false})),/auth\/twitch/);
+  const operator=String(signInPage({operator:true,twitch:true}));
+  assert.match(operator,/<h1>Operator sign-in<\/h1>/);
+  assert.match(operator,/action="\/ops\/sign-in"/);
+  assert.doesNotMatch(operator,/auth\/twitch/);
+  const sent=String(signInPage({sent:true,twitch:true}));
+  assert.match(sent,/<h1>Check your mailbox<\/h1>/);
+  assert.doesNotMatch(sent,/<form/);
+  assert.match(String(signInPage({twitch:true,state:'email'})),/role="alert">Twitch gave no verified email\. Verify your email at Twitch, then try again\./);
+  assert.match(String(signInPage({twitch:true,state:'mailbox'})),/role="alert">Twitch knows you\. Sign in with the email of your linb\.io account to connect it\./);
+  assert.doesNotMatch(String(signInPage({twitch:true,state:'mailbox'})),/auth\/twitch/);
+  const confirm=String(confirmPage());
+  assert.match(confirm,/<script src="\/assets\/verify\.js" defer><\/script>/);
+  assert.match(confirm,/<input type="hidden" id="confirmation-token" name="token"><button id="confirm-access" disabled>Confirm access<\/button>/);
+  assert.match(confirm,/<p id="confirm-status" class="app-lead">/);
+  const note=String(messagePage('Proof received','Confirm the other mailbox.','/account','Return to account'));
+  assert.match(note,/<h1>Proof received<\/h1><p class="app-lead">Confirm the other mailbox\.<\/p><a class="app-secondary" href="\/account">Return to account<\/a>/);
+  const app=createApp({origin:'https://linb.io'});
+  assert.match(await (await app.request('https://linb.io/verify')).text(),/app\.css/);
+  assert.match(await (await app.request('https://linb.io/nothing/here')).text(),/app\.css/);
 });
 
 const cdn='https://static-cdn.jtvnw.net/jtv_user_pictures/';
