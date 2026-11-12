@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { emptyHome, scheduleChange, type ScheduleChange, type SessionSlot } from '../src/domain.ts';
-import { renderHome } from '../src/views.ts';
+import { renderPage } from '../src/page.ts';
 
 const now=Date.parse('2027-07-12T00:00:00Z');
 const slot=(id:string,title:string,instant:string):SessionSlot=>({id,title,local:instant.slice(0,16),zone:'UTC',offset:'+00:00',instant});
@@ -38,6 +38,6 @@ test('an active removal notice does not adopt an unrelated new session',()=>{
 
 test('the fan notice names the affected session',async()=>{
   const notice:ScheduleChange={prior:friday,next:null,status:'Cancelled'};
-  const page=String(await renderHome({...emptyHome,displayName:'Mira Vale',intro:'Cozy strategy.'},{now,asset:()=>'',notice}));
-  assert.match(page,/SCHEDULE CHANGE<\/p>\s*<p>Friday run: Cancelled\. Previous time: 2027-07-16 19:00 UTC \(\+00:00\)\.<\/p>/);
+  const page=String(renderPage({...emptyHome,displayName:'Mira Vale',intro:'Cozy strategy.'},{now,asset:()=>'',notice}));
+  assert.match(page,/<p class="pg-notice"><strong>Schedule change<\/strong> Friday run: Cancelled\. Previous time: 2027-07-16 19:00 UTC \(\+00:00\)\.<\/p>/);
 });

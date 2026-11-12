@@ -4,17 +4,15 @@ import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type pg from 'pg';
-import { normalizePro, proDraft, publicPro } from './pro.ts';
 import { Billing, type BillingConfig } from './billing.ts';
 import { Twitch, twitchCallback, type TwitchConfig } from './twitch.ts';
 import { transaction } from './db.ts';
 import { acceptReport, reportInbox, reportReasons } from './reports.ts';
 import { assetBytes, maxUpload, upload, type Objects } from './assets.ts';
 import { Auth, throttle, type SendMail } from './auth.ts';
-import { AppError, digest, emptyHome, equalSecret, invalid, mailbox, scheduleChange, themeNames, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
+import { AppError, digest, equalSecret, invalid, mailbox, scheduleChange, themeNames, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
 import { invite, inviteList, revokeInvite } from './enrollment.ts';
-import { cardColumns, cardHeights, cardSpans, channelPlatform, newHome, normalizeHome, platforms, readHome, type EditableHome, type StoredHome } from './home-cards.ts';
-import { liveState } from './live-state.ts';
+import { channelPlatform, newHome, normalizeHome, platforms, readHome, type EditableHome, type StoredHome } from './home-cards.ts';
 import { TwitchActivity, type TwitchActivityConfig, type TwitchChannel } from './twitch-activity.ts';
 import { acceptHandle, handleOffer, homeHandle, resolveHandle } from './handles.ts';
 import { describeFailure } from './failure.ts';
@@ -28,29 +26,13 @@ import { buildingPage, confirmPage, landingPage, leavingPage, linksStep, liveSte
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
-import { leaderboardDemo, proEditor, renderHome } from './views.ts';
 import { invitesPage, opsCase, opsPage } from './ops-screens.ts';
 
-const stylesheet=[
-  readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8'),
-  ...cardSpans.map(span=>`.card-home > [data-span="${span}"] { --preferred-span:${span}; }`),
-  ...cardColumns.map(column=>`.card-home > [data-column="${column}"] { --resolved-column:min(${column},13 - var(--resolved-span)); }`),
-  ...cardHeights.filter(Boolean).map(height=>`.card-home > [data-height="${height}"] { --card-height:${height}px; }`),
-  // Use the requested minimum height, so revealed content cannot trigger its own breakpoint.
-  ...[
-    [160, '--dock-summary:none; --dock-full:block;'],
-    [416, '--schedule-summary:none; --schedule-two:block; --schedule-three:block; --schedule-tall-after-two:none;'],
-  ].map(([minimum, rules]) => `${cardHeights.filter(height=>height>=Number(minimum))
-    .map(height=>`.card-home > [data-height="${height}"]`).join(', ')} { ${rules} }`),
-].join('\n');
 const brandIcon=readFileSync(new URL('./public/linb.svg',import.meta.url),'utf8');
-const playerScript=readFileSync(new URL('./public/player.js',import.meta.url),'utf8');
 const shareScript=readFileSync(new URL('./public/share.js',import.meta.url),'utf8');
-const cardLayoutScript=readFileSync(new URL('./public/card-layout.js',import.meta.url),'utf8');
-const previewScript=readFileSync(new URL('./public/preview.js',import.meta.url),'utf8');
 const verifyScript=readFileSync(new URL('./public/verify.js',import.meta.url),'utf8');
 const freshStyles=new Map(['page','app'].map(name=>[name+'.css',readFileSync(new URL('./public/'+name+'.css',import.meta.url),'utf8')]));
-const auraScripts=new Map(['aura','handoff','localtime'].map(name=>[
+const pageScripts=new Map(['handoff','localtime'].map(name=>[
   name+'.js',readFileSync(new URL('./public/'+name+'.js',import.meta.url),'utf8'),
 ]));
 const fonts=new Map(['inter','bricolage-grotesque','unbounded','jetbrains-mono','silkscreen'].map(name=>[
@@ -62,8 +44,8 @@ const platformIcons=new Map(Object.keys(platforms).map(name=>[
 
 type Configuration={
   twitchActivity?:TwitchActivityConfig;
-  pool?:pg.Pool; origin?:string; twitch?:TwitchConfig; billing?:BillingConfig; pro?:{multipage:boolean}; redirectOrigins?:string[]; mail?:SendMail; objects?:Objects|null;
-  reportContact?:string; clock?:()=>number; demo?:boolean; readOnlyHomes?:boolean; appHandoff?:boolean;
+  pool?:pg.Pool; origin?:string; twitch?:TwitchConfig; billing?:BillingConfig; redirectOrigins?:string[]; mail?:SendMail; objects?:Objects|null;
+  reportContact?:string; clock?:()=>number; readOnlyHomes?:boolean; appHandoff?:boolean;
   clientAddress?:(context:Context)=>string;
   // Open sign-up with Twitch is a setting that an operator can switch off (RDY r-C8Z5D).
   openSignup?:boolean;
@@ -95,7 +77,6 @@ export function createApp(config:Configuration={}) {
   const auth=pool&&config.mail&&origin?new Auth(pool,config.mail,origin,Boolean(config.twitch),config.readOnlyHomes):null;
   const twitch=pool&&auth&&origin&&config.twitch?new Twitch(pool,config.twitch,origin,Boolean(config.openSignup)):null;
   const billing=pool&&auth&&origin&&config.billing?new Billing(pool,origin,config.billing):null;
-  const pro=billing?config.pro:null;
   const twitchState=secure?'__Host-linb-twitch':'linb-twitch';
   const twitchPending=secure?'__Host-linb-twitch-pending':'linb-twitch-pending';
   const twitchCookie={path:'/',secure,httpOnly:true,sameSite:'Lax' as const,maxAge:600};
@@ -220,8 +201,8 @@ export function createApp(config:Configuration={}) {
       c.header('X-Content-Type-Options','nosniff');
       c.header('X-Frame-Options','DENY');
       const allowedForms=billing?' https://checkout.stripe.com https://billing.stripe.com':'';
-      const frameSources=[...(['/editor','/editor/look','/editor/link'].includes(c.req.path)?["'self'"]:[]),...(pro?['https://www.youtube-nocookie.com']:[])];
-      const allowedFrames=frameSources.length?'frame-src '+frameSources.join(' ')+'; ':'';
+      // Only the three tabs of the editor frame a page: the preview of the draft.
+      const allowedFrames=['/editor','/editor/look','/editor/link'].includes(c.req.path)?"frame-src 'self'; ":'';
       c.header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'"+allowedForms+"; "+allowedFrames+"base-uri 'none'; frame-ancestors 'none'");
     }
     if(redirectHosts.size&&origin&&c.req.path!=='/healthz') {
@@ -242,19 +223,11 @@ export function createApp(config:Configuration={}) {
         } else if(url.pathname!=='/') {
           const [,root,id,kind,item,file]=parts;
           const isImage=parts.length===5&&kind==='images'&&uuidPattern.test(item);
-          const isSubpage=Boolean(pro?.multipage&&parts.length===5&&kind==='p'&&uuidPattern.test(item));
           const isShareImage=parts.length===5&&kind==='share-image'&&uuidPattern.test(item);
           const isCalendar=parts.length===6&&kind==='calendar'&&uuidPattern.test(item)&&
             file.endsWith('.ics')&&uuidPattern.test(file.slice(0,-4));
-          if(root!=='h'||!uuidPattern.test(id??'')||!(parts.length===3||isImage||isCalendar||isShareImage||isSubpage)) return c.notFound();
+          if(root!=='h'||!uuidPattern.test(id??'')||!(parts.length===3||isImage||isCalendar||isShareImage)) return c.notFound();
           const db=requirePool(),home=await publicHome(db,id);
-          if(isSubpage) {
-            const content=await publicPro(db,id,home.publication_id);
-            if(![content?.highlights?.id,content?.recommendations?.id].includes(item)) {
-              const known=await db.query('SELECT 1 FROM pro_page_history WHERE home_id=$1 AND page_id=$2',[id,item]);
-              if(!known.rowCount) return c.notFound();
-            }
-          }
           if(isShareImage&&(item!==home.publication_id||!(await approvedPreview(db,home))?.coverId)) return c.notFound();
           if(isImage&&!refers(home.content,item)) return c.notFound();
         }
@@ -286,7 +259,7 @@ export function createApp(config:Configuration={}) {
     if(!bytes) return c.notFound();
     return c.body(new Uint8Array(bytes),200,{'Content-Type':'font/woff2','Cache-Control':'public, max-age=31536000'});
   });
-  for(const [file,script] of auraScripts) {
+  for(const [file,script] of pageScripts) {
     app.get('/assets/'+file,c=>c.text(script,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   }
   app.get('/assets/platforms/:file',c=>{
@@ -308,11 +281,7 @@ export function createApp(config:Configuration={}) {
   for(const [file,styles] of freshStyles) {
     app.get('/assets/'+file,c=>c.text(styles,200,{'Content-Type':'text/css; charset=utf-8','Cache-Control':'public, max-age=300'}));
   }
-  app.get('/assets/lobby.css',c=>c.text(stylesheet,200,{'Content-Type':'text/css; charset=utf-8','Cache-Control':'public, max-age=300'}));
-  app.get('/assets/player.js',c=>c.text(playerScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/share.js',c=>c.text(shareScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
-  app.get('/assets/card-layout.js',c=>c.text(cardLayoutScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
-  app.get('/assets/preview.js',c=>c.text(previewScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/assets/verify.js',c=>c.text(verifyScript,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
   app.get('/',c=>c.html(landingPage({preview:Boolean(activity&&pool),missing:twitchLogin(c.req.query('missing'))??undefined,
     invalid:c.req.query('invalid')==='1',limited:c.req.query('limited')==='1',unavailable:c.req.query('unavailable')==='1',closed:!twitch?.openSignup,canonical:origin?origin+'/':undefined})));
@@ -660,45 +629,6 @@ export function createApp(config:Configuration={}) {
     const handle=await homeHandle(db,state.id), path=handle?'/'+handle:'/h/'+state.id;
     return c.html(liveStep({address:(originHost??new URL(c.req.url).host)+path,path}));
   });
-  if(pro) {
-    app.get('/editor/pro',async c=>{
-      const owner=await principal(c,'creator'),db=requirePool(),state=await editor(db,owner);
-      if(!state.publication_id) throw unavailable();
-      const draft=await proDraft(db,state.id);
-      return c.html(proEditor(state,draft,csrf(cookie(c)!),pro.multipage,Boolean((await billing!.status(owner))?.active),c.req.query('review')==='1'&&draft.revision>0));
-    });
-    app.post('/editor/pro',async c=>{
-      const owner=await principal(c,'creator'),db=requirePool(),state=await editor(db,owner),fields=await c.req.parseBody();
-      checkCsrf(c,fields.csrf);
-      if(!state.publication_id) throw unavailable();
-      const draft=await proDraft(db,state.id);
-      const content=normalizePro(fields,draft,pro.multipage);
-      const version=typeof fields.version==='string'&&/^\d{1,9}$/.test(fields.version)?Number(fields.version):null;
-      const saved=version===null?null:await db.query('UPDATE pro_drafts SET content=$1,revision=revision+1 WHERE home_id=$2 AND revision=$3',
-        [content,state.id,version]);
-      if(!saved?.rowCount) throw new AppError(409,'conflict','The Pro draft changed. Reopen it before saving.');
-      return c.redirect('/editor/pro?review=1',303);
-    });
-    for(const kind of ['preview','free-preview'] as const) app.post('/editor/pro/'+kind,async c=>{
-      const owner=await principal(c,'creator'),db=requirePool(),state=await editor(db,owner),fields=await c.req.parseBody();
-      checkCsrf(c,fields.csrf);
-      if(state.draft_revision!==Number(fields.revision)) throw new AppError(409,'conflict','The Free draft changed. Review it again.');
-      const draft=kind==='preview'?await proDraft(db,state.id):null;
-      const page=typeof fields.page==='string'&&fields.page?fields.page:undefined;
-      if(draft&&(draft.revision!==Number(fields.version)||(page&&![draft.content.highlights?.id,draft.content.recommendations?.id].includes(page)))) throw unavailable();
-      return c.html(renderHome(state.content,{now:clock(),preview:true,asset:id=>'/editor/assets/'+id,
-        pro:draft?.content,currentPage:page}));
-    });
-    app.post('/editor/pro/publish',async c=>{
-      const owner=await principal(c,'creator'),fields=await c.req.parseBody();
-      checkCsrf(c,fields.csrf);
-      requireHomeWrites();
-      if(fields.approved!=='1') throw invalid('approved','Review the Free fallback and Pro pages before publishing.');
-      await mutate(requirePool(),owner,'publish',{revision:Number(fields.revision),proVersion:Number(fields.version),
-        publicationId:fields.publication||null,operationId:fields.operation},clock(),pro);
-      return c.redirect('/editor',303);
-    });
-  }
   const selection=(value:Record<string,unknown>):Selection=>({name:value.name==='1',intro:value.intro==='1',image:value.image==='1'});
   const shareProof=(session:string,pub:string,fingerprint:string)=>createHmac('sha256',session).update('lobby:preview:'+pub+':'+fingerprint).digest('hex');
   app.get('/editor/share',async c=>{
@@ -765,7 +695,8 @@ export function createApp(config:Configuration={}) {
     }
     const channel=await linkedChannel(db,owner,content);
     const signal=channel?await activity!.get(channel,content.layout.spotlight.offlineLead==='clip'):undefined;
-    return c.html(renderHome(content,{now,notice,liveState:signal,preview:true,embedded,editCanvas:embedded&&fields.mode==='edit',phone:fields.width==='phone',asset:id=>'/editor/assets/'+id}));
+    // The preview of unsaved values is the page that fans see.
+    return c.html(renderPage(content,{now,notice,liveState:signal,asset:id=>'/editor/assets/'+id,...await channelParts(channel,content)}));
   });
   for(const action of ['save','publish','unpublish'] as const) {
     app.post('/api/editor/'+action,async c=>{
@@ -845,10 +776,7 @@ export function createApp(config:Configuration={}) {
     const handle=await homeHandle(db,home.id);
     const canonical=handle?siteOrigin+'/'+handle:homeUrl;
     const channel=await linkedChannel(db,home.owner_id,home.content);
-    const fixture=await liveState(home.id,config.demo?c.req.query('demo-live'):undefined);
-    const signal=fixture.live?fixture:channel?await activity!.get(channel,home.content.layout.spotlight.offlineLead==='clip'):fixture;
-    const paid=pro?await publicPro(db,home.id,home.publication_id):null;
-    if(paid&&!pro?.multipage) { paid.highlights=null; paid.recommendations=null; }
+    const signal=channel?await activity!.get(channel,home.content.layout.spotlight.offlineLead==='clip'):undefined;
     const preview=await approvedPreview(db,home)??previewFields(home.content,{name:false,intro:false,image:false});
     if(channel) {
       const current=await publicHome(db,id,channel.subject);
@@ -857,9 +785,6 @@ export function createApp(config:Configuration={}) {
     const metadata={title:preview.title,description:preview.description,
       image:preview.coverId?homeUrl+'/share-image/'+home.publication_id:undefined};
     const asset=(id:string)=>'/h/'+home.id+'/images/'+id;
-    // A Home with Pro content keeps the old page until the Pro parts have a place on the new one.
-    if(paid) return c.html(renderHome(home.content,{now:clock(),liveState:signal,refreshActivity:Boolean(channel),appHandoff:config.appHandoff,
-      report:'/h/'+home.id+'/report',homeId:home.id,pro:paid,notice:home.schedule_change,asset,canonical,metadata}));
     return c.html(renderPage(home.content,{now:clock(),liveState:signal,stream:'/h/'+home.id+'/stream',
       ...await channelParts(channel,home.content),appHandoff:config.appHandoff,
       report:'/h/'+home.id+'/report',notice:home.schedule_change,asset,canonical,metadata}));
@@ -873,18 +798,6 @@ export function createApp(config:Configuration={}) {
     return sendImage(bytes);
   });
 
-  if(pro?.multipage) app.get('/h/:homeId/p/:pageId',async c=>{
-    const db=requirePool(),home=await publicHome(db,c.req.param('homeId')),page=c.req.param('pageId');
-    if(!uuidPattern.test(page)) throw unavailable();
-    const paid=await publicPro(db,home.id,home.publication_id);
-    if(!paid||![paid.highlights?.id,paid.recommendations?.id].includes(page)) {
-      const known=await db.query('SELECT 1 FROM pro_page_history WHERE home_id=$1 AND page_id=$2',[home.id,page]);
-      if(!known.rowCount) throw unavailable();
-      return c.html(messagePage('This page is no longer available','The creator’s Home is still available.','/h/'+home.id,'Open creator home'),410);
-    }
-    return c.html(renderHome(home.content,{now:clock(),asset:id=>'/h/'+home.id+'/images/'+id,pro:paid,
-      homeId:home.id,currentPage:page,canonical:(origin??new URL(c.req.url).origin)+'/h/'+home.id+'/p/'+page}));
-  });
   app.post('/ops/fan-reports/:id/resolve',async c=>{
     const actor=await principal(c,'operator'), fields=await c.req.parseBody(),id=c.req.param('id');
     checkCsrf(c,fields.csrf);
@@ -929,25 +842,8 @@ export function createApp(config:Configuration={}) {
     const result=await inspectPublication(requirePool(),actor,id);
     if(!result.content) return c.html(messagePage('No current publication','The home remains held and no publication is set.','/ops/cases/'+id,'Back to case'));
     const asset=(asset:string)=>'/ops/cases/'+id+'/publication/'+result.publicationId+'/images/'+asset;
-    // The reviewer sees the publication on the page that fans see. A Home with Pro content keeps the old page, as it does for fans.
-    if(!pro||!result.pro) return c.html(renderPage(result.content,{now:clock(),review:'/ops/cases/'+id,asset}));
-    return c.html(renderHome(result.content,{now:clock(),review:true,pro:result.pro,
-      proBase:'/ops/cases/'+id+'/publication/'+result.publicationId,asset}));
-  });
-  if(pro?.multipage) app.get('/ops/cases/:id/publication/:publicationId/p/:pageId',async c=>{
-    const actor=await principal(c,'operator'),id=c.req.param('id'),publication=c.req.param('publicationId'),page=c.req.param('pageId');
-    if(!uuidPattern.test(publication)||!uuidPattern.test(page)) throw unavailable();
-    const result=await inspectPublication(requirePool(),actor,id,undefined,publication);
-    if(!result.content||!result.pro||![result.pro.highlights?.id,result.pro.recommendations?.id].includes(page)) throw unavailable();
-    return c.html(renderHome(result.content,{now:clock(),review:true,pro:result.pro,
-      proBase:'/ops/cases/'+id+'/publication/'+publication,currentPage:page,asset:asset=>'/ops/cases/'+id+'/publication/'+publication+'/images/'+asset}));
-  });
-  if(pro) app.get('/ops/cases/:id/publication/:publicationId',async c=>{
-    const actor=await principal(c,'operator'),id=c.req.param('id'),publication=c.req.param('publicationId');
-    const result=await inspectPublication(requirePool(),actor,id,undefined,publication);
-    if(!result.content) throw unavailable();
-    return c.html(renderHome(result.content,{now:clock(),review:true,pro:result.pro,
-      proBase:'/ops/cases/'+id+'/publication/'+publication,asset:asset=>'/ops/cases/'+id+'/publication/'+publication+'/images/'+asset}));
+    // The reviewer sees the publication on the page that fans see.
+    return c.html(renderPage(result.content,{now:clock(),review:'/ops/cases/'+id,asset}));
   });
   app.get('/ops/cases/:id/publication/:publicationId/images/:asset',async c=>{
     const actor=await principal(c,'operator'),db=requirePool(),id=c.req.param('id');
@@ -970,16 +866,6 @@ export function createApp(config:Configuration={}) {
       return c.redirect('/ops/cases/'+id,303);
     });
   }
-  if(config.demo) app.get('/demo/leaderboard',c=>c.html(leaderboardDemo(clock(),c.req.query('state')==='low')));
-  if(config.demo) app.get('/demo',async c=>{
-    const quiet=c.req.query('state')==='quiet';
-    const future=new Date(clock()+86400000);
-    const content={...emptyHome,displayName:'Mira Vale',intro:'Cozy strategy, questionable shortcuts.',game:'Hades II',
-      streamUrl:'https://www.twitch.tv/',theme:'Nebula' as const,links:[{label:'Stream archive',url:'https://www.youtube.com/'}],
-      updates:[{id:randomUUID(),text:'Another attempt at the surface route next time.',firstPublishedAt:new Date(clock()).toISOString()}],
-      sessions:quiet?[]:[{id:randomUUID(),title:'Surface route practice',local:future.toISOString().slice(0,16),zone:'UTC',offset:'+00:00',instant:future.toISOString()}]};
-    return c.html(renderHome(content,{now:clock(),asset:()=>'',demo:true,liveState:await liveState('demo',c.req.query('demo-live'))}));
-  });
   // Every route above wins over a handle. An earlier handle or another letter case forwards to the current handle.
   app.get('/:handle',async c=>{
     if(!pool) return c.notFound();

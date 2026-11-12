@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readFileSync } from 'node:fs';
 import { createApp } from '../src/app.ts';
 import { defaultAura } from '../src/aura.ts';
-import { themeNames } from '../src/domain.ts';
 import { newHome, normalizeHome, readHome, writeHome } from '../src/home-cards.ts';
 import { contrast, toHex, toHsl } from '../src/public/contrast.js';
 import { artPalette, nearestTheme, paletteCss, paletteReadable, skinPath, statusColors } from '../src/public/palette.js';
-import { renderHome } from '../src/views.ts';
+import { renderPage } from '../src/page.ts';
 
 const id='00000000-0000-4000-8000-000000000001';
 const cover='00000000-0000-4000-8000-000000000002';
@@ -16,7 +14,7 @@ const base=readHome(newHome(id),id);
 const content={...base,displayName:'NovaByte',intro:'Speedruns and bad puns',streamUrl:'https://twitch.tv/novabyte'};
 const neon={base:'#12062b',second:'#2ee6f0'};
 const neonAura={...defaultAura,accent:'#ff5fae',accentSource:'art' as const,palette:neon};
-const view=(value:typeof content)=>String(renderHome(value,{now,asset:asset=>'/img/'+asset}));
+const view=(value:typeof content)=>String(renderPage(value,{now,asset:asset=>'/img/'+asset}));
 const fieldError=(key:string)=>(error:unknown)=>Boolean((error as {fields?:Record<string,string>}).fields?.[key]);
 const degrees=(color:string)=>toHsl([1,3,5].map(at=>parseInt(color.slice(at,at+2),16)/255))[0]*60;
 
@@ -128,15 +126,6 @@ test('a palette with a pair below its minimum is not readable',()=>{
   assert.ok(!paletteReadable({...palette,on:palette.accent}));
 });
 
-test('the status colours are the error and success tokens of each theme',()=>{
-  const css=readFileSync(new URL('../src/public/lobby.css',import.meta.url),'utf8');
-  for(const theme of themeNames) {
-    const block=css.match(new RegExp('\\[data-theme='+theme+'\\] \\{([^}]+)\\}'))![1];
-    const token=(name:string)=>block.match(new RegExp('--'+name+':(#[0-9A-F]{6});'))![1].toLowerCase();
-    assert.deepEqual(statusColors[theme],{error:token('error'),success:token('success')});
-  }
-});
-
 test('the skin stylesheet sets every colour token on the root',()=>{
   const palette=artPalette({base:'#ffe9c9',second:'#5b3a5e',accent:'#e8697d'})!;
   const css=paletteCss(palette);
@@ -202,34 +191,16 @@ test('a theme change from an older editor leaves the art palette',()=>{
   assert.equal(moved.theme,'Tide');
 });
 
-test('a home with an art palette links its skin stylesheet and shows the blurred banner',()=>{
+test('a home with an art palette links its skin stylesheet after the page stylesheet',()=>{
   const page=view({...content,theme:'Nebula',coverId:cover,aura:neonAura});
-  assert.match(page,/<link rel="stylesheet" href="\/assets\/lobby\.css[^"]*">\s*<link rel="stylesheet" href="\/assets\/skin\/1\/12062b-2ee6f0-ff5fae\.css">/);
+  assert.match(page,/<link rel="stylesheet" href="\/assets\/page\.css[^"]*">\s*<link rel="stylesheet" href="\/assets\/skin\/1\/12062b-2ee6f0-ff5fae\.css">/);
   assert.match(page,/<html lang="en" data-theme="Nebula">/);
   assert.match(page,/<meta name="color-scheme" content="dark">/);
-  assert.match(page,/<article class="creator card-home" data-aura-home data-art-palette /);
-  assert.match(page,/<div class="art-backdrop" aria-hidden="true"><img src="\/img\/00000000-0000-4000-8000-000000000002" alt=""><\/div>/);
   const light=view({...content,theme:'Paper',coverId:cover,aura:{...defaultAura,palette:{base:'#ffe9c9',second:null}}});
   assert.match(light,/<meta name="color-scheme" content="light">/);
   assert.match(light,/href="\/assets\/skin\/1\/ffe9c9-0-0\.css"/);
 });
 
-test('the blurred banner needs a cover and an intensity above Off',()=>{
-  assert.doesNotMatch(view({...content,theme:'Nebula',aura:neonAura}),/art-backdrop/);
-  assert.doesNotMatch(view({...content,theme:'Nebula',coverId:cover,aura:{...neonAura,intensity:'off'}}),/art-backdrop/);
-});
-
-test('a home on a theme has no skin stylesheet and no blurred banner',()=>{
-  const page=view({...content,coverId:cover});
-  assert.doesNotMatch(page,/assets\/skin|art-backdrop|data-art-palette/);
-});
-
-test('the stylesheet paints labels with the second colour and keeps cards opaque',()=>{
-  const css=readFileSync(new URL('../src/public/lobby.css',import.meta.url),'utf8');
-  assert.match(css,/:root,\[data-theme=Nebula\] \{[^}]*--second:var\(--muted\)/);
-  assert.match(css,/\[data-aura-home\] \.micro \{ color:var\(--second\); \}/);
-  assert.match(css,/\[data-art-palette\] \.avatar \{[^}]*var\(--second\)/);
-  assert.match(css,/\.art-backdrop \{[^}]*pointer-events:none/);
-  assert.match(css,/\.art-backdrop img \{[^}]*filter:blur\(/);
-  assert.doesNotMatch(css,/\[data-art-palette\] \.home-card \{[^}]*background/);
+test('a home on a theme has no skin stylesheet',()=>{
+  assert.doesNotMatch(view({...content,coverId:cover}),/assets\/skin/);
 });

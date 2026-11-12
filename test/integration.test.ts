@@ -102,7 +102,8 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       imagePath='/h/'+id+'/images/'+avatar;
       const preview=await post('/editor/preview',{csrf:csrf(creatorCookie),content:JSON.stringify({...content,avatarId:avatar})},creatorCookie);
       assert.equal(preview.status,200);
-      assert.match(await preview.text(),/Private preview.*Mira Vale/s);
+      // The preview of unsaved values is the page that fans see.
+      assert.match(await preview.text(),/<main class="pg".*class="pg-name">Mira Vale/s);
       assert.equal((await get(imagePath)).status,404);
       const draft={operationId:randomUUID(),revision:0,content:{...content,avatarId:avatar,coverId:avatar}};
       assert.equal((await change('save',draft,creatorCookie,'wrong')).status,403);
@@ -311,7 +312,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       validation=accepted;
       assert.equal(await editorStatus(),401);
     });
-    await t.test('test Stripe access gates atomic Pro pages and preserves the Free fallback',async()=>{
+    await t.test('test Stripe access comes only from a verified event, and the Free page does not depend on it',async()=>{
       const next='MiraNew@example.test';
       const sid=await login(next);
       const state=await (await get('/api/editor',sid)).json();
@@ -336,7 +337,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
         }
         return new Response('',{status:404});
       };
-      const config={pool,origin,mail:async()=>{},billing:{secret:'sk_test_fixture',price:'price_fixture',webhookSecret:'whsec_fixture',http},pro:{multipage:true}};
+      const config={pool,origin,mail:async()=>{},billing:{secret:'sk_test_fixture',price:'price_fixture',webhookSecret:'whsec_fixture',http}};
       const product=createApp(config);
       const request=(path:string,values?:Record<string,string>,as=sid)=>product.request(origin+path,{
         headers:{Cookie:as,Origin:origin},...(values?{method:'POST',body:new URLSearchParams({...values,csrf:csrf(as)})}:{}),
@@ -367,38 +368,15 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal((await event('evt_fixture_1')).status,200);
       assert.equal((await event('evt_fixture_1')).status,200);
       assert.equal(fetches,1);
-      // A version that is not a number is a conflict, not a failure of the service.
-      assert.equal((await request('/editor/pro',{version:'abc',appearance:'arcade'})).status,409);
-      assert.equal((await request('/editor/pro',{appearance:'arcade'})).status,409);
-      assert.equal((await request('/editor/pro',{version:'0',appearance:'arcade',videoTitle:'A synthetic clip',
-        videoUrl:'https://www.youtube.com/watch?v=M7lc1UVf-VE',highlightsTitle:'Highlights',label1:'A creator pick',
-        url1:'https://example.test/pick'})).status,303);
-      const draft=(await pool.query('SELECT highlights_id,revision FROM pro_drafts WHERE home_id=$1',[id])).rows[0];
-      const path='/h/'+id+'/p/'+draft.highlights_id;
-      assert.equal((await request(path)).status,404);
-      const result=await request('/editor/pro/publish',{revision:String(state.draft_revision),version:String(draft.revision),
-        publication:original,operation:randomUUID(),approved:'1'});
-      assert.equal(result.status,303,await result.text());
-      const page=await request(path);
-      assert.equal(page.status,200);
-      assert.match(await page.text(),/A synthetic clip.*Load YouTube player/s);
-      const home=await (await request('/h/'+id)).text();
-      assert.match(home,/A creator pick/);
-      assert.doesNotMatch(home,/<iframe/);
-      const current=(await (await get('/api/editor',sid)).json()).publication_id;
-      const ordinaryPublish=await change('publish',{operationId:randomUUID(),revision:state.draft_revision,publicationId:current},sid);
-      assert.equal(ordinaryPublish.status,200);
-      assert.equal((await request(path)).status,200);
-      assert.match(await (await request('/h/'+id)).text(),/A creator pick/);
+      assert.match(await (await request('/account/billing')).text(),/Verified state: Test access active/);
+      // The Pro prototype is removed (RDY D-2TSPY). Its editor and its subpages are not served, and the Free page stays.
+      assert.equal((await request('/editor/pro')).status,404);
+      assert.equal((await request('/h/'+id+'/p/'+randomUUID())).status,404);
+      assert.match(await (await request('/h/'+id)).text(),/Open stream on Twitch/);
       subscriptionStatus='canceled';
       assert.equal((await event('evt_fixture_2')).status,200);
-      assert.equal((await request(path)).status,410);
-      const free=await (await request('/h/'+id)).text();
-      assert.match(free,/Open stream on Twitch/);
-      assert.doesNotMatch(free,/A creator pick/);
-      subscriptionStatus='active';
-      assert.equal((await event('evt_fixture_3')).status,200);
-      assert.equal((await request(path)).status,410);
+      assert.doesNotMatch(await (await request('/account/billing')).text(),/Test access active/);
+      assert.match(await (await request('/h/'+id)).text(),/Open stream on Twitch/);
     });
     await t.test('Twitch aliases honor the linked identity and explicit publication',async()=>{
       const cookie=await login('MiraNew@example.test');
@@ -492,17 +470,16 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const promo={family:'promo',id:randomUUID(),hidden:false,size:'expanded',category:'Giveaway',
         title:'Supporter giveaway',description:'Check the details.',url:'https://example.test/giveaway'};
       next.layout.supporting.unshift(promo);
-      const phone=await post('/editor/preview',{csrf:csrf(cookie),width:'phone',content:JSON.stringify(next)},cookie);
-      assert.equal(phone.status,200,await phone.clone().text());
-      const phonePage=await phone.text();
-      assert.match(phonePage,/phone-preview/);
-      assert.match(phonePage,/data-card="spotlight".*data-card="dock".*data-card="promo".*Supporter giveaway.*class="promo-description">Check the details/s);
-      const sameFrame=structuredClone(next);
-      sameFrame.layout.spotlight.size='compact';
-      sameFrame.layout.supporting[0].size='compact';
-      assert.equal(await (await post('/editor/preview',{csrf:csrf(cookie),width:'phone',content:JSON.stringify(sameFrame)},cookie)).text(),phonePage);
+      const preview=await post('/editor/preview',{csrf:csrf(cookie),content:JSON.stringify(next)},cookie);
+      assert.equal(preview.status,200,await preview.clone().text());
+      // The preview of unsaved values is the page that fans see. It has no part of the removed card canvas.
+      const previewPage=await preview.text();
+      assert.match(previewPage,/<main class="pg"/);
+      assert.match(previewPage,/A private card draft.*Supporter giveaway/s);
+      assert.match(previewPage,/<a class="pg-pill" href="https:\/\/example\.test\/giveaway">/);
+      assert.doesNotMatch(previewPage,/lobby\.css|data-card=|data-canvas-card=|phone-preview/);
       assert.doesNotMatch(await (await get('/editor',cookie)).text(),/Content variant/);
-      const embedded=await post('/editor/preview',{csrf:csrf(cookie),width:'phone',embedded:'1',content:JSON.stringify(next)},cookie);
+      const embedded=await post('/editor/preview',{csrf:csrf(cookie),embedded:'1',content:JSON.stringify(next)},cookie);
       assert.equal(embedded.status,200,await embedded.clone().text());
       assert.equal(embedded.headers.get('x-frame-options'),'SAMEORIGIN');
       assert.match(embedded.headers.get('content-security-policy')!,/frame-ancestors 'self'/);
@@ -515,23 +492,6 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       next.layout.dock.column=7;
       next.layout.supporting[0].span=5;
       next.layout.supporting[0].minHeight=288;
-      for(const [width,mode] of [['phone','edit'],['desktop','visitor']]) {
-        const preview=await post('/editor/preview',{csrf:csrf(cookie),width,embedded:'1',mode,content:JSON.stringify(next)},cookie);
-        assert.equal(preview.status,200,await preview.clone().text());
-        const page=await preview.text();
-        assert.match(page,/data-card="identity".*data-card="spotlight".*data-card="promo".*data-card="dock"/s);
-        assert.doesNotMatch(page,/data-card="schedule"/);
-        if(mode==='edit') {
-          assert.match(page,/data-canvas-card="dock" data-movable-card data-span="6" data-height="176" data-column="7">\s*<div inert data-canvas-body>.*?class="dock-summary".*?<summary>More channels<\/summary>.*?class="dock-full".*?data-resize-edge="bottom-right".*?aria-label="Edit Channel Dock"/s);
-          assert.doesNotMatch(page,/data-canvas-alternate|data-size=/);
-          assert.doesNotMatch(page,/data-canvas-card="(?:identity|spotlight)" data-movable-card|class="canvas-grip"/);
-          assert.doesNotMatch(page,/aria-label="Reorder (Creator Identity|Spotlight)"/);
-        } else {
-          assert.doesNotMatch(page,/data-canvas-card=|data-canvas-alternate|data-resize-edge=/);
-          assert.match(page,/<base target="_blank">.*href="https:\/\/example.test\/giveaway"/s);
-          assert.match(page,/data-card="promo"[^>]*data-span="5" data-height="288".*data-card="dock"[^>]*data-span="6" data-height="176" data-column="7"/s);
-        }
-      }
 
       next.theme='Paper';
       next.aura={...next.aura,frame:'holo',accent:'#5a3cf0',accentSource:'custom'};
@@ -609,8 +569,8 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal(rows[1].content.schemaVersion,2);
       const sparse={...next,streamUrl:'',links:[],layout:{...next.layout,supporting:next.layout.supporting.map(card=>({...card,hidden:true}))}};
       const emptyPage=await (await post('/editor/preview',{csrf:csrf(cookie),content:JSON.stringify(sparse)},cookie)).text();
-      assert.match(emptyPage,/data-card="identity"/);
-      assert.doesNotMatch(emptyPage,/data-card="(?:spotlight|dock|promo|schedule)"/);
+      assert.match(emptyPage,/class="pg-name"/);
+      assert.doesNotMatch(emptyPage,/class="pg-card"|class="pg-links"|class="pg-h"/);
     });
     await t.test('sign-in forgives letter case when exactly one stored mailbox matches',async()=>{
       const stored='Casey.Stream@example.test', twin='casey.stream@example.test';

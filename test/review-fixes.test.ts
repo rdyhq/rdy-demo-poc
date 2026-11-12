@@ -1,18 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createApp } from '../src/app.ts';
-import { defaultAura } from '../src/aura.ts';
-import { emptyHome } from '../src/domain.ts';
 import { describeFailure } from '../src/failure.ts';
-import { renderHome } from '../src/views.ts';
 
 const now=Date.parse('2027-07-12T00:00:00Z');
-
-test('a Pro preview of an empty Pro draft renders the Home',async()=>{
-  const page=String(await renderHome({...emptyHome,displayName:'Mira Vale',intro:'Cozy strategy.'},{now,asset:()=>'',preview:true,pro:{} as never}));
-  assert.match(page,/Mira Vale/);
-  assert.doesNotMatch(page,/Creator picks|FEATURED VIDEO/);
-});
 
 test('a failure is logged with its kind and place, without its message',()=>{
   const failure=Object.assign(new Error('duplicate key value: (mailbox)=(mira@example.test)'),{code:'23505'});

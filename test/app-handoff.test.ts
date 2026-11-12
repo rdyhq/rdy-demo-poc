@@ -4,11 +4,11 @@ import { createApp } from '../src/app.ts';
 import { appLink } from '../src/app-link.ts';
 import { emptyHome } from '../src/domain.ts';
 import { handOff, isPhone } from '../src/public/handoff.js';
-import { renderHome } from '../src/views.ts';
+import { renderPage } from '../src/page.ts';
 
 const now=Date.parse('2027-07-12T00:00:00Z');
 const home={...emptyHome,displayName:'Mira Vale',intro:'Cozy strategy.',streamUrl:'https://www.twitch.tv/MiraVale'};
-const page=async(appHandoff:boolean,streamUrl=home.streamUrl)=>String(await renderHome({...home,streamUrl},{now,asset:()=>'',appHandoff}));
+const page=async(appHandoff:boolean,streamUrl=home.streamUrl)=>String(renderPage({...home,streamUrl},{now,asset:()=>'',appHandoff}));
 
 test('a Twitch channel link has the app link that Twitch documents',()=>{
   assert.equal(appLink('https://www.twitch.tv/MiraVale'),'twitch://stream/miravale');
@@ -23,10 +23,10 @@ test('a link with no documented app format has no app link',()=>{
 
 test('the watch action carries the app link only when the hand-off is released',async()=>{
   const released=await page(true);
-  assert.match(released,/<a class="button" href="https:\/\/www\.twitch\.tv\/MiraVale" data-app-link="twitch:\/\/stream\/miravale">/);
+  assert.match(released,/<a class="pg-watch" href="https:\/\/www\.twitch\.tv\/MiraVale" data-app-link="twitch:\/\/stream\/miravale">/);
   assert.match(released,/<script type="module" src="\/assets\/handoff\.js"><\/script>/);
   const held=await page(false);
-  assert.match(held,/<a class="button" href="https:\/\/www\.twitch\.tv\/MiraVale">/);
+  assert.match(held,/<a class="pg-watch" href="https:\/\/www\.twitch\.tv\/MiraVale">/);
   assert.doesNotMatch(held,/data-app-link|handoff\.js/);
   assert.doesNotMatch(await page(true,'https://kick.com/miravale'),/data-app-link|handoff\.js/);
 });
