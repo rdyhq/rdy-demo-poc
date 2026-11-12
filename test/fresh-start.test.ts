@@ -101,7 +101,11 @@ test('a part with no content does not show',()=>{
 
 test('a preview carries the claim action and no report link',()=>{
   const preview=page(home,{claim:'novabyte'});
-  assert.match(preview,/<aside class="pg-sheet">\s*<h2>That is you, NovaByte\.<\/h2>/);
+  assert.match(preview,/<aside class="pg-sheet">\s*<h2>That is you, NovaByte\.<\/h2><p>The colours and the font come from your channel\.<\/p>/);
+  // A channel with no art gets no matched colours, so the preview does not say that it has them.
+  const plain=page({...base,displayName:'Solo'},{claim:'solo'});
+  assert.match(plain,/<h2>That is you, Solo\.<\/h2><p>You pick the look after you claim it\.<\/p>/);
+  assert.doesNotMatch(plain,/come from your channel/);
   assert.match(preview,/<form method="post" action="\/auth\/twitch"><input type="hidden" name="claim" value="novabyte"><button>Claim linb\.io\/novabyte<\/button><\/form>/);
   assert.match(preview,/<a href="\/">Try another name<\/a>/);
   assert.doesNotMatch(preview,/Report this page/);
