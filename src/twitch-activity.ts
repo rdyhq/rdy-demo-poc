@@ -116,7 +116,9 @@ export class TwitchActivity {
         }
         const [stream]=rows;
         if(stream?.type!=='live'||stream.user_id!==channel.subject||stream.user_login!==channel.login) return unavailable;
-        return {live:true,verified:true,title:title(stream.title),viewers:validCount(stream.viewer_count)?stream.viewer_count:undefined};
+        const picture=typeof stream.thumbnail_url==='string'?artUrl(stream.thumbnail_url.replace('{width}','960').replace('{height}','540')):null;
+        return {live:true,verified:true,title:title(stream.title),viewers:validCount(stream.viewer_count)?stream.viewer_count:undefined,
+          ...(picture?{picture}:{})};
       } catch { return unavailable; }
     });
     if(stream.live||!stream.verified||!includeClip) return stream;

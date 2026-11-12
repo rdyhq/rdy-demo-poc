@@ -55,6 +55,14 @@ test('the live card shows a stream only while a provider verifies it',()=>{
   assert.match(live,/<p class="pg-card-title">Any% practice<\/p>/);
   assert.match(live,/1,284 watching/);
   assert.match(live,/<a class="pg-watch" href="https:\/\/www\.twitch\.tv\/novabyte">Watch on Twitch<\/a>/);
+  // The picture in the live card is the stream. The banner of the channel never stands in for it.
+  assert.doesNotMatch(live,/pg-thumb/);
+  const picture='https://static-cdn.jtvnw.net/previews-ttv/live_user_novabyte-960x540.jpg';
+  const shown=page(home,{liveState:{live:true,verified:true,title:'Any% practice',viewers:1284,picture},stream:'/h/x/stream'});
+  assert.match(shown,/<section class="pg-card" aria-label="Stream"><img class="pg-thumb" src="\/h\/x\/stream" alt=""><p class="pg-card-title">Any% practice<\/p>/);
+  assert.ok(!shown.includes(picture));
+  assert.doesNotMatch(page(home,{liveState:{live:true,verified:true,picture}}),/pg-thumb/);
+  assert.doesNotMatch(page(home,{liveState:{live:false,verified:true,picture},stream:'/h/x/stream'}),/pg-thumb/);
   for(const state of [undefined,{live:true,verified:false,viewers:9},{live:false,verified:true}]) {
     const quiet=page(home,{liveState:state});
     assert.doesNotMatch(quiet,/pg-live|watching/);
@@ -169,8 +177,8 @@ const art=(width:number,height:number,color:string)=>sharp({create:{width,height
   .composite([{input:{create:{width:Math.round(width/3),height,channels:3,background:'#ff3d9a'}},left:0,top:0}]).png().toBuffer();
 function twitchStub() {
   const calls:string[]=[];
-  // Twitch gives no answer while this is set.
-  const state={down:false};
+  // Twitch gives no answer while down is set. The channel streams while live is set.
+  const state={down:false,live:false};
   const http=async(input:RequestInfo|URL)=>{
     const url=new URL(String(input));
     calls.push(url.pathname+url.search);
@@ -183,7 +191,8 @@ function twitchStub() {
         offline_image_url:cdn+'nova-channel_offline_image-1920x1080.png'}]:[]});
     }
     if(url.pathname==='/helix/channels') return Response.json({data:[{broadcaster_id:'2002',game_name:'Neon Drift 2'}]});
-    if(url.pathname==='/helix/streams') return Response.json({data:[]});
+    if(url.pathname==='/helix/streams') return Response.json({data:state.live?[{type:'live',user_id:'2002',user_login:'novabyte',
+      title:'Any% practice',viewer_count:312,thumbnail_url:'https://static-cdn.jtvnw.net/previews-ttv/live_user_novabyte-{width}x{height}.jpg'}]:[]});
     if(url.hostname==='static-cdn.jtvnw.net') {
       const bytes=url.pathname.includes('offline')?await art(1200,400,'#190838'):await art(300,300,'#1a0b3b');
       return new Response(Uint8Array.from(bytes),{headers:{'Content-Type':'image/png'}});
@@ -303,6 +312,26 @@ test('a visitor sees a preview of a Twitch channel with no account',{skip:!datab
       // The failure is not kept. The next try asks Twitch again.
       stub.state.down=false;
       assert.equal((await get('/preview/page?name=nightsignal')).headers.get('Location'),'/?missing=nightsignal');
+    });
+    await t.test('the preview of a live channel shows the picture of the stream',async()=>{
+      const live=twitchStub();
+      live.state.live=true;
+      const liveApp=createApp({pool,origin,mail:async()=>{},twitchActivity:{clientId:'app',clientSecret:'fixture',http:live.http},
+        clientAddress:()=>'198.51.100.30'});
+      const html=await (await get('/preview/page?name=novabyte',liveApp)).text();
+      assert.match(html,/<span class="pg-live">LIVE<\/span>/);
+      assert.match(html,/<img class="pg-thumb" src="\/preview\/art\/novabyte\/stream" alt=""><p class="pg-card-title">Any% practice<\/p><p class="pg-card-meta">312 watching<\/p>/);
+      const shot=await get('/preview/art/novabyte/stream',liveApp);
+      assert.equal(shot.status,200);
+      assert.equal(shot.headers.get('Content-Type'),'image/webp');
+      // The picture is kept for a minute: a second view asks the image host nothing more.
+      const asked=()=>live.calls.filter(call=>call.startsWith('/previews-ttv/live_user_novabyte-960x540.jpg')).length;
+      assert.equal(asked(),1);
+      assert.equal((await get('/preview/art/novabyte/stream',liveApp)).status,200);
+      assert.equal(asked(),1);
+      // An offline channel has no stream picture.
+      assert.equal((await get('/preview/art/novabyte/stream')).status,404);
+      assert.doesNotMatch(await (await get('/preview/page?name=novabyte')).text(),/pg-thumb/);
     });
     await t.test('without the Twitch connection the home page offers sign-in only',async()=>{
       const plain=createApp({pool,origin,mail:async()=>{}});

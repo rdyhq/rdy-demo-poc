@@ -52,6 +52,11 @@ export async function artPixels(bytes:Uint8Array|null) {
   return bytes?(await checked(Buffer.from(bytes)))?.pixels??null:null;
 }
 
+// The picture of a live stream, checked and stored like other imported art. A failed fetch gives no picture.
+export async function streamPicture(address:string,http:typeof fetch=fetch) {
+  return (await checked(await fetchArt(address,http)))?.display??null;
+}
+
 export type ChannelMatch={profile:TwitchProfile;art:{avatar:Buffer|null;banner:Buffer|null};skin:ReturnType<typeof suggestSkin>};
 
 // The first draft of a creator: the fields of the Twitch channel on top of a Home (RDY r-KQGNH).

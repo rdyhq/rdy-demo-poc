@@ -22,7 +22,7 @@ import { accentCss, artPalette, paletteCss, paletteVersion, skinColours, skinPat
 import { applySkin, chooseTheme } from './public/editor-support.js';
 import { matchColours, suggestSkin } from './public/art-match.js';
 import { linkTab, lookTab, pageTab, type EditorView } from './editor-screens.ts';
-import { artPixels, channelDraft, matchChannel, type ChannelMatch } from './twitch-channel.ts';
+import { artPixels, channelDraft, matchChannel, streamPicture, type ChannelMatch } from './twitch-channel.ts';
 import { renderPage } from './page.ts';
 import { buildingPage, confirmPage, landingPage, leavingPage, linksStep, liveStep, lookStep, messagePage, signInPage } from './screens.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
@@ -150,6 +150,19 @@ export function createApp(config:Configuration={}) {
     previews.set(login,entry);
     // Only a built preview waits. An absent channel or a failed answer is asked again.
     void entry.value.then(match=>{ if((!match||match==='unavailable')&&previews.get(login)===entry) previews.delete(login); },()=>previews.delete(login));
+    return entry.value;
+  }
+  // The picture of a live stream is kept for a minute, so that page views do not each ask the image host.
+  const shots=new Map<string,{until:number;value:Promise<Buffer|null>}>();
+  async function streamShot(channel:TwitchChannel) {
+    const state=await activity!.get(channel);
+    if(!state.live||!state.verified||!state.picture) return null;
+    const waiting=shots.get(channel.subject);
+    if(waiting&&waiting.until>clock()) return waiting.value;
+    shots.delete(channel.subject);
+    if(shots.size>=200) shots.delete(shots.keys().next().value!);
+    const entry={until:clock()+60_000,value:streamPicture(state.picture,config.twitchActivity!.http)};
+    shots.set(channel.subject,entry);
     return entry.value;
   }
   const requireHomeWrites=()=>{
@@ -297,13 +310,16 @@ export function createApp(config:Configuration={}) {
     const content=channelDraft(readHome(newHome(previewHome),previewHome),match,{avatar:art.avatar&&'avatar',banner:art.banner&&'banner'});
     c.header('Cache-Control','no-store');
     return c.html(renderPage(content,{now:clock(),claim:twitch?profile.login:undefined,
-      liveState:await activity.get({subject:profile.subject,login:profile.login}),asset:kind=>'/preview/art/'+profile.login+'/'+kind}));
+      liveState:await activity.get({subject:profile.subject,login:profile.login}),stream:'/preview/art/'+profile.login+'/stream',
+      asset:kind=>'/preview/art/'+profile.login+'/'+kind}));
   });
   app.get('/preview/art/:login/:kind',async c=>{
     const waiting=previews.get(c.req.param('login'));
     const match=waiting&&waiting.until>clock()?await waiting.value:null;
     const kind=c.req.param('kind');
-    const bytes=match&&match!=='unavailable'&&(kind==='avatar'||kind==='banner')?match.art[kind]:null;
+    const found=match&&match!=='unavailable'?match:null;
+    const bytes=found&&kind==='stream'?await streamShot({subject:found.profile.subject,login:found.profile.login})
+      :found&&(kind==='avatar'||kind==='banner')?found.art[kind]:null;
     if(!bytes) throw unavailable();
     return sendImage(bytes);
   });
@@ -794,10 +810,17 @@ export function createApp(config:Configuration={}) {
     // A Home with Pro content keeps the old page until the Pro parts have a place on the new one.
     if(paid) return c.html(renderHome(home.content,{now:clock(),liveState:signal,refreshActivity:Boolean(channel),appHandoff:config.appHandoff,
       report:'/h/'+home.id+'/report',homeId:home.id,pro:paid,notice:home.schedule_change,asset,canonical,metadata}));
-    return c.html(renderPage(home.content,{now:clock(),liveState:signal,appHandoff:config.appHandoff,
+    return c.html(renderPage(home.content,{now:clock(),liveState:signal,stream:'/h/'+home.id+'/stream',appHandoff:config.appHandoff,
       report:'/h/'+home.id+'/report',notice:home.schedule_change,asset,canonical,metadata}));
   }
   app.get('/h/:homeId',c=>renderPublicHome(c,c.req.param('homeId')));
+  app.get('/h/:homeId/stream',async c=>{
+    const db=requirePool(),home=await publicHome(db,c.req.param('homeId'));
+    const channel=await linkedChannel(db,home.owner_id,home.content);
+    const bytes=channel?await streamShot(channel):null;
+    if(!bytes) throw unavailable();
+    return sendImage(bytes);
+  });
 
   if(pro?.multipage) app.get('/h/:homeId/p/:pageId',async c=>{
     const db=requirePool(),home=await publicHome(db,c.req.param('homeId')),page=c.req.param('pageId');
