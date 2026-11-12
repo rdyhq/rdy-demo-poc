@@ -59,6 +59,7 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
   const promos='layout' in content?content.layout.supporting.flatMap(card=>
     card.family==='promo'&&!card.hidden&&card.title&&card.url?[{label:card.title,url:card.url}]:[]):[];
   const pills=[...content.links,...promos];
+  // While the creator is live, the banner does not show: the banner that Twitch gives is the offline banner (RDY D-B71JQ).
   // The picture in the live card is the stream. The banner of the channel never stands in for it.
   const lead=live?html`${state!.picture&&options.stream?html`<img class="pg-thumb" src="${options.stream}" alt="">`:''}<p class="pg-card-title">${state!.title||'Live now'}</p>${
       viewers===undefined?'':html`<p class="pg-card-meta">${viewers.toLocaleString('en-US')} watching</p>`}`
@@ -78,7 +79,7 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
       ${options.metadata.image?html`<meta property="og:image" content="${options.metadata.image}">`:''}`:''}
     ${app?html`<script type="module" src="/assets/handoff.js"></script>`:''}
     </head><body><main class="pg" data-font="${aura.font}">
-    <div class="pg-hero">${content.coverId?html`<img src="${options.asset(content.coverId)}" alt="">`:''}</div>
+    <div class="pg-hero">${content.coverId&&!live?html`<img src="${options.asset(content.coverId)}" alt="">`:''}</div>
     ${content.avatarId?html`<img class="pg-avatar" src="${options.asset(content.avatarId)}" alt="">`
       :html`<div class="pg-avatar pg-initials" aria-hidden="true">${initials}</div>`}
     <h1 class="pg-name">${name}${live?html` <span class="pg-live">LIVE</span>`:''}</h1>

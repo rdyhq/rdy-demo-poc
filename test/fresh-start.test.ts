@@ -57,6 +57,9 @@ test('the live card shows a stream only while a provider verifies it',()=>{
   assert.match(live,/<a class="pg-watch" href="https:\/\/www\.twitch\.tv\/novabyte">Watch on Twitch<\/a>/);
   // The picture in the live card is the stream. The banner of the channel never stands in for it.
   assert.doesNotMatch(live,/pg-thumb/);
+  // While the creator is live, the banner does not show (RDY D-B71JQ). The colours of the page stay.
+  assert.match(live,/<div class="pg-hero"><\/div>/);
+  assert.match(live,/href="\/assets\/skin\/1\/190838-/);
   const picture='https://static-cdn.jtvnw.net/previews-ttv/live_user_novabyte-960x540.jpg';
   const shown=page(home,{liveState:{live:true,verified:true,title:'Any% practice',viewers:1284,picture},stream:'/h/x/stream'});
   assert.match(shown,/<section class="pg-card" aria-label="Stream"><img class="pg-thumb" src="\/h\/x\/stream" alt=""><p class="pg-card-title">Any% practice<\/p>/);
@@ -66,6 +69,7 @@ test('the live card shows a stream only while a provider verifies it',()=>{
   for(const state of [undefined,{live:true,verified:false,viewers:9},{live:false,verified:true}]) {
     const quiet=page(home,{liveState:state});
     assert.doesNotMatch(quiet,/pg-live|watching/);
+    assert.match(quiet,/<div class="pg-hero"><img src="\/img\/[^"]+" alt=""><\/div>/);
     // Offline, the card leads with the next stream and keeps the way to the channel.
     assert.match(quiet,/<p class="pg-card-kicker">Next stream<\/p><p class="pg-card-title">Saturday speedrun block<\/p>/);
     assert.match(quiet,/<a class="pg-watch" href="https:\/\/www\.twitch\.tv\/novabyte">Open stream on Twitch<\/a>/);
