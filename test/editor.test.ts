@@ -166,9 +166,40 @@ test('the editor is a list with a preview, and each change saves by itself',{ski
       const {id}=await draft();
       assert.match(html,new RegExp('<input id="address" aria-label="The address of your page" readonly value="lobby\\.example\\.test/h/'+id+'">'));
       assert.match(html,/<button class="ed-quiet">Take my page down<\/button>/);
+      // The creator can copy the address or hand it to the share sheet of the device. Both buttons show when the script runs.
+      assert.match(html,/<div class="ed-share" data-share data-url="https:\/\/lobby\.example\.test\/h\/[0-9a-f-]+">/);
+      assert.match(html,/<button type="button" class="ed-secondary" data-copy hidden>Copy<\/button><button type="button" class="ed-secondary" data-system-share hidden>Share<\/button>/);
+      assert.match(html,/<p class="ed-fine" role="status"><\/p>/);
+      assert.match(html,/<script src="\/assets\/share\.js\?v=2" defer><\/script>/);
+      // The link preview and the texts to share have the look of the editor.
+      assert.match(html,/<a href="\/editor\/share">Link preview and texts to share<\/a>/);
+      const texts=await (await get('/editor/share',nova)).text();
+      assert.match(texts,/<body class="ed">/);
+      assert.match(texts,/<h1>Share your link<\/h1>/);
+      assert.match(texts,/<h2>Link preview<\/h2>/);
+      assert.match(texts,/<nav class="ed-tabs" aria-label="Editor"><a href="\/editor">Page<\/a><a href="\/editor\/look">Look<\/a><a href="\/editor\/link" aria-current="page">Share<\/a><\/nav>/);
+      assert.doesNotMatch(texts,/lobby\.css|class="panel|<iframe/);
       assert.equal((await send('/editor/unpublish',{})).status,303);
       assert.equal((await get('/h/'+id)).status,404);
       assert.match(await (await get('/editor/link',nova)).text(),/Your page is not published\./);
+    });
+
+    await t.test('the account has the look of the editor, and the editor leads to it',async()=>{
+      assert.match(await (await get('/editor',nova)).text(),/<a class="ed-account" href="\/account">Account<\/a>/);
+      const account=await get('/account',nova);
+      assert.equal(account.status,200);
+      const html=await account.text();
+      assert.match(html,/<body class="ed">/);
+      assert.match(html,/<a class="ed-account" href="\/account" aria-current="page">Account<\/a>/);
+      assert.match(html,/<h1>Account<\/h1>/);
+      assert.match(html,/<p>Your sign-in email: <strong>nova@example\.test<\/strong><\/p>/);
+      assert.match(html,/<form class="ed-inline" method="post" action="\/account\/mailbox">/);
+      assert.match(html,/<form method="post" action="\/logout"><input type="hidden" name="csrf" value="[0-9a-f]+"><button class="ed-quiet">Sign out<\/button><\/form>/);
+      // The account is one column. It has no preview of the page.
+      assert.match(html,/<div class="ed-body ed-solo">/);
+      assert.doesNotMatch(html,/lobby\.css|class="panel|<iframe|Creator workspace/);
+      // The sign-out ends the session.
+      assert.equal((await get('/account')).status,401);
     });
 
     await t.test('paused Home changes refuse each editor action',async()=>{

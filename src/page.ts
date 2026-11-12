@@ -45,7 +45,7 @@ function streamDay(start:string) {
 
 // A schedule change stays on the page until the later of its two times has passed.
 const slotLabel=(slot:SessionSlot)=>slot.local.replace('T',' ')+' '+slot.zone+' ('+slot.offset+')';
-function noticeCopy(notice:ScheduleChange|null|undefined,now:number) {
+export function noticeCopy(notice:ScheduleChange|null|undefined,now:number) {
   if(!notice||Math.max(Date.parse(notice.prior.instant),Date.parse(notice.next?.instant??notice.prior.instant))<=now) return null;
   return notice.prior.title+': '+notice.status+'. Previous time: '+slotLabel(notice.prior)+'.'+(notice.next?' New time: '+slotLabel(notice.next)+'.':'');
 }

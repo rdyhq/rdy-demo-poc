@@ -1,18 +1,23 @@
 import { html } from 'hono/html';
 import { artPalette, skinPath } from './public/palette.js';
 import { channelPlatform } from './home-cards.ts';
+import { nextSession, type HomeContent, type ScheduleChange } from './domain.ts';
 import type { HomeState } from './homes.ts';
+import { noticeCopy } from './page.ts';
 import { appStyles, lookCards } from './screens.ts';
+import { discordSchedule, type Selection } from './sharing.ts';
 
 // The editor of the fresh start (RDY D-TG9VX, section s-P8ZS4): three tabs, a list, and a preview of the page.
-type Tab='page'|'look'|'link';
+type Tab='page'|'look'|'link'|'account';
 // twitch: linb.io reads the linked Twitch channel for this Home, so the Page tab lists the parts from Twitch.
-export type EditorView={state:HomeState;csrf:string;error?:string;address?:string;path?:string;twitch?:boolean};
+// url: the full address of the published page, for the copy and share actions.
+export type EditorView={state:HomeState;csrf:string;error?:string;address?:string;path?:string;url?:string;twitch?:boolean};
 
 const hidden=(csrf:string)=>html`<input type="hidden" name="csrf" value="${csrf}">`;
 const shown=(url:string)=>url.replace(/^https:\/\/(www\.)?/,'').replace(/\/$/,'');
 
-function frame(title:string,tab:Tab,view:EditorView,body:unknown) {
+// solo: a screen with one column and no preview of the page. script: the one script that the screen needs.
+function frame(title:string,tab:Tab,view:EditorView,body:unknown,options:{solo?:boolean;script?:string}={}) {
   const {state,csrf}=view, {aura}=state.content;
   const art=aura.palette&&artPalette({...aura.palette,accent:aura.accent});
   const status=!state.publication_id?'Not published':state.published_revision===state.draft_revision?'Published':'Changes not published';
@@ -22,14 +27,16 @@ function frame(title:string,tab:Tab,view:EditorView,body:unknown) {
     <title>${title} · LINB</title><link rel="stylesheet" href="${appStyles}">
     ${art?html`<link rel="stylesheet" href="${skinPath(aura.palette,aura.accent)}">`:''}
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
+    ${options.script?html`<script src="${options.script}" defer></script>`:''}
     </head><body class="ed"><header class="ed-top"><a class="app-logo" href="/editor">LINB</a>
     <nav class="ed-tabs" aria-label="Editor">${link('page','/editor','Page')}${link('look','/editor/look','Look')}${link('link','/editor/link','Share')}</nav>
     <div class="ed-publish"><span class="ed-state">${status}</span>
-      <form method="post" action="/editor/publish">${hidden(csrf)}<button${status==='Published'||!state.draft_revision?html` disabled`:''}>Publish</button></form></div>
-    </header><div class="ed-body"><main class="ed-main">
+      <form method="post" action="/editor/publish">${hidden(csrf)}<button${status==='Published'||!state.draft_revision?html` disabled`:''}>Publish</button></form>
+      <a class="ed-account" href="/account"${tab==='account'?html` aria-current="page"`:''}>Account</a></div>
+    </header><div class="ed-body${options.solo?' ed-solo':''}"><main class="ed-main">
       ${view.error?html`<p class="app-note" role="alert">${view.error}</p>`:''}${body}</main>
-    <aside class="ed-side"><iframe class="ed-preview" title="Preview of your page" src="/editor/view"></iframe>
-      <a class="ed-open" href="/editor/view">Open the preview</a></aside></div>
+    ${options.solo?'':html`<aside class="ed-side"><iframe class="ed-preview" title="Preview of your page" src="/editor/view"></iframe>
+      <a class="ed-open" href="/editor/view">Open the preview</a></aside>`}</div>
     </body></html>`;
 }
 
@@ -77,10 +84,101 @@ export function lookTab(view:EditorView) {
       <p>Take the colours and the font from your avatar and banner.</p><button class="ed-secondary">Match my art</button></form>`);
 }
 
+// The address with its two actions. The script shows each button that the browser supports.
+const shareGroup=(address:string,url:string)=>html`<div class="ed-share" data-share data-url="${url}">
+    <label class="app-field app-copy" for="address"><input id="address" aria-label="The address of your page" readonly value="${address}"></label>
+    <div class="ed-share-actions"><button type="button" class="ed-secondary" data-copy hidden>Copy</button><button type="button" class="ed-secondary" data-system-share hidden>Share</button></div>
+    <p class="ed-fine" role="status"></p></div>`;
+
 export function linkTab(view:EditorView) {
   return frame('Share your page','link',view,html`<h1>Your address</h1>
-    ${view.address?html`<label class="app-field app-copy" for="address"><input id="address" aria-label="The address of your page" readonly value="${view.address}"></label>
+    ${view.address?html`${shareGroup(view.address,view.url??view.address)}
       <a class="app-primary" href="${view.path}">View my page</a>
+      <p class="ed-more"><a href="/editor/share">Link preview and texts to share</a></p>
       <form class="ed-down" method="post" action="/editor/unpublish">${hidden(view.csrf)}<button class="ed-quiet">Take my page down</button></form>`
-    :html`<p class="app-lead">Your page is not published. Select Publish to put it online.</p>`}`);
+    :html`<p class="app-lead">Your page is not published. Select Publish to put it online.</p>`}`,{script:'/assets/share.js?v=2'});
+}
+
+// The texts that a creator can paste elsewhere, and the choice of what a link preview shows.
+export function shareTexts(view:EditorView,home:{id:string;publication_id:string;content:HomeContent;schedule_change:ScheduleChange|null},url:string,
+  current:{title:string;description:string;coverId:string|null}|null,selection:Selection|null,proof:string|null,now:number) {
+  const {content}=home, {csrf}=view;
+  const slot=nextSession(content,now), change=noticeCopy(home.schedule_change,now);
+  const text=(label:string,value:string)=>html`<label class="ed-text">${label}<textarea readonly rows="2">${value}</textarea></label>`;
+  return frame('Share your link','link',view,html`<h1>Share your link</h1>
+    <p class="ed-lead">Each text uses your address. LINB does not post them for you.</p>
+    ${shareGroup(url,url)}
+    <h2>Texts to share</h2>
+    ${text('Stream bio','Find my stream and links: '+url)}
+    ${text('Community post','I’ve put my stream, socials, and updates in one place: '+url)}
+    ${text('Direct message','Here’s my link page: '+url)}
+    ${slot?html`${text('Discord schedule',discordSchedule(slot.title,slot.instant,url))}
+      <p class="ed-fine">Creator time: ${slot.local.replace('T',' ')} ${slot.zone} (${slot.offset})</p>`:''}
+    ${change?text('Schedule correction',change+'\n'+url):''}
+    <h2>Link preview</h2>
+    <div class="ed-row ed-stack"><p>${current?'Rich preview is enabled for the approved fields.':'Your link currently uses the generic LINB preview.'}</p>
+    <p class="ed-fine">Outside services may keep a cached copy after you disable or change your preview.</p>
+    ${selection?html`<h3>Review this exact card</h3>
+      <p><strong>${selection.name?content.displayName:'A creator on LINB'}</strong><br>${selection.intro?content.intro:'A link in bio for gaming and streaming creators.'}</p>
+      ${selection.image&&content.coverId?html`<img class="ed-card-image" src="/h/${home.id}/images/${content.coverId}" alt="">`:''}
+      <form method="post" action="/editor/share">
+        ${hidden(csrf)}<input type="hidden" name="publication" value="${home.publication_id}"><input type="hidden" name="proof" value="${proof}">
+        ${(['name','intro','image'] as const).filter(key=>selection[key]).map(key=>html`<input type="hidden" name="${key}" value="1">`)}
+        <button name="action" value="enable">Enable this exact preview</button>
+      </form>`:html`<form class="ed-stack" method="get" action="/editor/share">
+      <input type="hidden" name="review" value="1">
+      <label class="ed-check"><input type="checkbox" name="name" value="1"> Display name: ${content.displayName}</label>
+      ${content.intro?html`<label class="ed-check"><input type="checkbox" name="intro" value="1"> Intro: ${content.intro}</label>`:''}
+      ${content.coverId?html`<label class="ed-check"><input type="checkbox" name="image" value="1"> Published cover image</label>`:''}
+      <button type="submit" class="ed-secondary">Review selected fields</button>
+    </form>`}
+    ${current?html`<form method="post" action="/editor/share">${hidden(csrf)}<button name="action" value="disable" class="ed-quiet">Disable rich preview</button></form>`:''}</div>
+    <p class="ed-more"><a href="/editor/link">Back to your address</a></p>`,{solo:true,script:'/assets/share.js?v=2'});
+}
+
+type Account={email:string;change?:{old_proved:boolean;new_proved:boolean};contact:string|null;notice?:string;
+  twitch?:{linked:boolean;login?:string;status?:string};billing:boolean;handle:{current:string|null;offer:string|null}};
+
+// The account of a creator: the sign-in email, the page address, the Twitch connection and the sign-out.
+export function accountTab(view:EditorView,account:Account) {
+  const {csrf}=view, {change,handle,twitch}=account;
+  const proof=(done:boolean)=>done?'verified':'waiting for proof';
+  return frame('Account','account',view,html`<h1>Account</h1>
+    ${account.notice?html`<p class="ed-note" role="status">${account.notice}</p>`:''}
+    <h2>Email</h2>
+    <div class="ed-row ed-stack"><p>Your sign-in email: <strong>${account.email}</strong></p>
+      ${change?html`<p class="ed-fine">A change is waiting. Current email: ${proof(change.old_proved)}. New email: ${proof(change.new_proved)}. A new change cancels the links of the earlier one.</p>`:''}
+      <form class="ed-inline" method="post" action="/account/mailbox">${hidden(csrf)}<input id="next" type="email" name="mailbox" required aria-label="New email address" placeholder="New email address">
+        ${change?html`<label class="ed-check"><input type="checkbox" name="replace" required> Replace the waiting change</label>`:''}
+        <button class="ed-secondary">${change?'Start a new change':'Send verification links'}</button></form></div>
+    ${handle.current||handle.offer?html`<h2>Page address</h2>
+    <div class="ed-row ed-stack">${handle.current?html`<p>Your page address: <strong>${handle.current}</strong></p>`:''}
+      ${handle.offer?html`<p>Your Twitch login changed. ${handle.current?'Your earlier address keeps working and leads to the new one.':''}</p>
+        <form method="post" action="/account/handle">${hidden(csrf)}<button class="ed-secondary">Use ${handle.offer}</button></form>`:''}</div>`:''}
+    ${twitch?html`<h2>Twitch</h2>
+    <div class="ed-row ed-stack">${twitch.status==='verify'?html`<p>Sign in again with your email to change the Twitch connection. <a href="/sign-in">Sign in by email</a></p>`:''}
+      <p>${twitch.linked?'Connected'+(twitch.login?': '+twitch.login:''):'Connect Twitch to sign in with it. Your email sign-in stays.'}</p>
+      <form method="post" action="/account/twitch">${hidden(csrf)}<button name="action" value="${twitch.linked?'unlink':'link'}" class="ed-secondary">${twitch.linked?'Disconnect Twitch':'Connect Twitch'}</button></form></div>`:''}
+    ${account.billing?html`<h2>Pro</h2><div class="ed-row"><a href="/account/billing">Pro test billing</a></div>`:''}
+    <div class="ed-out">${account.contact?html`<a href="mailto:${account.contact}">Contact the review operator</a>`:''}
+      <form method="post" action="/logout">${hidden(csrf)}<button class="ed-quiet">Sign out</button></form></div>`,{solo:true});
+}
+
+// Stripe test mode only. This screen is not a paid offer.
+export function billingTab(view:EditorView,home:{id:string;publication_id:string}|null,state:any,returned:boolean) {
+  const {csrf}=view;
+  return frame('Pro test billing','account',view,html`<h1>Pro test billing</h1>
+    <p class="ed-lead">Stripe test mode only. This is not a paid offer. Billing never changes whether your Free page is available.</p>
+    ${returned?html`<p class="ed-note" role="status">Checkout returned. LINB grants access only after Stripe’s verified event.</p>`:''}
+    <div class="ed-row ed-stack">${state?html`<p>Verified state: ${state.active?'Test access active':state.status}.
+      ${state.access_until?'Recorded end: '+new Date(state.access_until).toISOString().slice(0,10)+' UTC.':''}</p>
+      <form method="post" action="/account/billing">${hidden(csrf)}<button name="action" value="portal" class="ed-secondary">Open test billing portal</button></form>`:
+      home?html`<h2>Review your exact Free fallback</h2><p>LINB keeps this home address and your Free links if Pro expires.</p>
+        <p><a href="/h/${home.id}" target="_blank" rel="noopener">Review the current published Free page ↗</a></p>
+        <form class="ed-stack" method="post" action="/account/billing">${hidden(csrf)}
+          <input type="hidden" name="publication" value="${home.publication_id}">
+          <label class="ed-check"><input type="checkbox" name="approved" value="1" required> I reviewed this Free fallback.</label>
+          <button name="action" value="checkout">Try Stripe test checkout</button></form>`:
+        html`<p>Publish an available Free home before trying checkout.</p><a href="/editor">Return to the editor</a>`}</div>
+    <p class="ed-more"><a href="/account">Back to your account</a></p>`,{solo:true});
 }

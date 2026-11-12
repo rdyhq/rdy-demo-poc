@@ -3,10 +3,12 @@ for (const group of document.querySelectorAll('[data-share]')) {
   const status=group.querySelector('[role=status]');
   const copy=group.querySelector('[data-copy]');
   const share=group.querySelector('[data-system-share]');
+  // The field can show the address without its scheme. The full address is copied and shared.
+  const url=group.dataset.url||field.value;
   copy.hidden=false;
   copy.addEventListener('click',async()=>{
     try {
-      await navigator.clipboard.writeText(field.value);
+      await navigator.clipboard.writeText(url);
       status.textContent='Link copied.';
       copy.dispatchEvent(new Event('aura-copy',{bubbles:true}));
     } catch {
@@ -18,7 +20,7 @@ for (const group of document.querySelectorAll('[data-share]')) {
   if(typeof navigator.share==='function') {
     share.hidden=false;
     share.addEventListener('click',async()=>{
-      try { await navigator.share({url:field.value}); }
+      try { await navigator.share({url}); }
       catch(error) {
         if(error.name==='AbortError') return;
         field.focus();
