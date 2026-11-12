@@ -116,8 +116,9 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const home=await get('/h/'+id);
       const publicPage=await home.text();
       assert.match(publicPage,/og:title" content="A creator on LINB"/);
-      assert.match(publicPage,/data-share/);
-      assert.match(publicPage,/Mira Vale.*Signature game: .*Hades II.*Open stream on Twitch.*Surface route practice/s);
+      // The public Home is the one-column page of the fresh start (RDY D-TG9VX).
+      assert.match(publicPage,/class="pg-name">Mira Vale.*Next stream.*Surface route practice.*Open stream on Twitch.*class="pg-h">Schedule.*Hades II/s);
+      assert.doesNotMatch(publicPage,/home-card|data-frame|lobby\.css/);
       assert.doesNotMatch(publicPage,/Add to calendar/);
       const image=await get(imagePath);
       assert.equal(image.status,200);
@@ -137,7 +138,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal((await get(calendarPath)).status,410);
       assert.equal((await get(imagePath)).status,200);
       const quiet=await (await get('/h/'+id)).text();
-      assert.doesNotMatch(quiet,/data-card="schedule"/);
+      assert.doesNotMatch(quiet,/class="pg-h">Schedule|Next stream/);
       assert.doesNotMatch(quiet,/Add to calendar/);
     });
     await t.test('creator approves exact rich preview and fan submits a private report',async()=>{
@@ -392,11 +393,11 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const response=await fan();
       assert.equal(response.status,200,await response.clone().text());
       const initial=await response.text();
-      assert.match(initial,/data-refresh-activity.*ON AIR.*Verified stream.*data-viewer-count="27"/s);
+      assert.match(initial,/<span class="pg-live">LIVE<\/span>.*Verified stream.*27 watching.*Watch on Twitch/s);
       assert.match(initial,/rel="canonical" href="https:\/\/lobby.example.test\/miravale"/);
       // The login stored when the creator linked Twitch goes stale after a rename. Twitch's current login decides.
       await pool.query("UPDATE twitch_identities SET login='oldname' WHERE subject=$1",[subject]);
-      assert.match(await (await fan()).text(),/ON AIR.*Verified stream/s);
+      assert.match(await (await fan()).text(),/pg-live.*Verified stream/s);
       await pool.query("UPDATE twitch_identities SET login='miravale' WHERE subject=$1",[subject]);
       assert.equal((await fan('/other')).status,404);
       assert.equal((await fan('/missing')).status,404);
@@ -411,8 +412,8 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       live=false;
       now+=26_000;
       const offline=await (await fan()).text();
-      assert.match(offline,/RECENT TWITCH CLIP.*Verified clip.*36 views.*Open stream on Twitch/s);
-      assert.doesNotMatch(offline,/ON AIR|data-live-surge/);
+      assert.match(offline,/Latest clip.*Verified clip.*36 views.*Open stream on Twitch/s);
+      assert.doesNotMatch(offline,/pg-live|watching/);
       assert.equal((await fan('/h/'+id)).status,200);
       const state=await (await get('/api/editor',cookie)).json();
       assert.equal((await change('unpublish',{operationId:randomUUID(),publicationId:state.publication_id},cookie)).status,200);
@@ -446,12 +447,13 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const path='/h/'+homeId;
       const before=await (await get(path)).text();
       assert.match(before,/data-theme="Ember"/);
-      assert.doesNotMatch(await (await get(path+'?demo-live=1')).text(),/ON AIR|data-live-surge|data-viewer-count/);
-      assert.match(before,/data-card="identity".*data-card="spotlight".*data-card="dock"/s);
+      assert.doesNotMatch(await (await get(path+'?demo-live=1')).text(),/pg-live|watching/);
+      assert.match(before,/class="pg-name".*class="pg-social".*class="pg-card".*class="pg-links"/s);
       assert.match(before,/Open stream on Twitch/);
       assert.match(before,/data-platform="youtube"/);
-      assert.match(before,/<a class="button secondary dock-platform"[^>]*aria-label="YouTube[^"]*"[^>]*><span class="platform-icon" data-platform="youtube" aria-hidden="true"><\/span><\/a>/);
-      assert.match(before,/<summary>More channels<\/summary>.*Archive video/s);
+      assert.match(before,/<a href="https:\/\/www\.youtube\.com\/@retained" aria-label="YouTube"><span class="pg-icon" data-platform="youtube"><\/span><\/a>/);
+      // Every link is a pill. A link that is not a channel gets the plain mark.
+      assert.match(before,/<a class="pg-pill" href="https:\/\/www\.youtube\.com\/watch\?v=example"><i aria-hidden="true">↗<\/i><span>Archive video<\/span><\/a>/);
       assert.doesNotMatch(before,/Watch live|viewers/);
       assert.equal((await get('/assets/platforms/youtube.svg')).headers.get('content-type')?.split(';')[0],'image/svg+xml');
       assert.equal((await get('/assets/platforms/unknown.svg')).status,404);
@@ -571,11 +573,9 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal((await done.json()).publicPath,path);
       const after=await (await get(path)).text();
       assert.match(after,/data-theme="Paper"/);
-      assert.match(after,/data-accent="#5a3cf0"[^>]*data-frame="holo"/s);
+      assert.match(after,/href="\/assets\/skin\/1\/accent-5a3cf0\.css"/);
       assert.match(after,/A private card draft.*Open stream.*Supporter giveaway/s);
-      assert.match(after,/data-avatar-position="banner-center"/);
-      assert.match(after,/data-card="identity".*data-card="spotlight".*data-card="promo".*data-card="dock"/s);
-      assert.match(after,/data-card="promo"[^>]*data-span="5" data-height="288".*data-card="dock"[^>]*data-span="6" data-height="176" data-column="7"/s);
+      assert.match(after,/<a class="pg-pill" href="https:\/\/example\.test\/giveaway">/);
       assert.doesNotMatch(after,/data-canvas-card=/);
       const rows=(await pool.query('SELECT content FROM publications WHERE home_id=$1 ORDER BY draft_revision',[homeId])).rows;
       assert.deepEqual(rows[0].content,old);

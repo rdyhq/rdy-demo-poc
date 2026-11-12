@@ -1,16 +1,17 @@
 import { html } from 'hono/html';
 import { appLink } from './app-link.ts';
 import { defaultAura } from './aura.ts';
-import { futureSessions, type HomeContent, type SessionSlot } from './domain.ts';
+import { futureSessions, type HomeContent, type ScheduleChange, type SessionSlot } from './domain.ts';
 import { channelPlatform, platforms, type EditableHome } from './home-cards.ts';
 import type { LiveState } from './live-state.ts';
-import { artPalette, skinPath } from './public/palette.js';
+import { accentPath, artPalette, skinPath } from './public/palette.js';
 
 // The Home of the fresh start (RDY D-TG9VX, section s-EY5PZ): one centred column, in a fixed order.
 export const pageStyles='/assets/page.css?v=1';
 
 export type PageOptions={
   now:number; asset:(id:string)=>string; liveState?:LiveState; canonical?:string; report?:string; appHandoff?:boolean;
+  notice?:ScheduleChange|null;
   // A preview before sign-up names the Twitch login that the visitor can claim.
   claim?:string; metadata?:{title:string;description:string;image?:string};
 };
@@ -19,6 +20,13 @@ const weekdays=['SUN','MON','TUE','WED','THU','FRI','SAT'];
 function sessionRow(slot:SessionSlot) {
   const [year,month,day]=slot.local.slice(0,10).split('-').map(Number);
   return html`<li><b>${weekdays[new Date(Date.UTC(year,month-1,day)).getUTCDay()]}<br>${day}</b><span>${slot.title}<small>${slot.local.slice(11)} · ${slot.zone}</small></span></li>`;
+}
+
+// A schedule change stays on the page until the later of its two times has passed.
+const slotLabel=(slot:SessionSlot)=>slot.local.replace('T',' ')+' '+slot.zone+' ('+slot.offset+')';
+function noticeCopy(notice:ScheduleChange|null|undefined,now:number) {
+  if(!notice||Math.max(Date.parse(notice.prior.instant),Date.parse(notice.next?.instant??notice.prior.instant))<=now) return null;
+  return notice.prior.title+': '+notice.status+'. Previous time: '+slotLabel(notice.prior)+'.'+(notice.next?' New time: '+slotLabel(notice.next)+'.':'');
 }
 
 function streamAction(link:string,live:boolean) {
@@ -32,6 +40,9 @@ const icon=(platform:string)=>html`<span class="pg-icon" data-platform="${platfo
 export function renderPage(content:HomeContent|EditableHome,options:PageOptions) {
   const aura='aura' in content?content.aura:defaultAura;
   const art=aura.palette&&artPalette({...aura.palette,accent:aura.accent});
+  // The colours reach the page from a stylesheet, so they show without script (RDY r-F1JJ7).
+  const skin=art?skinPath(aura.palette,aura.accent):aura.accent?accentPath(aura.accent):null;
+  const notice=noticeCopy(options.notice,options.now);
   const name=content.displayName||'Your name';
   const initials=name.split(/\s+/).slice(0,2).map(word=>[...word][0]).join('').toUpperCase();
   const state=options.liveState;
@@ -48,14 +59,15 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
   const pills=[...content.links,...promos];
   const lead=live?html`${content.coverId?html`<img class="pg-thumb" src="${options.asset(content.coverId)}" alt="">`:''}<p class="pg-card-title">${state!.title||'Live now'}</p>${
       viewers===undefined?'':html`<p class="pg-card-meta">${viewers.toLocaleString('en-US')} watching</p>`}`
-    :clip?html`<p class="pg-card-kicker">Latest clip</p><p class="pg-card-title"><a href="${clip.url}">${clip.title}</a></p>`
+    :clip?html`<p class="pg-card-kicker">Latest clip</p><p class="pg-card-title"><a href="${clip.url}">${clip.title}</a></p>${
+      clip.views===undefined?'':html`<p class="pg-card-meta">${clip.views.toLocaleString('en-US')} views</p>`}`
     :sessions[0]?html`<p class="pg-card-kicker">Next stream</p><p class="pg-card-title">${sessions[0].title}</p><p class="pg-card-meta">${
       sessions[0].local.replace('T',' ')} ${sessions[0].zone}</p>`:'';
   return html`<!doctype html><html lang="en" data-theme="${content.theme}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${art?art.scheme:content.theme==='Paper'?'light':'dark'}">
     <title>${name} · LINB</title><link rel="stylesheet" href="${pageStyles}">
-    ${art?html`<link rel="stylesheet" href="${skinPath(aura.palette,aura.accent)}">`:''}
+    ${skin?html`<link rel="stylesheet" href="${skin}">`:''}
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
     ${options.metadata?html`<meta property="og:type" content="website"><meta property="og:url" content="${options.canonical}">
@@ -75,6 +87,7 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
       const platform=channelPlatform(link.url);
       return html`<li><a class="pg-pill" href="${link.url}"><i aria-hidden="true">${platform?icon(platform):'↗'}</i><span>${link.label}</span></a></li>`;
     })}</ul>`:''}
+    ${notice?html`<p class="pg-notice"><strong>Schedule change</strong> ${notice}</p>`:''}
     ${sessions.length?html`<h2 class="pg-h">Schedule</h2><ul class="pg-rows">${sessions.slice(0,4).map(sessionRow)}</ul>`:''}
     ${content.updates.length?html`<h2 class="pg-h">Updates</h2><ul class="pg-notes">${content.updates.map(update=>html`<li>${update.text}${
       update.firstPublishedAt?html`<small>${update.firstPublishedAt.slice(0,10)}</small>`:''}</li>`)}</ul>`:''}

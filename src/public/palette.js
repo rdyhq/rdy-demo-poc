@@ -103,6 +103,15 @@ export function skinPath(palette,accent) {
   return '/assets/skin/'+paletteVersion+'/'+part(palette.base)+'-'+part(palette.second)+'-'+part(accent)+'.css';
 }
 
+// A custom accent on a theme has its own small stylesheet.
+export function accentPath(accent) {
+  return '/assets/skin/'+paletteVersion+'/accent-'+part(accent)+'.css';
+}
+export function accentCss(file) {
+  const match=/^accent-([0-9a-f]{6})\.css$/.exec(file);
+  return match?':root{--accent:#'+match[1]+';}':null;
+}
+
 // Read the three source colours back from the file name of a skin stylesheet.
 export function skinColours(file) {
   const match=/^([0-9a-f]{6})-([0-9a-f]{6}|0)-([0-9a-f]{6}|0)\.css$/.exec(file);

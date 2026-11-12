@@ -82,6 +82,8 @@ a { color:inherit; }
 .pg-pill .pg-icon { width:18px; height:18px; }
 .pg-pill:hover, .pg-watch:hover { text-decoration:underline; }
 
+.pg-notice { margin:14px 0 0; padding:12px 14px; border-radius:16px; border:1px solid var(--accent); text-align:left; font-size:15px; }
+.pg-notice strong { display:block; margin-bottom:2px; }
 .pg-h { margin:26px 0 10px; color:var(--muted); font:700 12px/1 Inter,system-ui,sans-serif; letter-spacing:.09em; text-transform:uppercase; }
 .pg-rows, .pg-notes { display:grid; gap:8px; }
 .pg-rows li { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:16px; text-align:left; font-weight:600; }

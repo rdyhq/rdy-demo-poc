@@ -18,7 +18,7 @@ import { liveState } from './live-state.ts';
 import { TwitchActivity, type TwitchActivityConfig, type TwitchChannel } from './twitch-activity.ts';
 import { acceptHandle, handleOffer, homeHandle, resolveHandle } from './handles.ts';
 import { describeFailure } from './failure.ts';
-import { artPalette, paletteCss, paletteVersion, skinColours } from './public/palette.js';
+import { accentCss, artPalette, paletteCss, paletteVersion, skinColours } from './public/palette.js';
 import { applySkin } from './public/editor-support.js';
 import { channelDraft, matchChannel, type ChannelMatch } from './twitch-channel.ts';
 import { renderPage } from './page.ts';
@@ -256,10 +256,12 @@ export function createApp(config:Configuration={}) {
   });
   app.get('/assets/skin/:version/:file',c=>{
     // The address holds the source colours of an art palette, so the answer never changes for one address.
-    const colours=c.req.param('version')===String(paletteVersion)?skinColours(c.req.param('file')):null;
+    const current=c.req.param('version')===String(paletteVersion), file=c.req.param('file');
+    const colours=current?skinColours(file):null;
     const palette=colours&&artPalette(colours);
-    if(!palette) return c.notFound();
-    return c.text(paletteCss(palette),200,{'Content-Type':'text/css; charset=utf-8','Cache-Control':'public, max-age=31536000, immutable'});
+    const styles=palette?paletteCss(palette):current?accentCss(file):null;
+    if(!styles) return c.notFound();
+    return c.text(styles,200,{'Content-Type':'text/css; charset=utf-8','Cache-Control':'public, max-age=31536000, immutable'});
   });
   app.get('/assets/linb.svg',c=>c.text(brandIcon,200,{'Content-Type':'image/svg+xml','Cache-Control':'public, max-age=300'}));
   for(const [file,styles] of freshStyles) {
@@ -683,10 +685,14 @@ export function createApp(config:Configuration={}) {
       const current=await publicHome(db,id,channel.subject);
       if(current.publication_id!==home.publication_id) throw unavailable();
     }
-    return c.html(renderHome(home.content,{now:clock(),liveState:signal,refreshActivity:Boolean(channel),appHandoff:config.appHandoff,
-      report:'/h/'+home.id+'/report',homeId:home.id,pro:paid,notice:home.schedule_change,asset:id=>'/h/'+home.id+'/images/'+id,canonical,
-      metadata:{title:preview.title,description:preview.description,
-        image:preview.coverId?homeUrl+'/share-image/'+home.publication_id:undefined}}));
+    const metadata={title:preview.title,description:preview.description,
+      image:preview.coverId?homeUrl+'/share-image/'+home.publication_id:undefined};
+    const asset=(id:string)=>'/h/'+home.id+'/images/'+id;
+    // A Home with Pro content keeps the old page until the Pro parts have a place on the new one.
+    if(paid) return c.html(renderHome(home.content,{now:clock(),liveState:signal,refreshActivity:Boolean(channel),appHandoff:config.appHandoff,
+      report:'/h/'+home.id+'/report',homeId:home.id,pro:paid,notice:home.schedule_change,asset,canonical,metadata}));
+    return c.html(renderPage(home.content,{now:clock(),liveState:signal,appHandoff:config.appHandoff,
+      report:'/h/'+home.id+'/report',notice:home.schedule_change,asset,canonical,metadata}));
   }
   app.get('/h/:homeId',c=>renderPublicHome(c,c.req.param('homeId')));
 
