@@ -7,7 +7,7 @@ import type { LiveState } from './live-state.ts';
 import { accentPath, artPalette, skinPath } from './public/palette.js';
 
 // The Home of the fresh start (RDY D-TG9VX, section s-EY5PZ): one centred column, in a fixed order.
-export const pageStyles='/assets/page.css?v=2';
+export const pageStyles='/assets/page.css?v=3';
 
 export type PageOptions={
   now:number; asset:(id:string)=>string; liveState?:LiveState; canonical?:string;
@@ -15,6 +15,8 @@ export type PageOptions={
   stream?:string;
   // The next streams of the linked channel's schedule (RDY r-NQ9ZZ). Each start is an instant in UTC.
   schedule?:{title:string;category:string;start:string}[];
+  // An operator reviews a held publication on this page. The value is the address of the case.
+  review?:string;
   // The clips of the linked channel (RDY r-29W7N). Each picture is an address on linb.io.
   clips?:{title:string;url:string;views?:number;picture:string}[]; report?:string; appHandoff?:boolean;
   notice?:ScheduleChange|null;
@@ -103,7 +105,7 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
       ${options.metadata.image?html`<meta property="og:image" content="${options.metadata.image}">`:''}`:''}
     ${app?html`<script type="module" src="/assets/handoff.js"></script>`:''}
     ${streams?html`<script src="/assets/localtime.js" defer></script>`:''}
-    </head><body><main class="pg" data-font="${aura.font}">
+    </head><body>${options.review?html`<aside class="pg-review">Restricted publication review · <a href="${options.review}">Back to the case</a></aside>`:''}<main class="pg" data-font="${aura.font}">
     <div class="pg-hero">${content.coverId&&!live?html`<img src="${options.asset(content.coverId)}" alt="">`:''}</div>
     ${content.avatarId?html`<img class="pg-avatar" src="${options.asset(content.avatarId)}" alt="">`
       :html`<div class="pg-avatar pg-initials" aria-hidden="true">${initials}</div>`}

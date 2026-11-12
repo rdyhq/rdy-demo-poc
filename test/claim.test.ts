@@ -196,6 +196,9 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       // The published page shows the clips of the linked channel (RDY r-29W7N).
       assert.ok(page.includes('<a class="pg-clip" href="https://clips.twitch.tv/NovaClip-1"><img src="/assets/clip/NovaClip-1" alt="" loading="lazy"><span>World record pace</span><small>7,263 views</small></a>'));
       assert.equal((await get('/assets/clip/NovaClip-1')).status,200);
+      // The report page names the page by its handle address.
+      const {id:homeId}=await draftOf('nova@example.test');
+      assert.match(await (await get('/h/'+homeId+'/report')).text(),/<h1>Report this page<\/h1><p class="app-lead">lobby\.example\.test\/novabyte<\/p>/);
       // The preview in the editor shows them too.
       assert.match(await (await get('/editor/view',nova)).text(),/<img src="\/assets\/clip\/NovaClip-1"/);
       assert.match(page,/href="\/assets\/skin\/1\/190838-/);

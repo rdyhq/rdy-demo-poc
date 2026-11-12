@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
 
 // The screens of the fresh start (RDY D-TG9VX, section s-W8K47): one main action and few words on each.
-export const appStyles='/assets/app.css?v=6';
+export const appStyles='/assets/app.css?v=7';
 
 function screen(title:string,body:unknown,options:{refresh?:string;canonical?:string;skin?:string;script?:string}={}) {
   return html`<!doctype html><html lang="en"><head>
@@ -120,6 +120,18 @@ export function confirmPage() {
     <h1>Confirm access</h1><p id="confirm-status" class="app-lead">Confirm to continue with this one-time link.</p>
     <form class="app-claim" method="post" action="/verify"><input type="hidden" id="confirmation-token" name="token"><button id="confirm-access" disabled>Confirm access</button></form>
     <noscript><p class="app-fine">Open the sign-in link in a browser with JavaScript on.</p></noscript>`,{script:'/assets/verify.js'});
+}
+
+// A fan reports a Home. The form asks for a reason and for the details that a reviewer needs.
+export function reportPage(id:string,url:string,reasons:string[],values:Record<string,unknown>={},error?:string) {
+  return screen('Report a page',html`${top(false)}
+    <h1>Report this page</h1><p class="app-lead">${url.replace(/^https?:\/\//,'')}</p>
+    ${error?html`<p class="app-note" role="alert">${error}</p>`:''}
+    <form class="app-claim" method="post" action="/h/${id}/report"><label class="app-label" for="reason">Reason</label><select class="app-select" id="reason" name="reason">${
+      reasons.map(reason=>html`<option${values.reason===reason?html` selected`:''}>${reason}</option>`)}</select><label class="app-label" for="detail">What should the reviewer know?</label><textarea class="app-area" id="detail" name="detail" maxlength="700" required>${
+      typeof values.detail==='string'?values.detail.slice(0,700):''}</textarea><button>Send report</button></form>
+    <p class="app-fine">Include only the details that the reviewer needs.</p>
+    <a class="app-skip" href="/h/${id}">Back to the page</a>`);
 }
 
 export function messagePage(title:string,text:string,href='/',label='Back to LINB') {

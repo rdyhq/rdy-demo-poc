@@ -104,6 +104,9 @@ a { color:inherit; }
 .pg-tags span { padding:4px 12px; border-radius:999px; color:var(--muted); font-size:13px; }
 .pg-foot { display:flex; flex-wrap:wrap; justify-content:center; gap:6px 16px; margin-top:28px; color:var(--muted); font-size:12.5px; }
 
+/* The bar of an operator's review. It is part of the app, so it keeps the app's own colours. */
+.pg-review { padding:10px 16px; background:#131316; color:#fff; font:600 13.5px/1.4 Inter,system-ui,sans-serif; text-align:center; }
+
 /* The claim sheet of a preview. It is part of the app, so it keeps the app's own colours. */
 .pg:has(+ .pg-sheet) { padding-bottom:250px; }
 .pg-sheet {

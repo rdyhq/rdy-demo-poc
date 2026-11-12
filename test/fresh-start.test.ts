@@ -7,7 +7,7 @@ import { defaultAura } from '../src/aura.ts';
 import { connect, migrate } from '../src/db.ts';
 import { newHome, readHome } from '../src/home-cards.ts';
 import { renderPage } from '../src/page.ts';
-import { confirmPage, landingPage, messagePage, signInPage } from '../src/screens.ts';
+import { confirmPage, landingPage, messagePage, reportPage, signInPage } from '../src/screens.ts';
 import { TwitchActivity } from '../src/twitch-activity.ts';
 
 const id='00000000-0000-4000-8000-000000000001';
@@ -134,6 +134,32 @@ test('the clips of the channel show in two columns under the schedule',()=>{
   // With no clips, the part does not show.
   assert.doesNotMatch(page(home),/pg-clips|>Clips</);
   assert.doesNotMatch(page(home,{clips:[]}),/pg-clips|>Clips</);
+});
+
+test('the report page is a plain form in the look of the app',()=>{
+  const reasons=['Impersonation','Harassment'];
+  const html=String(reportPage(id,'https://linb.io/novabyte',reasons));
+  assert.match(html,/href="\/assets\/app\.css\?v=[\w-]+"/);
+  assert.doesNotMatch(html,/lobby\.css|class="panel/);
+  assert.match(html,/<h1>Report this page<\/h1><p class="app-lead">linb\.io\/novabyte<\/p>/);
+  assert.ok(html.includes('<form class="app-claim" method="post" action="/h/'+id+'/report">'
+    +'<label class="app-label" for="reason">Reason</label><select class="app-select" id="reason" name="reason"><option>Impersonation</option><option>Harassment</option></select>'
+    +'<label class="app-label" for="detail">What should the reviewer know?</label><textarea class="app-area" id="detail" name="detail" maxlength="700" required></textarea>'
+    +'<button>Send report</button></form>'));
+  assert.ok(html.includes('<a class="app-skip" href="/h/'+id+'">Back to the page</a>'));
+  // A refused report keeps what the fan wrote and says what is wrong.
+  const again=String(reportPage(id,'https://linb.io/novabyte',reasons,{reason:'Harassment',detail:'It copies my name.'},'Add a detail.'));
+  assert.match(again,/<p class="app-note" role="alert">Add a detail\.<\/p>/);
+  assert.match(again,/<option selected>Harassment<\/option>/);
+  assert.match(again,/>It copies my name\.<\/textarea>/);
+});
+
+test('an operator reviews a publication on the page that fans see',()=>{
+  const html=page(home,{review:'/ops/cases/7'});
+  assert.ok(html.includes('<aside class="pg-review">Restricted publication review · <a href="/ops/cases/7">Back to the case</a></aside>'));
+  assert.match(html,/<main class="pg" data-font="wide">/);
+  assert.doesNotMatch(html,/Report this page/);
+  assert.doesNotMatch(page(home),/pg-review/);
 });
 
 test('a part with no content does not show',()=>{
