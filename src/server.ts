@@ -8,7 +8,7 @@ import { importAliases } from './handles.ts';
 import { createApp } from './app.ts';
 import { clientAddress, trustedProxyHops } from './client-address.ts';
 import { postmark } from './auth.ts';
-import { localObjects, r2Objects } from './assets.ts';
+import { localObjects, objectStore } from './assets.ts';
 import { connect } from './db.ts';
 
 const port=Number(process.env.PORT??3000);
@@ -31,7 +31,7 @@ const redirectOrigins=process.env.PUBLIC_REDIRECT_ORIGINS?.split(',').map(value=
 
 const pool=process.env.DATABASE_URL?connect(process.env.DATABASE_URL):undefined;
 pool?.on('error',()=>console.error('LINB database connection failed.'));
-const {POSTMARK_TOKEN,POSTMARK_FROM,R2_ENDPOINT,R2_BUCKET,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY}=process.env;
+const {POSTMARK_TOKEN,POSTMARK_FROM}=process.env;
 const mail=dev
   ?async (to:string,subject:string,text:string)=>{
     const dir=resolve(dev,'mail');
@@ -39,8 +39,7 @@ const mail=dev
     await writeFile(resolve(dir,randomUUID()+'.txt'),'To: '+to+'\nSubject: '+subject+'\n\n'+text,{mode:0o600,flag:'wx'});
   }
   :POSTMARK_TOKEN&&POSTMARK_FROM?postmark(POSTMARK_TOKEN,POSTMARK_FROM):undefined;
-const objects=dev?localObjects(resolve(dev,'objects')):
-  R2_ENDPOINT&&R2_BUCKET&&R2_ACCESS_KEY_ID&&R2_SECRET_ACCESS_KEY?r2Objects(R2_ENDPOINT,R2_BUCKET,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY):null;
+const objects=dev?localObjects(resolve(dev,'objects')):objectStore(process.env,pool);
 
 const {TWITCH_CLIENT_ID,TWITCH_CLIENT_SECRET,TWITCH_SESSION_KEY,LINB_TWITCH,LINB_TWITCH_ACTIVITY}=process.env;
 if(LINB_TWITCH==='1'&&(!TWITCH_CLIENT_ID||!TWITCH_CLIENT_SECRET||!TWITCH_SESSION_KEY?.match(/^[0-9a-f]{64}$/i))) {

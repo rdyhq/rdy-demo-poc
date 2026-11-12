@@ -41,6 +41,37 @@ export function r2Objects(endpoint:string,bucket:string,accessKeyId:string,secre
   };
 }
 
+// Pictures in PostgreSQL, for a deployment with no object store. One database backup then holds the pictures too.
+export function databaseObjects(pool:pg.Pool):Objects {
+  const check=(key:string)=>{
+    if (!/^[a-f0-9-]{36}\.webp$/.test(key)) throw new Error('Invalid object key');
+  };
+  return {
+    async write(key,bytes) {
+      check(key);
+      await pool.query('INSERT INTO asset_objects(object_key,bytes) VALUES ($1,$2)',[key,bytes]);
+    },
+    async read(key) {
+      check(key);
+      const {rows}=await pool.query<{bytes:Buffer}>('SELECT bytes FROM asset_objects WHERE object_key=$1',[key]);
+      if (!rows[0]) throw new Error('Object unavailable');
+      return rows[0].bytes;
+    },
+  };
+}
+
+// Where a hosted deployment keeps pictures: private R2, the database, or nowhere.
+export function objectStore(env:Record<string,string|undefined>,pool:pg.Pool|undefined):Objects|null {
+  const {R2_ENDPOINT,R2_BUCKET,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY,LINB_OBJECTS}=env;
+  const r2=R2_ENDPOINT&&R2_BUCKET&&R2_ACCESS_KEY_ID&&R2_SECRET_ACCESS_KEY
+    ?()=>r2Objects(R2_ENDPOINT,R2_BUCKET,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY):null;
+  if (!LINB_OBJECTS) return r2?r2():null;
+  if (LINB_OBJECTS!=='database') throw new Error('LINB_OBJECTS must be database or unset.');
+  if (r2) throw new Error('Set either R2 or LINB_OBJECTS=database, not both.');
+  if (!pool) throw new Error('LINB_OBJECTS=database requires DATABASE_URL.');
+  return databaseObjects(pool);
+}
+
 export async function upload(pool:pg.Pool,objects:Objects,owner:string,file:File) {
   if (!(file instanceof File) || !file.size || file.size>maxUpload) throw invalid('image','Choose a JPEG, PNG or WebP under 10 MiB.');
   const id=randomUUID(), key=id+'.webp';
