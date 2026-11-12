@@ -1,5 +1,7 @@
-import { digest, emptyHome, https, id, invalid, list, normalize, text, type HomeContent } from './domain.ts';
+import { digest, emptyHome, https, id, invalid, list, normalize, readTheme, text, type HomeContent, type StoredTheme } from './domain.ts';
+import { defaultAura, normalizeAura, type Aura } from './aura.ts';
 
+const offlineLeads = ['next','clip','link'] as const;
 // Retain saved and wire values for older editors. Rendering uses only frame dimensions.
 const legacySizes = ['compact', 'expanded'] as const;
 export const cardSpans = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
@@ -19,32 +21,37 @@ type IdentitySettings = CardSettings & {
   alignment: typeof alignments[number]; avatarSize: typeof avatarSizes[number];
   avatarPosition: typeof avatarPositions[number]; focalX: number; focalY: number;
 };
+type SpotlightSettings = CardSettings & {
+  offlineLead: typeof offlineLeads[number]; offlineLink: string | null;
+};
 type ScheduleSettings = CardSettings & { family: 'schedule'; hidden: boolean };
 type PromoCard = CardSettings & {
   family: 'promo'; hidden: boolean; category: typeof promoCategories[number]; title: string; url: string; description: string;
 };
 export type HomeLayout = {
   identity: IdentitySettings;
-  spotlight: CardSettings;
+  spotlight: SpotlightSettings;
   dock: CardSettings;
   dockPosition: number;
   supporting: (ScheduleSettings | PromoCard)[];
 };
 
 // Keep the established editor and service field names at the API boundary.
-export type EditableHome = HomeContent & { layout: HomeLayout };
+export type EditableHome = HomeContent & { aura: Aura; layout: HomeLayout };
 type IdentityContent = Pick<HomeContent, 'displayName' | 'intro' | 'game' | 'avatarId' | 'coverId'>;
 export type CardHome = {
   schemaVersion: 2;
-  skin: HomeContent['theme'];
+  skin: StoredTheme;
+  aura?: Aura;
   identity: StoredSettings<IdentitySettings> & IdentityContent;
-  spotlight: StoredSettings<CardSettings> & { url: string };
+  spotlight: StoredSettings<CardSettings> & Partial<Pick<SpotlightSettings,'offlineLead'|'offlineLink'>> & { url: string };
   dock: StoredSettings<CardSettings> & { links: HomeContent['links'] };
   dockPosition?: number;
   supporting: ((StoredSettings<ScheduleSettings> & Pick<HomeContent, 'sessions' | 'scheduleRemoval'>) | StoredSettings<PromoCard>)[];
   updates: HomeContent['updates'];
 };
-export type StoredHome = HomeContent | CardHome;
+export type StoredHome = (Omit<HomeContent,'theme'> & {theme:StoredTheme}) | CardHome;
+const defaultOffline = {offlineLead:'next',offlineLink:null} as const;
 
 function fixedId(homeId: string, role: string) {
   const hash = digest('linbio:home-card:' + homeId + ':' + role);
@@ -55,7 +62,7 @@ export function defaultLayout(homeId: string): HomeLayout {
   const fixed = (role: string):CardSettings => ({ id: fixedId(homeId, role), size: 'compact', span: 12, minHeight: 0 });
   return {
     identity: { ...fixed('identity'), alignment: 'left', avatarSize: 'medium', avatarPosition: 'edge', focalX: 50, focalY: 50 },
-    spotlight: fixed('spotlight'),
+    spotlight: { ...fixed('spotlight'), ...defaultOffline },
     dock: fixed('dock'),
     dockPosition: 0,
     supporting: [{ ...fixed('schedule'), family: 'schedule', hidden: false }],
@@ -63,7 +70,7 @@ export function defaultLayout(homeId: string): HomeLayout {
 }
 
 export function readHome(value: StoredHome, homeId: string): EditableHome {
-  if (value.schemaVersion !== 2) return { ...value, layout: defaultLayout(homeId) };
+  if (value.schemaVersion !== 2) return { ...value, theme: readTheme(value.theme), aura: {...defaultAura}, layout: defaultLayout(homeId) };
 
   const { displayName, intro, game, avatarId, coverId, ...identity } = value.identity;
   const { url, ...spotlight } = value.spotlight;
@@ -75,11 +82,11 @@ export function readHome(value: StoredHome, homeId: string): EditableHome {
       span:card.span, minHeight:card.minHeight, width:card.width, column:card.column});
   });
   return {
-    schemaVersion: 1, displayName, intro, game, avatarId, coverId, theme: value.skin,
+    schemaVersion: 1, displayName, intro, game, avatarId, coverId, theme: readTheme(value.skin), aura: {...defaultAura,...value.aura},
     streamUrl: url, links, sessions: schedule?.sessions ?? [], scheduleRemoval: schedule?.scheduleRemoval,
     updates: value.updates, layout: {
       identity: readDimensions(identity),
-      spotlight: readDimensions(spotlight),
+      spotlight: readDimensions({...defaultOffline,...spotlight}),
       dock: readDimensions(dock),
       dockPosition: value.dockPosition ?? 0, supporting,
     },
@@ -92,9 +99,9 @@ function readDimensions<T extends { width?: 'half' | 'full'; span?: CardSpan; mi
 }
 
 export function writeHome(value: EditableHome): CardHome {
-  const { displayName, intro, game, avatarId, coverId, streamUrl, links, sessions, scheduleRemoval, updates, theme, layout } = value;
+  const { displayName, intro, game, avatarId, coverId, streamUrl, links, sessions, scheduleRemoval, updates, theme, aura, layout } = value;
   return {
-    schemaVersion: 2, skin: theme,
+    schemaVersion: 2, skin: theme, aura,
     identity: { ...layout.identity, displayName, intro, game, avatarId, coverId },
     spotlight: { ...layout.spotlight, url: streamUrl },
     dock: { ...layout.dock, links },
@@ -157,7 +164,13 @@ export function normalizeHome(value: any, old: EditableHome, now: number, previe
     focalX: focal(input.identity.focalX, 'cover-x'),
     focalY: focal(input.identity.focalY, 'cover-y'),
   };
-  const spotlight = settings(input.spotlight, old.layout.spotlight, 'spotlight-size');
+  const spotlight = {
+    ...settings(input.spotlight, old.layout.spotlight, 'spotlight-size'),
+    offlineLead: input.spotlight.offlineLead===undefined ? old.layout.spotlight.offlineLead :
+      choice(input.spotlight.offlineLead,offlineLeads,'offlineLead'),
+    offlineLink: input.spotlight.offlineLink===undefined ? old.layout.spotlight.offlineLink :
+      input.spotlight.offlineLink===null ? null : https(input.spotlight.offlineLink,'offlineLink',true),
+  };
   const dock = settings(input.dock, old.layout.dock, 'dock-size');
   const priorSchedule = old.layout.supporting.find(card => card.family === 'schedule')!;
   const supporting = list(input.supporting, 'supporting', 6).map((card): ScheduleSettings | PromoCard => {
@@ -187,7 +200,7 @@ export function normalizeHome(value: any, old: EditableHome, now: number, previe
   if (!Number.isInteger(dockPosition) || dockPosition < 0 || dockPosition > supporting.length) {
     throw invalid('layout', 'Place the Channel Dock below Spotlight among the supporting cards.');
   }
-  return { ...content, layout: { identity, spotlight, dock, dockPosition, supporting } };
+  return { ...content, aura: normalizeAura(value.aura,content.theme,old.aura), layout: { identity, spotlight, dock, dockPosition, supporting } };
 }
 
 export const platforms = {

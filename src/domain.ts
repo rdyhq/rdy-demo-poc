@@ -20,18 +20,24 @@ export const digest = (raw: string) => createHash('sha256').update(raw).digest('
 export const secret = () => randomBytes(32).toString('hex');
 export const tokenPattern = /^[a-f0-9]{64}$/;
 export const uuidPattern = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i;
-export const themeNames = ['Hearth','Grove','Midnight'] as const;
+export const themeNames = ['Nebula','Ember','Tide','Paper'] as const;
+export type Theme = typeof themeNames[number];
+const legacyThemes = {Midnight:'Nebula',Hearth:'Ember',Grove:'Tide'} as const;
+export type StoredTheme = Theme | keyof typeof legacyThemes;
+export function readTheme(theme:StoredTheme):Theme {
+  return Object.hasOwn(legacyThemes,theme) ? legacyThemes[theme as keyof typeof legacyThemes] : theme as Theme;
+}
 
 export type SessionSlot = { id: string; title: string; local: string; zone: string; offset: string; instant: string };
 export type ScheduleChange={prior:SessionSlot;next:SessionSlot|null;status:'Changed'|'Cancelled'|'New time unknown'};
 export type Update = { id: string; text: string; firstPublishedAt?: string };
 export type HomeContent = {
   schemaVersion: 1; displayName: string; intro: string; game: string; streamUrl: string;
-  theme: typeof themeNames[number]; avatarId: string | null; coverId: string | null;
+  theme: Theme; avatarId: string | null; coverId: string | null;
   scheduleRemoval?: 'unknown'|'cancelled'; links: { label: string; url: string }[]; sessions: SessionSlot[]; updates: Update[];
 };
 export const emptyHome: HomeContent = {
-  schemaVersion:1,displayName:'',intro:'',game:'',streamUrl:'',theme:'Midnight',avatarId:null,coverId:null,links:[],sessions:[],updates:[],
+  schemaVersion:1,displayName:'',intro:'',game:'',streamUrl:'',theme:'Nebula',avatarId:null,coverId:null,links:[],sessions:[],updates:[],
 };
 
 export function equalSecret(a: string, b: string) {

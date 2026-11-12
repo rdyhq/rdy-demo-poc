@@ -8,6 +8,7 @@ for (const group of document.querySelectorAll('[data-share]')) {
     try {
       await navigator.clipboard.writeText(field.value);
       status.textContent='Link copied.';
+      copy.dispatchEvent(new Event('aura-copy',{bubbles:true}));
     } catch {
       field.focus();
       field.select();

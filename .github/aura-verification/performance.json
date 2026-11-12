@@ -1,0 +1,57 @@
+{
+  "browser": "Chrome/156.0.8078.48",
+  "samples": [
+    {
+      "lcp": 740,
+      "cls": 0,
+      "cssWidth": 390,
+      "images": [
+        82,
+        3928
+      ]
+    },
+    {
+      "lcp": 776,
+      "cls": 0,
+      "cssWidth": 390,
+      "images": [
+        3928,
+        82
+      ]
+    },
+    {
+      "lcp": 744,
+      "cls": 0,
+      "cssWidth": 390,
+      "images": [
+        3928,
+        82
+      ]
+    },
+    {
+      "lcp": 724,
+      "cls": 0,
+      "cssWidth": 390,
+      "images": [
+        82,
+        3928
+      ]
+    },
+    {
+      "lcp": 728,
+      "cls": 0,
+      "cssWidth": 390,
+      "images": [
+        3928,
+        82
+      ]
+    }
+  ],
+  "medianLcp": 740,
+  "medianCls": 0,
+  "frameCount": 112,
+  "fps": 21.624359548810663,
+  "p95MainThreadMs": 1,
+  "maxMainThreadMs": 1.1000003814697266,
+  "traceEvents": 5677
+}

@@ -45,7 +45,7 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
   let operator:string, second:string, creatorCookie:string, id:string, revision:number, publication:string, calendarPath:string, imagePath:string, avatar:string;
   const slot=randomUUID(), update=randomUUID();
   const content={...emptyHome,displayName:'Mira Vale',intro:'Cozy strategy, questionable shortcuts.',game:'Hades II',
-    theme:'Grove',streamUrl:'https://www.twitch.tv/miravale',links:[{label:'Archive',url:'https://example.test/archive'}],
+    theme:'Tide',streamUrl:'https://www.twitch.tv/miravale',links:[{label:'Archive',url:'https://example.test/archive'}],
     updates:[{id:update,text:'One more attempt at the surface route.'}],
     sessions:[{id:slot,title:'Surface route practice',local:'2027-07-17T19:00',zone:'UTC',offset:'+00:00'}]};
   try {
@@ -329,14 +329,14 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
     await t.test('retained Homes map to cards without changing their published revision',async()=>{
       const homeId=randomUUID(), owner=randomUUID(), oldPublication=randomUUID();
       const email='retained@example.test';
-      const old=normalize({...emptyHome,displayName:'LongExistingCreatorNameWithoutAnySpaces',intro:'A retained Home.',
-        game:'Hades II',streamUrl:'https://www.twitch.tv/retained',theme:'Hearth',
+      const old={...normalize({...emptyHome,displayName:'LongExistingCreatorNameWithoutAnySpaces',intro:'A retained Home.',
+        game:'Hades II',streamUrl:'https://www.twitch.tv/retained',
         links:[
           {label:'Official YouTube',url:'https://www.youtube.com/@retained'},
           {label:'TikTok',url:'https://www.tiktok.com/@retained'},
           {label:'Kick',url:'https://kick.com/retained'},
           {label:'Archive video',url:'https://www.youtube.com/watch?v=example'},
-        ]});
+        ]}),theme:'Hearth'};
       await transaction(pool,async client=>{
         await client.query('INSERT INTO creators VALUES ($1,$2)',[owner,email]);
         await client.query('INSERT INTO homes(id,owner_id) VALUES ($1,$2)',[homeId,owner]);
@@ -353,6 +353,8 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal(retained.content.layout.dock.minHeight,0);
       const path='/h/'+homeId;
       const before=await (await get(path)).text();
+      assert.match(before,/data-theme="Ember"/);
+      assert.doesNotMatch(await (await get(path+'?demo-live=1')).text(),/ON AIR|data-live-surge|data-viewer-count/);
       assert.match(before,/data-card="identity".*data-card="spotlight".*data-card="dock"/s);
       assert.match(before,/Open stream on Twitch/);
       assert.match(before,/data-platform="youtube"/);
@@ -410,7 +412,12 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
         }
       }
 
+      next.theme='Paper';
+      next.aura={...next.aura,frame:'holo',accent:'#5a3cf0',accentSource:'custom'};
       const firstSave={operationId:randomUUID(),revision:0,content:next};
+      const unreadable=await change('save',{...firstSave,content:{...next,aura:{...next.aura,accent:'#ffffff'}}},cookie);
+      assert.equal(unreadable.status,422);
+      assert.ok((await unreadable.json()).fields['aura-accent']);
       const invalidLayout=structuredClone(next);
       invalidLayout.layout.supporting.push({...invalidLayout.layout.supporting[1]});
       assert.equal((await change('save',{...firstSave,content:invalidLayout},cookie)).status,422);
@@ -433,6 +440,8 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const stored=(await pool.query('SELECT content FROM drafts WHERE home_id=$1 ORDER BY revision',[homeId])).rows.map(row=>row.content);
       assert.deepEqual(stored[0],old);
       assert.equal(stored[1].schemaVersion,2);
+      assert.equal(stored[1].skin,'Paper');
+      assert.deepEqual(stored[1].aura,next.aura);
       assert.equal(stored[1].identity.id,retained.content.layout.identity.id);
       assert.equal(stored[1].dockPosition,2);
       assert.equal(stored[1].dock.span,6);
@@ -469,6 +478,8 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal(done.status,200,await done.clone().text());
       assert.equal((await done.json()).publicPath,path);
       const after=await (await get(path)).text();
+      assert.match(after,/data-theme="Paper"/);
+      assert.match(after,/data-accent="#5a3cf0"[^>]*data-frame="holo"/s);
       assert.match(after,/A private card draft.*Open stream.*Supporter giveaway/s);
       assert.match(after,/data-avatar-position="banner-center"/);
       assert.match(after,/data-card="identity".*data-card="spotlight".*data-card="promo".*data-card="dock"/s);

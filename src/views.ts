@@ -2,6 +2,8 @@ import { html, raw } from 'hono/html';
 import { randomUUID } from 'node:crypto';
 import { futureSessions, nextSession, themeNames, type HomeContent, type ScheduleChange, type SessionSlot } from './domain.ts';
 import { channelPlatform, defaultLayout, platforms, cardSpans, cardHeights, promoCategories, type EditableHome } from './home-cards.ts';
+import { auraOptions, defaultAura } from './aura.ts';
+import type { LiveState } from './live-state.ts';
 import { demoRanking } from './leaderboard.ts';
 import type { ProContent, ProDraft } from './pro.ts';
 import { discordSchedule, type Selection } from './sharing.ts';
@@ -18,11 +20,11 @@ const art=html`<svg class="art" viewBox="0 0 920 380" preserveAspectRatio="xMidY
 <path d="m0 380 117-48 92 17 112-37 128 47 65-12 88 29 111-46 69 19 138-35v66Z" fill="#14182d"/>
 <g fill="#b7d9ff"><circle cx="170" cy="122" r="3"/><circle cx="342" cy="103" r="3"/><circle cx="803" cy="106" r="3"/><path d="M97 54v22m-11-11h22m679 158v19m-9-9h18" stroke="#b7d9ff" stroke-width="1.7"/></g></svg>`;
 
-function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;editor?:boolean;cardLayout?:boolean;phone?:boolean;share?:boolean;player?:boolean;newTabLinks?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
+function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;editor?:boolean;cardLayout?:boolean;aura?:boolean;motionSwitch?:boolean;phone?:boolean;share?:boolean;player?:boolean;newTabLinks?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="${options.theme==='Hearth'||options.theme==='Grove'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=canvas17">
+    <meta name="color-scheme" content="${options.theme==='Paper'?'light':'dark'}">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=aura">
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.newTabLinks?html`<base target="_blank">`:''}
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
@@ -32,14 +34,15 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
     ${options.player?html`<script src="/assets/player.js" defer></script>`:''}
     ${options.share?html`<script src="/assets/share.js?v=2" defer></script>`:''}
     ${options.cardLayout?html`<script src="/assets/card-layout.js?v=1" defer></script>`:''}
-    ${options.script?html`<script src="/assets/editor.js?v=canvas17" defer></script>`:''}
+    ${options.script?html`<script type="module" src="/assets/editor.js?v=aura" defer></script>`:''}
+    ${options.aura?html`<script src="/assets/aura.js" defer></script>`: ''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
     </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
       <span class="top-label">${options.privatePage?'Creator workspace':'LINK IN BIO FOR STREAMERS'}</span>
       ${options.privatePage?html`<nav aria-label="Workspace"><a href="/editor">Editor</a><a href="/account">Account</a></nav>`:html`<a class="small-link" href="/sign-in">Creator sign-in <span aria-hidden="true">↗</span></a>`}
     </header>`}<main class="${options.editor?'editor-shell':options.wide?'wide':options.phone?'shell phone-preview':'shell'}">${body}</main>
-    ${options.editor?'':options.creator?html`<footer class="creator-credit"${options.standalone?raw(' hidden'):''}><a href="/">Made with LINB</a></footer>`:options.standalone?'':
+    ${options.editor?'':options.creator?html`<footer class="creator-credit"${options.standalone?raw(' hidden'):''}><a href="/">Made with LINB</a>${options.motionSwitch?html`<label class="motion-switch" hidden><input type="checkbox" data-reduce-motion> Reduce motion</label>`:''}</footer>`:options.standalone?'':
       html`<footer class="footer"><span>${mark} LINB</span><span>linb.io · Built for streamers.</span></footer>`}
     </body></html>`;
 }
@@ -177,7 +180,7 @@ function scheduleSlot(slot:SessionSlot) {
     <div><dt>Time zone</dt><dd>${slot.zone} (${slot.offset})</dd></div></dl></div>`;
 }
 
-export function renderHome(content:HomeContent|EditableHome,options:{now:number;asset:(id:string)=>string;canonical?:string;
+export function renderHome(content:HomeContent|EditableHome,options:{now:number;liveState?:LiveState;asset:(id:string)=>string;canonical?:string;
   preview?:boolean;embedded?:boolean;editCanvas?:boolean;phone?:boolean;review?:boolean;report?:string;demo?:boolean;pro?:ProContent|null;homeId?:string;proBase?:string;notice?:ScheduleChange|null;currentPage?:string;metadata?:{title:string;description:string;image?:string}}) {
   const layout='layout' in content?content.layout:defaultLayout(options.homeId??'demo');
   const pro=options.pro, page=options.currentPage;
@@ -195,11 +198,23 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
   const initials=name.split(/\s+/).slice(0,2).map(word=>[...word][0]).join('').toUpperCase();
   const identity=layout.identity;
   const sessions=futureSessions(content,options.now);
+  const aura='aura' in content?content.aura:defaultAura;
+  const live=Boolean(content.streamUrl)&&options.liveState?.live===true&&options.liveState.verified===true;
+  const viewerCount=options.liveState?.viewers;
+  const viewers=live&&Number.isSafeInteger(viewerCount)&&viewerCount!>=0?viewerCount:undefined;
+  const featured=layout.spotlight.offlineLead==='link'
+    ? content.links.find(link=>link.url===layout.spotlight.offlineLink) : undefined;
+  const next=sessions[0];
+  const lead=live ? html`<p class="micro on-air">ON AIR</p><h2>Live now</h2>
+    ${viewers===undefined?'':html`<p class="spotlight-meta"><span data-viewer-count="${viewers}"${options.liveState?.fixtureViewers===undefined?'':html` data-fixture-viewers="${options.liveState.fixtureViewers}"`}>${viewers.toLocaleString('en-US')}</span> watching</p>`}`
+    : featured ? html`<p class="micro">FEATURED LINK</p><h2>${featured.label}</h2>`
+    : next ? html`<p class="micro">NEXT STREAM</p><h2>${next.title}</h2><p class="spotlight-meta"><time datetime="${next.instant}">${next.local.replace('T',' ')} ${next.zone} (${next.offset})</time></p>`
+    : html`<p class="micro">SPOTLIGHT</p>`;
   // Keep the card frame and editor controls shared. Each family supplies only its content.
   const card = (family:string,key:string,label:string,body:ReturnType<typeof html>,dimensions?:FrameDimensions,
     movable=false,attributes?:ReturnType<typeof html>) =>
-    editableCard(key,label,html`<section class="home-card ${family==='updates'?family:family+'-card'}" data-card="${family}"${dimensions&&!options.editCanvas?dimensionAttributes(dimensions):''}${attributes??''}>
-      ${body}</section>`,movable,options.editCanvas,dimensions);
+    editableCard(key,label,html`<section class="home-card ${family==='updates'?family:family+'-card'}" data-card="${family}" data-frame-label="${family}"${dimensions&&!options.editCanvas?dimensionAttributes(dimensions):''}${attributes??''}>
+      <span class="aura-frame-sheen" aria-hidden="true"></span>${body}</section>`,movable,options.editCanvas,dimensions);
   const remainingLinks=content.links.slice(2);
   const dock=content.links.length?card('dock','dock','Channel Dock',html`
     <h2>Find me</h2><div class="dock-content">
@@ -241,18 +256,22 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
       <button type="button" class="secondary" id="return-to-editor">Return to editor</button>
       <p class="dim">If this tab stays open, close it to return to your unsaved editor.</p></aside>`:''}
     ${options.review?html`<aside class="status-note">Restricted publication review · <a href="/ops">Back to cases</a></aside>`:''}
-    <article class="creator card-home" data-flair="${pro?.appearance??'original'}" ${options.editCanvas?raw('data-edit-canvas'):''}>
+    <canvas class="aura-field" aria-hidden="true" hidden></canvas>
+    <article class="creator card-home" data-aura-home data-accent="${aura.accent??''}"
+      data-font="${aura.font}" data-shape="${aura.shape}" data-frame="${aura.frame}" data-field="${aura.field}"
+      data-intensity="${aura.intensity}"${live&&aura.liveSurge?raw(' data-live-surge'):''} data-flair="${pro?.appearance??'original'}" ${options.editCanvas?raw('data-edit-canvas'):''}>
       ${card('identity','identity','Creator Identity',html`
         <div class="cover" data-focal-x="${identity.focalX}" data-focal-y="${identity.focalY}">${content.coverId?html`<img src="${options.asset(content.coverId)}" alt="" fetchpriority="high">`:options.demo?art:html`<div class="plain-cover"></div>`}</div>
         <div class="identity">
-          ${content.avatarId?html`<img class="avatar" src="${options.asset(content.avatarId)}" alt="">`:
-            html`<div class="avatar initials" aria-hidden="true">${initials}</div>`}
+          <div class="avatar-wrap">${content.avatarId?html`<img class="avatar" src="${options.asset(content.avatarId)}" alt="">`:
+            html`<div class="avatar initials" aria-hidden="true">${initials}</div>`}</div>
           <div class="identity-text"><h1>${name}</h1>${content.intro?html`<p>${content.intro}</p>`:''}
           ${content.game?html`<p class="signature-game"><span class="sr-only">Signature game: </span>${content.game}</p>`:''}</div>
         </div>
       `,identity,false,html` data-align="${identity.alignment}" data-avatar-size="${identity.avatarSize}" data-avatar-position="${identity.avatarPosition}"`)}
       ${content.streamUrl?card('spotlight','spotlight','Spotlight',html`
-        <div class="card-action-layout"><p class="micro">SPOTLIGHT</p><a class="button" href="${content.streamUrl}">${streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a></div>`,
+        ${live&&aura.liveSurge?html`<span class="aura-sweep" aria-hidden="true"></span>`:''}
+        <div class="card-action-layout"><div class="spotlight-copy">${lead}</div><a class="button" href="${content.streamUrl}">${live?'Watch live':streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a></div>`,
         layout.spotlight,false,html` aria-label="Stream destination"`):''}
       ${supporting}
       ${content.updates.length?card('updates','updates','Updates',html`<h2>Updates</h2>${content.updates.map(update=>html`
@@ -262,7 +281,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
       ${options.preview||options.review?'':html`<div class="fan-tools"><p class="bookmark">Save this home in your browser.</p>
         ${options.canonical?shareControl(options.canonical):''}
         ${options.report?html`<a class="dim" href="${options.report}">Report this page</a>`:''}</div>`}
-    </article>`,{theme:content.theme,preview:options.preview&&!options.embedded,phone:options.phone,creator:true,standalone:options.editCanvas,cardLayout:true,newTabLinks:options.embedded,player:Boolean(pro?.video),canonical:options.canonical,share:!options.review&&!options.editCanvas,metadata:options.metadata});
+    </article>`,{theme:content.theme,preview:options.preview&&!options.embedded,phone:options.phone,creator:true,standalone:options.editCanvas,cardLayout:true,aura:true,motionSwitch:!options.preview&&!options.review,newTabLinks:options.embedded,player:Boolean(pro?.video),canonical:options.canonical,share:!options.review&&!options.editCanvas,metadata:options.metadata});
 }
 
 function editorSelect(id:string,label:string,options:readonly (readonly [string|number,string])[]) {
@@ -383,6 +402,8 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
       <section data-inspector="spotlight" hidden><h2>Spotlight</h2><p class="editor-description">Send visitors to your primary stream.</p>
         <p id="spotlight-empty" hidden>Add a stream destination to show Spotlight on your Home.</p>
         <label for="streamUrl">Stream destination <small>HTTPS address</small></label><input id="streamUrl" type="url" maxlength="2048" value="${state.content.streamUrl}">
+        ${editorSelect('offlineLead','When offline, lead with',[['next','Next stream'],['link','Featured link']])}
+        <div id="offline-link-field" hidden>${editorSelect('offlineLink','Featured link',[['','Choose a link from the Channel Dock']])}</div>
         ${editorSelect('spotlight-span','Preferred width',cardSpanOptions)}
         ${editorSelect('spotlight-minHeight','Minimum height',cardHeightOptions)}
       </section>
@@ -405,8 +426,26 @@ export function editorPage(state:HomeState,csrf:string,imagesEnabled:boolean,twi
       <section data-inspector="updates" hidden><h2>Updates</h2><p>Up to three updates. LINB adds the date when you first publish an update.</p>
         <div id="updates"></div><button type="button" class="secondary" data-add="updates">Add an update</button>
       </section>
-      <section data-inspector="skin" hidden><h2>Skin</h2><p class="editor-description">Choose how your Home looks to visitors.</p><fieldset><legend>Theme</legend><div class="theme-picker">${themeNames.map(theme=>html`<label>
+      <section data-inspector="skin" hidden><h2>Skin</h2><p class="editor-description">Choose how your Home looks to visitors.</p>
+        <fieldset><legend>Identity presets</legend><div class="aura-choices">
+          ${['Cozy','Retro','Night Ops'].map(name=>html`<button type="button" class="secondary" data-aura-preset="${name}">${name}</button>`)}
+        </div></fieldset><fieldset><legend>Theme</legend><div class="theme-picker">${themeNames.map(theme=>html`<label>
         <input name="theme" type="radio" value="${theme}" ${state.content.theme===theme?raw('checked'):''}><span class="swatch" data-swatch="${theme}"></span>${theme}</label>`)}</div></fieldset>
+        <fieldset><legend id="aura" tabindex="-1">Accent</legend>
+          <div class="aura-choices"><button id="aura-accentSource" class="secondary" type="button" data-aura-swatch="">Theme accent</button>
+          ${[['#b69cff','Lilac'],['#ff7ab6','Pink'],['#ffb547','Amber'],['#5ee0c1','Mint'],['#7cc4ff','Sky']].map(([color,label])=>html`
+            <button class="secondary aura-swatch" type="button" data-aura-swatch="${color}" aria-label="${label} accent"><span aria-hidden="true"></span></button>`)}
+          </div>
+          <label for="aura-accent">Custom accent color</label><input id="aura-accent" type="color">
+          <button class="secondary" id="aura-match" type="button" aria-describedby="aura-match-help">Match my art</button>
+          <p id="aura-match-help" class="editor-description"></p><p id="aura-note" role="status" hidden></p>
+        </fieldset>
+        ${editorSelect('aura-font','Display font',[['grotesk','Grotesk'],['wide','Wide'],['mono','Mono'],['pixel','Pixel']])}
+        ${(['shape','frame','field','intensity'] as const).map(key=>editorSelect('aura-'+key,
+          {shape:'Shape',frame:'Card frame',field:'Field effect',intensity:'Intensity'}[key],
+          auraOptions[key].map(value=>[value,value==='hud'?'HUD':value[0].toUpperCase()+value.slice(1)])))}
+        <label class="check"><input id="aura-liveSurge" type="checkbox"> Live surge</label>
+        <label class="check"><input id="aura-preview-motion" type="checkbox"> Preview reduced motion</label>
       </section>
         </form>
         <section data-inspector="publishing" hidden><h2>Publishing</h2>

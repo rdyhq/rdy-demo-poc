@@ -14,6 +14,7 @@ import { Auth, type SendMail } from './auth.ts';
 import { AppError, digest, emptyHome, equalSecret, invalid, mailbox, scheduleChange, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
 import { invite, inviteList, revokeInvite } from './enrollment.ts';
 import { cardColumns, cardHeights, cardSpans, normalizeHome, platforms, readHome, type StoredHome } from './home-cards.ts';
+import { liveState } from './live-state.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
@@ -38,6 +39,12 @@ const editorScript=readFileSync(new URL('./public/editor.js',import.meta.url),'u
 const cardLayoutScript=readFileSync(new URL('./public/card-layout.js',import.meta.url),'utf8');
 const previewScript=readFileSync(new URL('./public/preview.js',import.meta.url),'utf8');
 const verifyScript=readFileSync(new URL('./public/verify.js',import.meta.url),'utf8');
+const auraScripts=new Map(['aura','contrast','art-accent'].map(name=>[
+  name+'.js',readFileSync(new URL('./public/'+name+'.js',import.meta.url),'utf8'),
+]));
+const fonts=new Map(['inter','bricolage-grotesque','unbounded','jetbrains-mono','silkscreen'].map(name=>[
+  name+'-latin.woff2',readFileSync(new URL('./public/fonts/'+name+'-latin.woff2',import.meta.url)),
+]));
 const platformIcons=new Map(Object.keys(platforms).map(name=>[
   name,readFileSync(new URL('./public/platforms/'+name+'.svg',import.meta.url),'utf8'),
 ]));
@@ -118,7 +125,7 @@ export function createApp(config:Configuration={}) {
       const allowedForms=(twitch?' https://id.twitch.tv':'')+(billing?' https://checkout.stripe.com https://billing.stripe.com':'');
       const frameSources=[...(c.req.path==='/editor'?["'self'"]:[]),...(pro?['https://www.youtube-nocookie.com']:[])];
       const allowedFrames=frameSources.length?'frame-src '+frameSources.join(' ')+'; ':'';
-      c.header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'"+allowedForms+"; "+allowedFrames+"base-uri 'none'; frame-ancestors 'none'");
+      c.header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'"+allowedForms+"; "+allowedFrames+"base-uri 'none'; frame-ancestors 'none'");
     }
     if(redirectHosts.size&&origin&&c.req.path!=='/healthz') {
       // The Node adapter builds this URL from the request authority, not X-Forwarded-Host.
@@ -170,6 +177,14 @@ export function createApp(config:Configuration={}) {
   });
 
   app.get('/healthz',c=>{c.header('Cache-Control','no-store');return c.json({status:'ok'});});
+  app.get('/assets/fonts/:file',c=>{
+    const bytes=fonts.get(c.req.param('file'));
+    if(!bytes) return c.notFound();
+    return c.body(new Uint8Array(bytes),200,{'Content-Type':'font/woff2','Cache-Control':'public, max-age=31536000'});
+  });
+  for(const [file,script] of auraScripts) {
+    app.get('/assets/'+file,c=>c.text(script,200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'public, max-age=300'}));
+  }
   app.get('/assets/platforms/:file',c=>{
     const file=c.req.param('file');
     const asset=file.endsWith('.svg')?platformIcons.get(file.slice(0,-4)):undefined;
@@ -462,7 +477,7 @@ export function createApp(config:Configuration={}) {
     const paid=pro?await publicPro(db,home.id,home.publication_id):null;
     if(paid&&!pro?.multipage) { paid.highlights=null; paid.recommendations=null; }
     const preview=await approvedPreview(db,home)??previewFields(home.content,{name:false,intro:false,image:false});
-    return c.html(renderHome(home.content,{now:clock(),report:'/h/'+home.id+'/report',homeId:home.id,pro:paid,notice:home.schedule_change,asset:id=>'/h/'+home.id+'/images/'+id,canonical,
+    return c.html(renderHome(home.content,{now:clock(),liveState:await liveState(home.id,config.demo?c.req.query('demo-live'):undefined),report:'/h/'+home.id+'/report',homeId:home.id,pro:paid,notice:home.schedule_change,asset:id=>'/h/'+home.id+'/images/'+id,canonical,
       metadata:{title:preview.title,description:preview.description,
         image:preview.coverId?canonical+'/share-image/'+home.publication_id:undefined}}));
   });
@@ -562,14 +577,14 @@ export function createApp(config:Configuration={}) {
     });
   }
   if(config.demo) app.get('/demo/leaderboard',c=>c.html(leaderboardDemo(clock(),c.req.query('state')==='low')));
-  if(config.demo) app.get('/demo',c=>{
+  if(config.demo) app.get('/demo',async c=>{
     const quiet=c.req.query('state')==='quiet';
     const future=new Date(clock()+86400000);
     const content={...emptyHome,displayName:'Mira Vale',intro:'Cozy strategy, questionable shortcuts.',game:'Hades II',
-      streamUrl:'https://www.twitch.tv/',theme:'Midnight' as const,links:[{label:'Stream archive',url:'https://www.youtube.com/'}],
+      streamUrl:'https://www.twitch.tv/',theme:'Nebula' as const,links:[{label:'Stream archive',url:'https://www.youtube.com/'}],
       updates:[{id:randomUUID(),text:'Another attempt at the surface route next time.',firstPublishedAt:new Date(clock()).toISOString()}],
       sessions:quiet?[]:[{id:randomUUID(),title:'Surface route practice',local:future.toISOString().slice(0,16),zone:'UTC',offset:'+00:00',instant:future.toISOString()}]};
-    return c.html(renderHome(content,{now:clock(),asset:()=>'',demo:true}));
+    return c.html(renderHome(content,{now:clock(),asset:()=>'',demo:true,liveState:await liveState('demo',c.req.query('demo-live'))}));
   });
   app.notFound(c=>c.html(message('This home is not available','The requested page is unavailable.'),404));
   return app;
