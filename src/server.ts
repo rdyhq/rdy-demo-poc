@@ -5,6 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { homeAliases } from './home-aliases.ts';
 import { createApp } from './app.ts';
+import { clientAddress, trustedProxyHops } from './client-address.ts';
 import { postmark } from './auth.ts';
 import { localObjects, r2Objects } from './assets.ts';
 import { connect } from './db.ts';
@@ -54,15 +55,15 @@ if(LINB_STRIPE_TEST==='1'&&(!STRIPE_TEST_SECRET||!STRIPE_TEST_PRICE||!STRIPE_TES
   throw new Error('Stripe test mode requires its secret, price and webhook secret');
 }
 const billing=LINB_STRIPE_TEST==='1'?{secret:STRIPE_TEST_SECRET!,price:STRIPE_TEST_PRICE!,webhookSecret:STRIPE_TEST_WEBHOOK_SECRET!}:undefined;
+// Per-address limits need the real client. Behind a proxy, every client shares the proxy's address.
+const trustedHops=trustedProxyHops(process.env.LOBBY_TRUST_PROXY);
+if(!trustedHops&&process.env.RENDER) {
+  console.error('LINB rate limits share one address behind the proxy. Set LOBBY_TRUST_PROXY.');
+}
 const app=createApp({pool,origin:origin.origin,redirectOrigins,twitch,twitchActivity,aliases:homeAliases(process.env.LINB_HOME_ALIASES),billing,pro:process.env.LINB_PRO_SYNTHETIC==='1'?{multipage:process.env.LINB_MULTIPAGE_SYNTHETIC==='1'}:undefined,mail,objects,reportContact:process.env.REPORT_CONTACT,
   readOnlyHomes:process.env.LINB_HOME_READ_ONLY==='1',
   demo:Boolean(dev&&process.env.LOBBY_DEMO==='1'),
-  clientAddress:context=>{
-    const address=getConnInfo(context).remote.address??'unknown';
-    // Enable only behind the configured ingress that appends the actual connecting client.
-    if(process.env.LOBBY_TRUST_PROXY!=='1') return address;
-    return context.req.header('X-Forwarded-For')?.split(',').at(-1)?.trim()||address;
-  }});
+  clientAddress:context=>clientAddress(getConnInfo(context).remote.address,context.req.header('X-Forwarded-For'),trustedHops)});
 const server=serve({fetch:app.fetch,hostname:host,port});
 for(const signal of ['SIGINT','SIGTERM'] as const) {
   process.once(signal,()=>server.close(()=>{void pool?.end();}));
