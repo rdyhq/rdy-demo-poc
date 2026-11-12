@@ -1,3 +1,4 @@
+import { appLink } from './app-link.ts';
 import { html, raw } from 'hono/html';
 import { randomUUID } from 'node:crypto';
 import { futureSessions, nextSession, themeNames, type HomeContent, type ScheduleChange, type SessionSlot } from './domain.ts';
@@ -20,7 +21,7 @@ const art=html`<svg class="art" viewBox="0 0 920 380" preserveAspectRatio="xMidY
 <path d="m0 380 117-48 92 17 112-37 128 47 65-12 88 29 111-46 69 19 138-35v66Z" fill="#14182d"/>
 <g fill="#b7d9ff"><circle cx="170" cy="122" r="3"/><circle cx="342" cy="103" r="3"/><circle cx="803" cy="106" r="3"/><path d="M97 54v22m-11-11h22m679 158v19m-9-9h18" stroke="#b7d9ff" stroke-width="1.7"/></g></svg>`;
 
-function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;editor?:boolean;cardLayout?:boolean;aura?:boolean;motionSwitch?:boolean;phone?:boolean;share?:boolean;player?:boolean;newTabLinks?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
+function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;handoff?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;editor?:boolean;cardLayout?:boolean;aura?:boolean;motionSwitch?:boolean;phone?:boolean;share?:boolean;player?:boolean;newTabLinks?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="${options.theme==='Paper'?'light':'dark'}">
@@ -38,6 +39,7 @@ function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean
     ${options.aura?html`<script src="/assets/aura.js?v=twitch-activity" defer></script>`: ''}
     ${options.verify?html`<script src="/assets/verify.js" defer></script>`:''}
     ${options.preview?html`<script src="/assets/preview.js" defer></script>`:''}
+    ${options.handoff?html`<script type="module" src="/assets/handoff.js"></script>`:''}
     </head><body>${options.creator||options.standalone||options.editor?'':html`<header class="top"><a href="/" class="brand">${mark}<span>LINB</span></a>
       <span class="top-label">${options.privatePage?'Creator workspace':'LINK IN BIO FOR STREAMERS'}</span>
       ${options.privatePage?html`<nav aria-label="Workspace"><a href="/editor">Editor</a><a href="/account">Account</a></nav>`:html`<a class="small-link" href="/sign-in">Creator sign-in <span aria-hidden="true">↗</span></a>`}
@@ -180,7 +182,7 @@ function scheduleSlot(slot:SessionSlot) {
     <div><dt>Time zone</dt><dd>${slot.zone} (${slot.offset})</dd></div></dl></div>`;
 }
 
-export function renderHome(content:HomeContent|EditableHome,options:{now:number;liveState?:LiveState;refreshActivity?:boolean;asset:(id:string)=>string;canonical?:string;
+export function renderHome(content:HomeContent|EditableHome,options:{now:number;liveState?:LiveState;refreshActivity?:boolean;asset:(id:string)=>string;canonical?:string;appHandoff?:boolean;
   preview?:boolean;embedded?:boolean;editCanvas?:boolean;phone?:boolean;review?:boolean;report?:string;demo?:boolean;pro?:ProContent|null;homeId?:string;proBase?:string;notice?:ScheduleChange|null;currentPage?:string;metadata?:{title:string;description:string;image?:string}}) {
   const layout='layout' in content?content.layout:defaultLayout(options.homeId??'demo');
   const pro=options.pro, page=options.currentPage;
@@ -199,6 +201,8 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
   const identity=layout.identity;
   const sessions=futureSessions(content,options.now);
   const aura='aura' in content?content.aura:defaultAura;
+  // The app hand-off is released by configuration, after its test on a phone.
+  const app=options.appHandoff?appLink(content.streamUrl):undefined;
   const live=Boolean(content.streamUrl)&&options.liveState?.live===true&&options.liveState.verified===true;
   const viewerCount=options.liveState?.viewers;
   const viewers=live&&Number.isSafeInteger(viewerCount)&&viewerCount!>=0?viewerCount:undefined;
@@ -276,7 +280,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
       ${content.streamUrl?card('spotlight','spotlight','Spotlight',html`
         ${options.refreshActivity?html`<template data-activity-fallback data-action="${streamLabel(content.streamUrl)}">${fallbackLead}</template>`:''}
         ${live&&aura.liveSurge?html`<span class="aura-sweep" aria-hidden="true"></span>`:''}
-        <div class="card-action-layout"><div class="spotlight-copy">${lead}</div><a class="button" href="${content.streamUrl}">${live?'Watch live':streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a></div>`,
+        <div class="card-action-layout"><div class="spotlight-copy">${lead}</div><a class="button" href="${content.streamUrl}"${app?html` data-app-link="${app}"`:''}>${live?'Watch live':streamLabel(content.streamUrl)} <span aria-hidden="true">↗</span></a></div>`,
         layout.spotlight,false,html` aria-label="Stream destination"`):''}
       ${supporting}
       ${content.updates.length?card('updates','updates','Updates',html`<h2>Updates</h2>${content.updates.map(update=>html`
@@ -286,7 +290,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
       ${options.preview||options.review?'':html`<div class="fan-tools"><p class="bookmark">Save this home in your browser.</p>
         ${options.canonical?shareControl(options.canonical):''}
         ${options.report?html`<a class="dim" href="${options.report}">Report this page</a>`:''}</div>`}
-    </article>`,{theme:content.theme,preview:options.preview&&!options.embedded,phone:options.phone,creator:true,standalone:options.editCanvas,cardLayout:true,aura:true,motionSwitch:!options.preview&&!options.review,newTabLinks:options.embedded,player:Boolean(pro?.video),canonical:options.canonical,share:!options.review&&!options.editCanvas,metadata:options.metadata});
+    </article>`,{theme:content.theme,preview:options.preview&&!options.embedded,phone:options.phone,creator:true,standalone:options.editCanvas,cardLayout:true,aura:true,handoff:Boolean(app),motionSwitch:!options.preview&&!options.review,newTabLinks:options.embedded,player:Boolean(pro?.video),canonical:options.canonical,share:!options.review&&!options.editCanvas,metadata:options.metadata});
 }
 
 function editorSelect(id:string,label:string,options:readonly (readonly [string|number,string])[]) {

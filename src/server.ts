@@ -66,6 +66,7 @@ const approved=homeAliases(process.env.LINB_HOME_ALIASES);
 if(pool&&approved.size) await importAliases(pool,approved).catch(()=>console.error('LINB could not store the approved handles.'));
 const app=createApp({pool,origin:origin.origin,redirectOrigins,twitch,twitchActivity,billing,pro:process.env.LINB_PRO_SYNTHETIC==='1'?{multipage:process.env.LINB_MULTIPAGE_SYNTHETIC==='1'}:undefined,mail,objects,reportContact:process.env.REPORT_CONTACT,
   readOnlyHomes:process.env.LINB_HOME_READ_ONLY==='1',
+  appHandoff:process.env.LINB_APP_HANDOFF==='1',
   demo:Boolean(dev&&process.env.LOBBY_DEMO==='1'),
   clientAddress:context=>clientAddress(getConnInfo(context).remote.address,context.req.header('X-Forwarded-For'),trustedHops)});
 const server=serve({fetch:app.fetch,hostname:host,port});
