@@ -4,7 +4,7 @@ import { artUrl } from './twitch-channel.ts';
 
 export type TwitchActivityConfig = {clientId:string;clientSecret:string;http?:typeof fetch};
 export type TwitchChannel = {subject:string;login:string};
-export type TwitchProfile = {login:string;displayName:string;bio:string;game:string;avatarUrl:string|null;bannerUrl:string|null};
+export type TwitchProfile = {subject:string;login:string;displayName:string;bio:string;game:string;avatarUrl:string|null;bannerUrl:string|null};
 type CacheEntry<T> = {until:number;value:Promise<T>};
 const unavailable:LiveState={live:false,verified:false};
 const validCount=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
@@ -83,13 +83,20 @@ export class TwitchActivity {
   }
 
   // The profile of the linked channel for the matched draft (RDY r-9NNVP). Any doubt gives no profile.
-  async profile(subject:string):Promise<TwitchProfile|null> {
+  profile(subject:string) { return this.channelProfile({id:subject}); }
+
+  // A visitor names a channel by its login before any account exists (RDY s-W8K47).
+  profileByLogin(login:string) { return this.channelProfile({login}); }
+
+  private async channelProfile(key:{id:string}|{login:string}):Promise<TwitchProfile|null> {
     try {
-      const [user]=await this.read('users',new URLSearchParams({id:subject}));
-      if(user?.id!==subject||typeof user.login!=='string'||!/^[a-z0-9_]{1,25}$/.test(user.login)) return null;
+      const [user]=await this.read('users',new URLSearchParams(key));
+      if(typeof user?.id!=='string'||!/^\d{1,30}$/.test(user.id)||typeof user.login!=='string'||!/^[a-z0-9_]{1,25}$/.test(user.login)) return null;
+      if('id' in key?user.id!==key.id:user.login!==key.login) return null;
+      const subject=user.id;
       const [channel]=await this.read('channels',new URLSearchParams({broadcaster_id:subject})).catch(()=>[]);
       return {
-        login:user.login,displayName:cut(user.display_name,40)||user.login,bio:cut(user.description,160),
+        subject,login:user.login,displayName:cut(user.display_name,40)||user.login,bio:cut(user.description,160),
         game:channel?.broadcaster_id===subject?cut(channel.game_name,80):'',
         avatarUrl:creatorArt(user.profile_image_url),bannerUrl:creatorArt(user.offline_image_url),
       };
