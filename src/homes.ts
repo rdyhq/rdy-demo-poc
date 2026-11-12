@@ -3,7 +3,6 @@ import type pg from 'pg';
 import { transaction } from './db.ts';
 import { conflict, digest, invalid, scheduleChange, unavailable, uuidPattern, type HomeContent, type ScheduleChange } from './domain.ts';
 
-import { type ProDraft, type ProContent } from './pro.ts';
 import { newHome, normalizeHome, readHome, writeHome, type EditableHome, type StoredHome } from './home-cards.ts';
 import { previewFingerprint, type Selection } from './sharing.ts';
 import { homeHandle } from './handles.ts';
@@ -62,17 +61,14 @@ function validateMutation(action:string,value:any) {
       (typeof value.publicationId!=='string'||!uuidPattern.test(value.publicationId))) throw invalid('publicationId','Provide the current publication ID or null.');
 }
 
-export async function mutate(pool:pg.Pool,owner:string,action:'save'|'publish'|'unpublish',value:any,now:number,allowPro?:{multipage:boolean}) {
+export async function mutate(pool:pg.Pool,owner:string,action:'save'|'publish'|'unpublish',value:any,now:number) {
   validateMutation(action,value);
-  const proVersion=action==='publish'&&allowPro?value.proVersion:null;
-  if(proVersion!=null&&(!Number.isInteger(proVersion)||proVersion<1)) throw invalid('proVersion','Review the saved Pro draft.');
   // Keep retry equality independent of JSON field order.
   const canonical=(v:any):any=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'
     ?Object.fromEntries(Object.keys(v).sort().map(key=>[key,canonical(v[key])])):v;
   const fingerprint=digest(JSON.stringify(canonical({
     action,revision:action==='unpublish'?null:value.revision,
     publicationId:action==='save'?null:value.publicationId,content:action==='save'?value.content:null,
-    ...(proVersion!=null?{proVersion}:{}),
   })));
   return transaction(pool,async client=>{
     const locked=await client.query<Pick<HomeState,'id'|'draft_revision'|'publication_id'>>('SELECT * FROM homes WHERE owner_id=$1 FOR UPDATE',[owner]);
@@ -109,28 +105,15 @@ export async function mutate(pool:pg.Pool,owner:string,action:'save'|'publish'|'
       if(active&&previewFingerprint(next,active.selection)!==active.fingerprint) {
         await client.query('DELETE FROM share_preview_consents WHERE home_id=$1',[home.id]);
       }
-      const prior=home.publication_id?await client.query<{content:StoredHome;schedule_change:ScheduleChange|null;pro_content:ProContent|null;pro_grant:string|null}>('SELECT content,schedule_change,pro_content,pro_grant FROM publications WHERE home_id=$1 AND id=$2',
+      const prior=home.publication_id?await client.query<{content:StoredHome;schedule_change:ScheduleChange|null;pro_content:unknown;pro_grant:string|null}>('SELECT content,schedule_change,pro_content,pro_grant FROM publications WHERE home_id=$1 AND id=$2',
         [home.id,home.publication_id]):null;
       const previousPublication=prior?.rows[0];
-      // A Free edit keeps the already-published Pro snapshot. Its grant is checked at read time.
-      let pro:ProContent|null=previousPublication?.pro_content??null, grant:string|null=previousPublication?.pro_grant??null;
-      if(proVersion!=null) {
-        const {rows}=await client.query<ProDraft>('SELECT * FROM pro_drafts WHERE home_id=$1 FOR UPDATE',[home.id]);
-        if(!rows[0]||rows[0].revision!==proVersion) throw conflict('The Pro draft changed. Review it again.');
-        const entitlement=await client.query(`SELECT grant_id FROM stripe_subscriptions WHERE creator_id=$1
-          AND status IN('active','trialing') AND access_until>now()`,[owner]);
-        if(!entitlement.rows[0]) throw conflict('Verified test Pro access is required.');
-        pro=rows[0].content;
-        if(pro&&!allowPro?.multipage) { pro.highlights=null; pro.recommendations=null; }
-        grant=entitlement.rows[0].grant_id;
-      }
+      // The Pro prototype is removed (RDY D-2TSPY). A new publication keeps the stored Pro content of the one before it.
+      const pro=previousPublication?.pro_content??null, grant=previousPublication?.pro_grant??null;
       const notice=scheduleChange(previousPublication?readHome(previousPublication.content,home.id):undefined,next,now,previousPublication?.schedule_change);
       publicationId=randomUUID();
       await client.query(`INSERT INTO publications(home_id,id,draft_revision,committed_at,content,pro_content,pro_grant,schedule_change)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,[home.id,publicationId,revision,new Date(now),saved.schemaVersion===2?writeHome(next):{...next,layout:undefined,aura:undefined},pro,grant,notice]);
-      for(const page of [pro?.highlights,pro?.recommendations]) if(page) {
-        await client.query('INSERT INTO pro_page_history(home_id,page_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[home.id,page.id]);
-      }
     }
     if (action==='unpublish') {
       publicationId=null;

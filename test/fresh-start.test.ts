@@ -103,6 +103,32 @@ test('a custom accent on a theme reaches the page without script',async()=>{
   assert.equal((await app.request('/assets/app.css')).status,200);
 });
 
+test('offline, the card leads with the choice of the creator and falls back in order',()=>{
+  // RDY D-6DX8J: the next stream (the default), the latest clip or a featured link. The stream stays the action.
+  const lead=(offlineLead:'next'|'clip'|'link',offlineLink:string|null,options:Parameters<typeof page>[1]={},sessions=home.sessions)=>{
+    const html=page({...home,sessions,layout:{...home.layout,spotlight:{...home.layout.spotlight,offlineLead,offlineLink}}},options);
+    return html.slice(html.indexOf('<section class="pg-card"'),html.indexOf('</section>'));
+  };
+  const shop='https://example.test/shop', watch=/<a class="pg-watch" href="https:\/\/www\.twitch\.tv\/novabyte">Open stream on Twitch<\/a>/;
+  const clip={live:false,verified:true,clip:{title:'World record pace',url:'https://clips.twitch.tv/A',views:412}};
+  assert.match(lead('next',null),/Next stream<\/p><p class="pg-card-title">Saturday speedrun block/);
+  assert.ok(lead('link',shop).includes('<p class="pg-card-kicker">Featured link</p><p class="pg-card-title"><a href="'+shop+'">Glow tee, second drop</a></p>'));
+  assert.match(lead('link',shop),watch);
+  assert.match(lead('clip',null,{liveState:clip}),/Latest clip<\/p><p class="pg-card-title"><a href="https:\/\/clips\.twitch\.tv\/A">World record pace<\/a>/);
+  // A choice with no content falls back to the next stream.
+  assert.match(lead('link','https://example.test/removed'),/Next stream/);
+  assert.match(lead('link',null),/Next stream/);
+  assert.match(lead('clip',null),/Next stream/);
+  // With no next stream, the card keeps the way to the stream.
+  for(const choice of ['next','link','clip'] as const) {
+    const bare=lead(choice,null,{},[]);
+    assert.doesNotMatch(bare,/pg-card-kicker/);
+    assert.match(bare,watch);
+  }
+  // While the creator is live, the stream leads.
+  assert.match(lead('link',shop,{liveState:{live:true,verified:true,title:'Any% practice'}}),/<p class="pg-card-title">Any% practice<\/p>/);
+});
+
 test('the schedule of the Twitch channel shows in place of the sessions that the creator entered',()=>{
   const schedule=[{title:'La Team #10',category:'Talk Shows & Podcasts',start:'2027-07-21T16:00:00.000Z'},
     {title:'Ranked grind',category:'',start:'2027-07-23T01:30:00.000Z'}];

@@ -79,6 +79,8 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
   const streams=!scheduleOff&&options.schedule?.length?options.schedule:null;
   const spotlight=layout?.spotlight;
   const clip=!live&&spotlight?.offlineLead==='clip'&&state?.verified?state.clip:undefined;
+  // A featured link is one of the creator's own links (RDY D-6DX8J). A link that is gone falls back to the next stream.
+  const featured=!live&&spotlight?.offlineLead==='link'?content.links.find(link=>link.url===spotlight.offlineLink):undefined;
   const app=options.appHandoff?appLink(content.streamUrl):undefined;
   const socials=content.links.map(link=>({...link,platform:channelPlatform(link.url)})).filter(link=>link.platform);
   const promos='layout' in content?content.layout.supporting.flatMap(card=>
@@ -90,6 +92,7 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
       viewers===undefined?'':html`<p class="pg-card-meta">${viewers.toLocaleString('en-US')} watching</p>`}`
     :clip?html`<p class="pg-card-kicker">Latest clip</p><p class="pg-card-title"><a href="${clip.url}">${clip.title}</a></p>${
       clip.views===undefined?'':html`<p class="pg-card-meta">${clip.views.toLocaleString('en-US')} views</p>`}`
+    :featured?html`<p class="pg-card-kicker">Featured link</p><p class="pg-card-title"><a href="${featured.url}">${featured.label}</a></p>`
     :streams?html`<p class="pg-card-kicker">Next stream</p><p class="pg-card-title">${streams[0].title}</p><p class="pg-card-meta">${streamDay(streams[0].start)}</p>`
     :sessions[0]?html`<p class="pg-card-kicker">Next stream</p><p class="pg-card-title">${sessions[0].title}</p><p class="pg-card-meta">${
       sessions[0].local.replace('T',' ')} ${sessions[0].zone}</p>`:'';

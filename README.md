@@ -11,13 +11,12 @@ nvm use
 npm ci
 export DATABASE_URL='postgresql://localhost/lobby_dev'
 export LOBBY_DEV_DIR="$PWD/.local/lobby"
-export LOBBY_DEMO=1
 npm run migrate
 npm run manage -- designate-operator operator@example.test
 npm start
 ```
 
-Open [the operator sign-in](http://127.0.0.1:3000/ops/sign-in) and request a link for the designated mailbox. The loopback-only mail fixture writes the message to `.local/lobby/mail`. Open the full link in a browser and confirm it, then use the invite screen to enroll a synthetic creator. Request a separate creator sign-in from `/sign-in`. Use different browser profiles for creator and operator sessions on the same origin. Designate a second operator to exercise independent review. The optional demo link on the landing page displays a fictional creator home.
+Open [the operator sign-in](http://127.0.0.1:3000/ops/sign-in) and request a link for the designated mailbox. The loopback-only mail fixture writes the message to `.local/lobby/mail`. Open the full link in a browser and confirm it, then use the invite screen to enroll a synthetic creator. Request a separate creator sign-in from `/sign-in`. Use different browser profiles for creator and operator sessions on the same origin. Designate a second operator to exercise independent review.
 
 ```sh
 LOBBY_TEST_DATABASE_URL='postgresql://localhost/lobby_test' npm test
@@ -43,8 +42,7 @@ Use a disposable PostgreSQL database and apply the migrations before running the
 
 - **Twitch:** Disabled by default. For an approved synthetic deployment, configure `LINB_TWITCH=1`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` and a random 32-byte hex `TWITCH_SESSION_KEY`. Register only the exact canonical `/auth/twitch/callback` URL. Keep mailbox admission and recovery active. Review callback log redaction and provider disconnect behavior during the hosted test. [Twitch OIDC](https://dev.twitch.tv/docs/authentication/getting-tokens-oidc/)
 - **Stripe:** Disabled by default. For synthetic accounts only, configure `LINB_STRIPE_TEST=1`, `STRIPE_TEST_SECRET`, `STRIPE_TEST_PRICE` and `STRIPE_TEST_WEBHOOK_SECRET`. Only test keys are accepted. Register `/webhooks/stripe` in the Stripe sandbox, use the hosted customer portal, and monitor failed or unmatched events. The app ignores return redirects as entitlement evidence. [Stripe webhook verification](https://docs.stripe.com/webhooks/signature)
-- **Pro:** For separately approved synthetic review, enable `LINB_PRO_SYNTHETIC=1` alongside test billing. `LINB_MULTIPAGE_SYNTHETIC=1` additionally opens the two optional pages. Public Free content remains the fallback. Test cancellation, expiry, recovery, disclosure copy, and a real device’s opt-in YouTube playback before an external cohort. No live paid offer is exposed.
-- **Discovery:** The loopback-only demo at `/demo/leaderboard` shows ranked and low-volume fixture states. The public app does not collect leaderboard views or publish rankings. Real collection requires a separate decision.
+- **Pro:** The Pro prototype is removed (Rdy D-2TSPY): the Pro editor, the featured video, the curated collection, the two optional pages and the leaderboard demo. The Pro designs stay in Rdy. The test billing above stays. The database keeps the Pro tables and their content.
 
 ## Custom domains
 
@@ -105,4 +103,4 @@ When the creator has no linked account, or the login is reserved or already belo
 
 On a phone, the watch action can open the Twitch app, with the web link as the fallback. The hand-off is off by default. Before release, test it on a real iPhone and a real Android phone, inside the TikTok and Instagram in-app browsers and in the phone's own browser. Check three cases: the app is installed, the app is not installed, and the fan returns to the page. Then set `LINB_APP_HANDOFF=1`. Twitch is the only provider that documents an app link for a channel (`twitch://stream/<channel>`). Other providers keep the web link.
 
-Verify the real Twitch integration before the creator shares the link. Check the live title, viewer count and watch link. Check the offline fallback and optional clip. On a provider error, the Home must keep its stream link and hide unverified activity. Keep demo fixtures disabled.
+Verify the real Twitch integration before the creator shares the link. Check the live title, viewer count and watch link. Check the offline fallback and optional clip. On a provider error, the Home must keep its stream link and hide unverified activity.
