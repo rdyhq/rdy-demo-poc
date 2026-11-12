@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
 
 // The screens of the fresh start (RDY D-TG9VX, section s-W8K47): one main action and few words on each.
-export const appStyles='/assets/app.css?v=2';
+export const appStyles='/assets/app.css?v=4';
 
 function screen(title:string,body:unknown,options:{refresh?:string;canonical?:string;skin?:string}={}) {
   return html`<!doctype html><html lang="en"><head>
@@ -59,14 +59,18 @@ export function linksStep(options:{csrf:string;operation:string;error?:string;va
 }
 
 // Setup step 2 of 2: the matched colours come first, and a theme is one choice away.
-export function lookStep(options:{csrf:string;operation:string;theme:string;skin?:string}) {
+// The matched colours come first when the draft has them. The themes follow.
+export function lookCards(theme:string,art:boolean) {
   const look=(value:string,label:string,checked:boolean)=>html`<label><input type="radio" name="look" value="${value}"${checked?html` checked`:''}>
     <span class="app-look" data-look="${value}"><i></i><b>Aa</b><u></u><u></u></span>${label}</label>`;
+  return html`<div class="app-looks">${art?look('art','Your colours',true):''}${['Nebula','Ember','Tide','Paper'].map(name=>look(name,name,!art&&name===theme))}</div>`;
+}
+
+export function lookStep(options:{csrf:string;operation:string;theme:string;skin?:string}) {
   return screen('Your look',html`${progress(2)}
     <h1>Pick a look</h1><p class="app-lead">${options.skin?'We matched one to your channel.':'You can change it later.'}</p>
     <form class="app-claim" method="post" action="/start/look">${hidden(options.csrf,options.operation)}
-      <div class="app-looks">${options.skin?look('art','Your colours',true):''}${
-        ['Nebula','Ember','Tide','Paper'].map(theme=>look(theme,theme,!options.skin&&theme===options.theme))}</div>
+      ${lookCards(options.theme,Boolean(options.skin))}
       <button>Publish my page</button>
     </form>
     <a class="app-skip" href="/editor">Not now</a>`,{skin:options.skin});
