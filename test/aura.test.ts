@@ -134,5 +134,8 @@ test('Aura assets use the fixed allowlist and strict CSP',async()=>{
   assert.match(font.headers.get('cache-control')!,/max-age=31536000/);
   assert.equal(Buffer.from(await font.arrayBuffer()).subarray(0,4).toString(),'wOF2');
   assert.equal((await app.request('/assets/fonts/inter-OFL.txt')).status,404);
-  assert.equal((await app.request('/assets/contrast.js')).status,200);
+  assert.equal((await app.request('/assets/aura.js')).status,200);
+  // Only the old editor loaded the contrast module in the browser. The editor of the fresh start has no script.
+  assert.equal((await app.request('/assets/contrast.js')).status,404);
+  assert.equal((await app.request('/assets/editor.js')).status,404);
 });
