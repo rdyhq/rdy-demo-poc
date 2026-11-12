@@ -18,6 +18,7 @@ import { liveState } from './live-state.ts';
 import { TwitchActivity, type TwitchActivityConfig, type TwitchChannel } from './twitch-activity.ts';
 import { acceptHandle, handleOffer, homeHandle, resolveHandle } from './handles.ts';
 import { describeFailure } from './failure.ts';
+import { artPalette, paletteCss, paletteVersion, skinColours } from './public/palette.js';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
@@ -210,6 +211,13 @@ export function createApp(config:Configuration={}) {
     const asset=file.endsWith('.svg')?platformIcons.get(file.slice(0,-4)):undefined;
     if(!asset) throw unavailable();
     return c.text(asset,200,{'Content-Type':'image/svg+xml; charset=utf-8','Cache-Control':'public, max-age=300'});
+  });
+  app.get('/assets/skin/:version/:file',c=>{
+    // The address holds the source colours of an art palette, so the answer never changes for one address.
+    const colours=c.req.param('version')===String(paletteVersion)?skinColours(c.req.param('file')):null;
+    const palette=colours&&artPalette(colours);
+    if(!palette) return c.notFound();
+    return c.text(paletteCss(palette),200,{'Content-Type':'text/css; charset=utf-8','Cache-Control':'public, max-age=31536000, immutable'});
   });
   app.get('/assets/linb.svg',c=>c.text(brandIcon,200,{'Content-Type':'image/svg+xml','Cache-Control':'public, max-age=300'}));
   app.get('/assets/lobby.css',c=>c.text(stylesheet,200,{'Content-Type':'text/css; charset=utf-8','Cache-Control':'public, max-age=300'}));

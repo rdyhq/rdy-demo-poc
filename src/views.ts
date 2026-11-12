@@ -3,7 +3,8 @@ import { html, raw } from 'hono/html';
 import { randomUUID } from 'node:crypto';
 import { futureSessions, nextSession, themeNames, type HomeContent, type ScheduleChange, type SessionSlot } from './domain.ts';
 import { channelPlatform, defaultLayout, platforms, cardSpans, cardHeights, promoCategories, type EditableHome } from './home-cards.ts';
-import { auraOptions, defaultAura } from './aura.ts';
+import { auraOptions, defaultAura, type Aura } from './aura.ts';
+import { artPalette, skinPath } from './public/palette.js';
 import type { LiveState } from './live-state.ts';
 import { demoRanking } from './leaderboard.ts';
 import type { ProContent, ProDraft } from './pro.ts';
@@ -21,11 +22,12 @@ const art=html`<svg class="art" viewBox="0 0 920 380" preserveAspectRatio="xMidY
 <path d="m0 380 117-48 92 17 112-37 128 47 65-12 88 29 111-46 69 19 138-35v66Z" fill="#14182d"/>
 <g fill="#b7d9ff"><circle cx="170" cy="122" r="3"/><circle cx="342" cy="103" r="3"/><circle cx="803" cy="106" r="3"/><path d="M97 54v22m-11-11h22m679 158v19m-9-9h18" stroke="#b7d9ff" stroke-width="1.7"/></g></svg>`;
 
-function frame(title:string,body:any,options:{theme?:string;privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;handoff?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;editor?:boolean;cardLayout?:boolean;aura?:boolean;motionSwitch?:boolean;phone?:boolean;share?:boolean;player?:boolean;newTabLinks?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
+function frame(title:string,body:any,options:{theme?:string;skin?:{path:string;scheme:string};privatePage?:boolean;script?:boolean;verify?:boolean;preview?:boolean;handoff?:boolean;wide?:boolean;creator?:boolean;canonical?:string;standalone?:boolean;editor?:boolean;cardLayout?:boolean;aura?:boolean;motionSwitch?:boolean;phone?:boolean;share?:boolean;player?:boolean;newTabLinks?:boolean;metadata?:{title:string;description:string;image?:string}}={}) {
   return html`<!doctype html><html lang="en" data-theme="${options.theme??'LINB'}"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="${options.theme==='Paper'?'light':'dark'}">
-    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=aura">
+    <meta name="color-scheme" content="${options.skin?.scheme??(options.theme==='Paper'?'light':'dark')}">
+    <title>${title} · LINB</title><link rel="stylesheet" href="/assets/lobby.css?v=art-palette">
+    ${options.skin?html`<link rel="stylesheet" href="${options.skin.path}">`:''}
     <link rel="icon" href="/assets/linb.svg" type="image/svg+xml">
     ${options.newTabLinks?html`<base target="_blank">`:''}
     ${options.canonical?html`<link rel="canonical" href="${options.canonical}">`:''}
@@ -131,6 +133,12 @@ export function retiredCalendar(homeId:string) {
     <a class="button" href="/h/${homeId}">Open creator page</a></section>`,{standalone:true});
 }
 
+// A Home with an art palette loads its colours from a stylesheet, so they show without script (RDY r-F1JJ7).
+function artSkin(aura:Aura) {
+  const art=aura.palette&&artPalette({...aura.palette,accent:aura.accent});
+  return art?{path:skinPath(aura.palette,aura.accent),scheme:art.scheme}:undefined;
+}
+
 function streamLabel(link:string) {
   if (!link) return '';
   const host=new URL(link).hostname.toLowerCase().replace(/^www\./,'');
@@ -189,18 +197,19 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
   const base=options.proBase??(options.homeId?'/h/'+options.homeId:null);
   const nav=base&&pro?proNav(pro,base,page):'';
   const module=pro?proModules(pro,page):'';
+  const aura='aura' in content?content.aura:defaultAura;
+  const skin=artSkin(aura);
   if(page&&pro) {
     const title=[pro.highlights,pro.recommendations].find(candidate=>candidate?.id===page)?.title??'Creator page';
     return frame(title,html`<article class="creator" data-flair="${pro.appearance}"><div class="creator-body">
       ${options.review?html`<p class="micro">RESTRICTED PUBLICATION REVIEW</p>`:options.preview?html`<p class="micro">PRIVATE PREVIEW</p>`:''}
       ${nav}<p class="micro">${content.displayName}</p><h1>${title}</h1>${module}</div></article>`,
-      {theme:content.theme,creator:true,player:Boolean(pro.video),canonical:options.canonical});
+      {theme:content.theme,skin,creator:true,player:Boolean(pro.video),canonical:options.canonical});
   }
   const name=content.displayName||'Your creator name';
   const initials=name.split(/\s+/).slice(0,2).map(word=>[...word][0]).join('').toUpperCase();
   const identity=layout.identity;
   const sessions=futureSessions(content,options.now);
-  const aura='aura' in content?content.aura:defaultAura;
   // The app hand-off is released by configuration, after its test on a phone.
   const app=options.appHandoff?appLink(content.streamUrl):undefined;
   const live=Boolean(content.streamUrl)&&options.liveState?.live===true&&options.liveState.verified===true;
@@ -264,8 +273,9 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
       <button type="button" class="secondary" id="return-to-editor">Return to editor</button>
       <p class="dim">If this tab stays open, close it to return to your unsaved editor.</p></aside>`:''}
     ${options.review?html`<aside class="status-note">Restricted publication review · <a href="/ops">Back to cases</a></aside>`:''}
+    ${skin&&content.coverId&&aura.intensity!=='off'?html`<div class="art-backdrop" aria-hidden="true"><img src="${options.asset(content.coverId)}" alt=""></div>`:''}
     <canvas class="aura-field" aria-hidden="true" hidden></canvas>
-    <article class="creator card-home" data-aura-home data-accent="${aura.accent??''}"
+    <article class="creator card-home" data-aura-home${skin?raw(' data-art-palette'):''} data-accent="${aura.accent??''}"
       data-font="${aura.font}" data-shape="${aura.shape}" data-frame="${aura.frame}" data-field="${aura.field}"
       data-intensity="${aura.intensity}"${options.refreshActivity?raw(' data-refresh-activity'):''}${live&&aura.liveSurge?raw(' data-live-surge'):''} data-flair="${pro?.appearance??'original'}" ${options.editCanvas?raw('data-edit-canvas'):''}>
       ${card('identity','identity','Creator Identity',html`
@@ -290,7 +300,7 @@ export function renderHome(content:HomeContent|EditableHome,options:{now:number;
       ${options.preview||options.review?'':html`<div class="fan-tools"><p class="bookmark">Save this home in your browser.</p>
         ${options.canonical?shareControl(options.canonical):''}
         ${options.report?html`<a class="dim" href="${options.report}">Report this page</a>`:''}</div>`}
-    </article>`,{theme:content.theme,preview:options.preview&&!options.embedded,phone:options.phone,creator:true,standalone:options.editCanvas,cardLayout:true,aura:true,handoff:Boolean(app),motionSwitch:!options.preview&&!options.review,newTabLinks:options.embedded,player:Boolean(pro?.video),canonical:options.canonical,share:!options.review&&!options.editCanvas,metadata:options.metadata});
+    </article>`,{theme:content.theme,skin,preview:options.preview&&!options.embedded,phone:options.phone,creator:true,standalone:options.editCanvas,cardLayout:true,aura:true,handoff:Boolean(app),motionSwitch:!options.preview&&!options.review,newTabLinks:options.embedded,player:Boolean(pro?.video),canonical:options.canonical,share:!options.review&&!options.editCanvas,metadata:options.metadata});
 }
 
 function editorSelect(id:string,label:string,options:readonly (readonly [string|number,string])[]) {
