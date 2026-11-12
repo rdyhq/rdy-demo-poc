@@ -34,7 +34,8 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
   const origin='https://lobby.example.test';
   const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
   const key={...publicKey.export({format:'jwk'}),kid:'fixture'};
-  // The person at Twitch for the next sign-in.
+  // The person at Twitch for the next sign-in. As at Twitch, the ID token carries the display name
+  // and the token check carries the login.
   let who={sub:'2002',login:'novabyte',name:'NovaByte',email:'nova@example.test' as string|null,verified:true};
   let nonce='';
   const b64=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -42,11 +43,11 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
     const url=new URL(String(input));
     if(url.hostname==='id.twitch.tv') {
       if(url.pathname.endsWith('/keys')) return Response.json({keys:[key]});
-      if(url.pathname.endsWith('/validate')) return Response.json({client_id:'fixture',user_id:who.sub,expires_in:3600});
+      if(url.pathname.endsWith('/validate')) return Response.json({client_id:'fixture',login:who.login,user_id:who.sub,expires_in:3600});
       if(url.pathname.endsWith('/token')&&!nonce) return Response.json({access_token:'app-token',expires_in:600});
       if(url.pathname.endsWith('/token')) {
         const unsigned=b64({alg:'RS256',kid:'fixture'})+'.'+b64({iss:'https://id.twitch.tv/oauth2',aud:'fixture',sub:who.sub,
-          preferred_username:who.login,email:who.verified?who.email:null,email_verified:who.verified,nonce,
+          preferred_username:who.name,email:who.verified?who.email:null,email_verified:who.verified,nonce,
           iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+600});
         nonce='';
         return Response.json({id_token:unsigned+'.'+sign('RSA-SHA256',Buffer.from(unsigned),privateKey).toString('base64url'),access_token:'user-token'});
@@ -95,7 +96,7 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
     await t.test('a new Twitch identity creates the account, its Home and its handle',async()=>{
       const {upstream,result,session}=await signIn();
       assert.equal(upstream.searchParams.get('scope'),'openid user:read:email');
-      assert.deepEqual(JSON.parse(upstream.searchParams.get('claims')!),{id_token:{preferred_username:null,email:null,email_verified:null}});
+      assert.deepEqual(JSON.parse(upstream.searchParams.get('claims')!),{id_token:{email:null,email_verified:null}});
       assert.equal(result.status,303);
       assert.equal(result.headers.get('Location'),'/start');
       assert.ok(session);
@@ -227,11 +228,21 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       who={sub:'6006',login:'latecomer',name:'Latecomer',email:'late@example.test',verified:true};
       const {upstream,result,session}=await signIn(closed);
       assert.equal(upstream.searchParams.get('scope'),'openid');
+      assert.equal(upstream.searchParams.get('claims'),null);
       assert.equal(result.headers.get('Location'),'/sign-in?twitch=mailbox');
       assert.equal(session,'');
       assert.equal(await count('creators'),2);
       assert.match(await (await get('/','',closed)).text(),/Sign-up is by invitation for now\./);
       assert.doesNotMatch(await (await get('/')).text(),/by invitation/);
+    });
+
+    await t.test('the handle is the login of the channel, not its display name',async()=>{
+      // A localized display name shares no letter with the login.
+      who={sub:'7007',login:'hoshizora',name:'星空ちゃん',email:'hoshi@example.test',verified:true};
+      const {result}=await signIn();
+      assert.equal(result.headers.get('Location'),'/start');
+      assert.deepEqual((await pool.query(`SELECT login FROM twitch_identities WHERE subject='7007'`)).rows,[{login:'hoshizora'}]);
+      assert.equal((await pool.query(`SELECT 1 FROM home_handles WHERE handle='hoshizora' AND current`)).rowCount,1);
     });
   } finally {
     await pool.end();

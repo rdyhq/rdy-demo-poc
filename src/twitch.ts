@@ -9,10 +9,11 @@ export const issuer='https://id.twitch.tv/oauth2';
 export const twitchCallback='/auth/twitch/callback';
 export type TwitchConfig={clientId:string;clientSecret:string;key:Buffer;http?:typeof fetch};
 // The email is present only when Twitch says that the account verified it.
-type Identity={subject:string;login:string|null;email?:string|null};
+type Claims={subject:string;email:string|null};
+type Identity={subject:string;login:string|null};
 const failed=()=>new AppError(401,'twitch_unavailable','Twitch could not verify access. You can continue with email.');
 
-export function verifyIdentity(token:string,keys:JsonWebKey[],clientId:string,nonce:string,now=Date.now()):Identity {
+export function verifyIdentity(token:string,keys:JsonWebKey[],clientId:string,nonce:string,now=Date.now()):Claims {
   try {
     if(token.length>16000) throw failed();
     const [head,body,sig,extra]=token.split('.');
@@ -24,8 +25,7 @@ export function verifyIdentity(token:string,keys:JsonWebKey[],clientId:string,no
        !verify('RSA-SHA256',Buffer.from(head+'.'+body),createPublicKey({key,format:'jwk'}),Buffer.from(sig,'base64url'))) throw failed();
     if(c.iss!==issuer||c.aud!==clientId||c.nonce!==nonce||typeof c.exp!=='number'||c.exp<=now/1000||
        typeof c.iat!=='number'||c.iat>now/1000+60||!/^\d{1,30}$/.test(c.sub)||typeof c.sub!=='string') throw failed();
-    return {subject:c.sub,login:typeof c.preferred_username==='string'&&/^[A-Za-z0-9_]{1,25}$/.test(c.preferred_username)?c.preferred_username:null,
-      email:c.email_verified===true?mailbox(c.email):null};
+    return {subject:c.sub,email:c.email_verified===true?mailbox(c.email):null};
   } catch { throw failed(); }
 }
 
@@ -45,10 +45,10 @@ export class Twitch {
     await this.db.query('DELETE FROM twitch_pending WHERE expires_at<=now()');
     await this.db.query(`INSERT INTO twitch_attempts VALUES($1,$2,$3,$4,now()+interval '10 minutes')`,
       [digest(state),nonce,intent,sid?digest(sid):null]);
-    // The verified email of the Twitch account becomes the recovery mailbox of a new creator.
-    const claims=this.openSignup?{preferred_username:null,email:null,email_verified:null}:{preferred_username:null};
     const query=new URLSearchParams({client_id:this.config.clientId,redirect_uri:this.callback,response_type:'code',
-      scope:this.openSignup?'openid user:read:email':'openid',state,nonce,claims:JSON.stringify({id_token:claims})});
+      scope:this.openSignup?'openid user:read:email':'openid',state,nonce});
+    // The verified email of the Twitch account becomes the recovery mailbox of a new creator.
+    if(this.openSignup) query.set('claims',JSON.stringify({id_token:{email:null,email_verified:null}}));
     return {state,url:issuer+'/authorize?'+query};
   }
 
@@ -61,7 +61,9 @@ export class Twitch {
   async validate(token:string,subject:string) {
     const validated=await this.json('validate',{headers:{Authorization:'OAuth '+token}});
     if(validated.client_id!==this.config.clientId||validated.user_id!==subject||!(validated.expires_in>0)) throw failed();
-    return Number(validated.expires_in);
+    // The token check names the login. The name in the ID token is the display name, which can differ from it.
+    return {expiry:Number(validated.expires_in),
+      login:typeof validated.login==='string'&&/^[a-z0-9_]{1,25}$/.test(validated.login)?validated.login as string:null};
   }
 
   encrypt(token:string) {
@@ -92,8 +94,9 @@ export class Twitch {
       client_secret:this.config.clientSecret,code,grant_type:'authorization_code',redirect_uri:this.callback})});
     if(typeof payload.id_token!=='string'||typeof payload.access_token!=='string') throw failed();
     const keys=(await this.json('keys')).keys;
-    const identity=verifyIdentity(payload.id_token,keys,this.config.clientId,attempt.nonce);
-    const expiry=await this.validate(payload.access_token,identity.subject);
+    const claims=verifyIdentity(payload.id_token,keys,this.config.clientId,attempt.nonce);
+    const {expiry,login}=await this.validate(payload.access_token,claims.subject);
+    const identity={subject:claims.subject,login};
     return transaction(this.db,async client=>{
       if(attempt.intent==='link') {
         const {rows}=await client.query(`SELECT creator_id FROM sessions WHERE digest=$1 AND revoked_at IS NULL AND expires_at>now()
@@ -105,11 +108,11 @@ export class Twitch {
       const {rows}=await client.query('SELECT creator_id FROM twitch_identities WHERE subject=$1 FOR UPDATE',[identity.subject]);
       let destination='/editor';
       if(!rows[0]&&this.openSignup) {
-        if(!identity.email) return {destination:'/sign-in?twitch=email'};
+        if(!claims.email) return {destination:'/sign-in?twitch=email'};
         // linb.io never joins two accounts by itself. A mailbox that it knows signs in with that mailbox.
-        const known=await client.query('SELECT 1 FROM creators WHERE lower(mailbox)=lower($1)',[identity.email]);
+        const known=await client.query('SELECT 1 FROM creators WHERE lower(mailbox)=lower($1)',[claims.email]);
         if(!known.rowCount) {
-          const creator=await createCreator(client,identity.email);
+          const creator=await createCreator(client,claims.email);
           if(!await attachTwitch(client,creator,identity)) throw failed();
           rows[0]={creator_id:creator};
           destination='/start';
