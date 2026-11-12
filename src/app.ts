@@ -28,7 +28,8 @@ import { buildingPage, confirmPage, landingPage, leavingPage, linksStep, liveSte
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
-import { invitesPage, leaderboardDemo, proEditor, opsCase, opsPage, renderHome, retiredCalendar } from './views.ts';
+import { leaderboardDemo, proEditor, renderHome, retiredCalendar } from './views.ts';
+import { invitesPage, opsCase, opsPage } from './ops-screens.ts';
 
 const stylesheet=[
   readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8'),
