@@ -400,17 +400,6 @@ export function billingPage(home:{id:string;publication_id:string;content:HomeCo
   </section>`,{privatePage:true});
 }
 
-export function reportPage(id:string,url:string,reasons:string[],values:Record<string,unknown>={},error?:string) {
-  return frame('Report a page',html`<section class="panel auth"><h1>Report this page</h1>
-    <p>${url}</p><p>Tell our review team what happened. Include only the details they need.</p>
-    ${error?html`<p class="notice error" role="alert">${error}</p>`:''}
-    <form method="post" action="/h/${id}/report"><label for="reason">Reason</label>
-    <select id="reason" name="reason">${reasons.map(reason=>html`<option ${values.reason===reason?raw('selected'):''}>${reason}</option>`)}</select>
-    <label for="detail">What should the reviewer know?</label>
-    <textarea id="detail" name="detail" maxlength="700" required>${typeof values.detail==='string'?values.detail.slice(0,700):''}</textarea>
-    <button>Send report</button></form><p><a href="/h/${id}">Return to the creator page</a></p></section>`,{standalone:true});
-}
-
 export function opsPage(rows:any[],csrf:string,reasons:string[],reports:any[]=[]) {
   return frame('Operator workspace',html`<header class="workspace-head"><div><p class="eyebrow">RESTRICTED WORKSPACE</p><h1>Public-home cases</h1><a href="/ops/invites">Pilot invitations</a></div>
     <form method="post" action="/ops/logout">${hidden(csrf)}<button class="secondary">Sign out</button></form></header>

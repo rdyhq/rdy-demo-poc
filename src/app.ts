@@ -24,11 +24,11 @@ import { matchColours, suggestSkin } from './public/art-match.js';
 import { linkTab, lookTab, pageTab, type EditorView } from './editor-screens.ts';
 import { artPixels, channelDraft, matchChannel, twitchPicture, type ChannelMatch } from './twitch-channel.ts';
 import { renderPage } from './page.ts';
-import { buildingPage, confirmPage, landingPage, leavingPage, linksStep, liveStep, lookStep, messagePage, signInPage } from './screens.ts';
+import { buildingPage, confirmPage, landingPage, leavingPage, linksStep, liveStep, lookStep, messagePage, reportPage, signInPage } from './screens.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
-import { accountPage, billingPage, editorShare, invitesPage, leaderboardDemo, proEditor, opsCase, opsPage, renderHome, reportPage, retiredCalendar } from './views.ts';
+import { accountPage, billingPage, editorShare, invitesPage, leaderboardDemo, proEditor, opsCase, opsPage, renderHome, retiredCalendar } from './views.ts';
 
 const stylesheet=[
   readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8'),
@@ -821,7 +821,9 @@ export function createApp(config:Configuration={}) {
   for(const method of ['get','post'] as const) {
     app[method]('/h/:homeId/report',async c=>{
       const db=requirePool(),home=await publicHome(db,c.req.param('homeId'));
-      const url=(origin??new URL(c.req.url).origin)+'/h/'+home.id;
+      // The form names the page by the address that fans know: the handle address when the Home has one.
+      const handle=await homeHandle(db,home.id);
+      const url=(origin??new URL(c.req.url).origin)+(handle?'/'+handle:'/h/'+home.id);
       if(method==='get') return c.html(reportPage(home.id,url,reportReasons));
       sameOrigin(c);
       const fields=await c.req.parseBody();
@@ -924,8 +926,11 @@ export function createApp(config:Configuration={}) {
     const actor=await principal(c,'operator'),id=c.req.param('id');
     const result=await inspectPublication(requirePool(),actor,id);
     if(!result.content) return c.html(messagePage('No current publication','The home remains held and no publication is set.','/ops/cases/'+id,'Back to case'));
-    return c.html(renderHome(result.content,{now:clock(),review:true,pro:pro?result.pro:null,
-      proBase:'/ops/cases/'+id+'/publication/'+result.publicationId,asset:asset=>'/ops/cases/'+id+'/publication/'+result.publicationId+'/images/'+asset}));
+    const asset=(asset:string)=>'/ops/cases/'+id+'/publication/'+result.publicationId+'/images/'+asset;
+    // The reviewer sees the publication on the page that fans see. A Home with Pro content keeps the old page, as it does for fans.
+    if(!pro||!result.pro) return c.html(renderPage(result.content,{now:clock(),review:'/ops/cases/'+id,asset}));
+    return c.html(renderHome(result.content,{now:clock(),review:true,pro:result.pro,
+      proBase:'/ops/cases/'+id+'/publication/'+result.publicationId,asset}));
   });
   if(pro?.multipage) app.get('/ops/cases/:id/publication/:publicationId/p/:pageId',async c=>{
     const actor=await principal(c,'operator'),id=c.req.param('id'),publication=c.req.param('publicationId'),page=c.req.param('pageId');

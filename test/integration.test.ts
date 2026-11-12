@@ -177,7 +177,13 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
         assert.equal((await app.request('https://l1nb.io'+publicPath)).status,404);
       }
       assert.equal((await get(path+'/publication',operator)).status,404);
-      assert.equal((await get(path+'/publication',second)).status,200);
+      const inspected=await get(path+'/publication',second);
+      assert.equal(inspected.status,200);
+      // The reviewer sees the publication on the page that fans see.
+      const reviewPage=await inspected.text();
+      assert.match(reviewPage,/<main class="pg"/);
+      assert.ok(reviewPage.includes('<aside class="pg-review">Restricted publication review · <a href="'+path+'">Back to the case</a></aside>'));
+      assert.doesNotMatch(reviewPage,/lobby\.css/);
       assert.equal((await act('review',second,publication)).status,303);
       const corrected=await change('publish',{operationId:randomUUID(),revision,publicationId:publication},creatorCookie);
       assert.equal(corrected.status,200,await corrected.clone().text());
