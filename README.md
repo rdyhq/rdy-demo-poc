@@ -64,6 +64,35 @@ With `LINB_TWITCH_ACTIVITY=1`, a visitor can type a Twitch name on the landing p
 
 Set `LINB_OPEN_SIGNUP=1` to let a new Twitch identity create an account. The sign-in then asks Twitch for the verified email of the account (scope `user:read:email`), and that email becomes the creator's mailbox. Without the setting, sign-up is by invitation. The handle comes from the login that the Twitch token check names. The ID token carries only the display name, which can differ from the login.
 
+#### Run against the real Twitch on this machine
+
+1. Register an app in the [Twitch developer console](https://dev.twitch.tv/console/apps). Set the OAuth Redirect URL to `http://localhost:8767/auth/twitch/callback`. Twitch accepts `http` only for `localhost`.
+2. Create `.env.twitch` in this directory. Git ignores `.env.*`.
+
+   ```sh
+   TWITCH_CLIENT_ID=<the Client ID of the app>
+   TWITCH_CLIENT_SECRET=<the Client Secret of the app>
+   TWITCH_SESSION_KEY=<the output of: openssl rand -hex 32>
+   PORT=8767
+   PUBLIC_ORIGIN=http://localhost:8767
+   LOBBY_DEV_DIR=<absolute path of this directory>/.local/real-twitch
+   DATABASE_URL=postgresql://localhost/lobby_real
+   LINB_TWITCH=1
+   LINB_TWITCH_ACTIVITY=1
+   LINB_OPEN_SIGNUP=1
+   ```
+
+3. Apply the migrations and start the server.
+
+   ```sh
+   node --env-file=.env.twitch src/manage.ts migrate
+   node --env-file=.env.twitch src/server.ts
+   ```
+
+4. Open `http://localhost:8767` in a browser, not `127.0.0.1`: the origin must match `PUBLIC_ORIGIN`. Type a Twitch name, claim the page with your own Twitch account, and publish.
+
+Run this in a real browser. A browser applies the content security policy, and the test suite does not. On 2026-11-12 this run found that the sign-in could not start, which no test had shown.
+
 Invite the creator through the existing admission flow. After they verify their mailbox and link Twitch, their Home gets a handle: `/<verified Twitch login>`. The creator takes no step. The existing UUID routes stay available, and a Home with a handle names the handle address as canonical. A handle returns 404 after a hold, unpublish or unlink.
 
 A handle belongs to one Home and never moves to another. After the creator renames the Twitch account and signs in with Twitch, the Account page offers the new login. The earlier handle keeps working and forwards to the new one. A creator who linked Twitch before handles existed gets the handle at the next Twitch sign-in.
