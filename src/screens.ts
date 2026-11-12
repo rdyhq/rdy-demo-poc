@@ -17,10 +17,11 @@ function screen(title:string,body:unknown,options:{refresh?:string;canonical?:st
 
 const top=(signIn=true)=>html`<header class="app-top"><a class="app-logo" href="/">LINB</a>${signIn?html`<a href="/sign-in">Sign in</a>`:''}</header>`;
 
-export function landingPage(options:{preview:boolean;missing?:string;invalid?:boolean;limited?:boolean;closed?:boolean;canonical?:string}) {
+export function landingPage(options:{preview:boolean;missing?:string;invalid?:boolean;limited?:boolean;unavailable?:boolean;closed?:boolean;canonical?:string}) {
   const note=options.missing?'Twitch has no channel named '+options.missing+'.'
     :options.invalid?'Use 3 to 25 letters, numbers or underscores.'
-    :options.limited?'Too many previews. Try again in an hour.':'';
+    :options.limited?'Too many previews. Try again in an hour.'
+    :options.unavailable?'Twitch did not answer. Try again in a minute.':'';
   return screen('Link in bio for streamers',html`${top()}
     <h1>Your stream.<br>One link.</h1>
     ${options.preview?html`<p class="app-lead">Type your Twitch name. See your page in ten seconds.</p>
