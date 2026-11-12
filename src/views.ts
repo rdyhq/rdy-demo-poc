@@ -504,7 +504,8 @@ function proNav(pro:ProContent,base:string,current?:string) {
 
 function proModules(pro:ProContent,current?:string) {
   const video=pro.video&&(current===pro.highlights?.id||(!current&&!pro.highlights))?pro.video:null;
-  const links=current===pro.recommendations?.id||(!current&&!pro.recommendations)?pro.links:[];
+  // A draft that the creator has not filled in has no links yet.
+  const links=current===pro.recommendations?.id||(!current&&!pro.recommendations)?pro.links??[]:[];
   return html`
     ${video?html`<section class="feature-video"><p class="micro">FEATURED VIDEO</p><h2>${video.title}</h2>
       <div data-player><span aria-hidden="true">▶</span></div>

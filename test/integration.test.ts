@@ -339,6 +339,9 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal((await event('evt_fixture_1')).status,200);
       assert.equal((await event('evt_fixture_1')).status,200);
       assert.equal(fetches,1);
+      // A version that is not a number is a conflict, not a failure of the service.
+      assert.equal((await request('/editor/pro',{version:'abc',appearance:'arcade'})).status,409);
+      assert.equal((await request('/editor/pro',{appearance:'arcade'})).status,409);
       assert.equal((await request('/editor/pro',{version:'0',appearance:'arcade',videoTitle:'A synthetic clip',
         videoUrl:'https://www.youtube.com/watch?v=M7lc1UVf-VE',highlightsTitle:'Highlights',label1:'A creator pick',
         url1:'https://example.test/pick'})).status,303);

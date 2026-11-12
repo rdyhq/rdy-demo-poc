@@ -1,5 +1,6 @@
 import { accentPalettes, adjustAccent } from './contrast.js';
 import { matchArtAccent } from './art-accent.js';
+import { auraSummary, guardUnsaved } from './editor-support.js';
 
 const root = document.querySelector('#workspace');
 const by = (id) => document.getElementById(id);
@@ -44,6 +45,8 @@ let held = root.dataset.held === 'true';
 let busy = false;
 let uploading = 0;
 let dirty = false;
+// The Account link and a closed tab would drop unsaved values. Preview opens in its own window.
+guardUnsaved(window,()=>dirty);
 let conflicted = false;
 let retry = null;
 let other = null;
@@ -978,6 +981,7 @@ function summarize(key,value) {
     ].join('\n');
   }
   if(key==='avatarId'||key==='coverId') return value?'An image is selected':'No image selected';
+  if(key==='aura') return auraSummary(value);
   if(!Array.isArray(value)) return value||'Not set';
   if(!value.length) return 'None';
   return value.map((entry,index)=>{
