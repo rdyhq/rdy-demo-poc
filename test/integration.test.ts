@@ -286,9 +286,14 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       const original=(await published.json()).publicationId;
       const who=(await pool.query('SELECT owner_id FROM homes WHERE id=$1',[id])).rows[0].owner_id;
       let subscriptionStatus='active', fetches=0;
-      const http=async(input:RequestInfo|URL)=>{
+      const checkouts:(string|null)[]=[];
+      const http=async(input:RequestInfo|URL,init?:RequestInit)=>{
         const path=new URL(String(input)).pathname;
-        if(path.endsWith('/checkout/sessions')) return Response.json({id:'cs_test_fixture',livemode:false,url:'https://checkout.stripe.com/c/pay/cs_test_fixture'});
+        if(path.endsWith('/checkout/sessions')) {
+          const session='cs_test_fixture'+(checkouts.length||'');
+          checkouts.push(new Headers(init?.headers).get('Idempotency-Key'));
+          return Response.json({id:session,livemode:false,url:'https://checkout.stripe.com/c/pay/'+session});
+        }
         if(path.endsWith('/subscriptions/sub_fixture')) {
           fetches++;
           return Response.json({id:'sub_fixture',livemode:false,customer:'cus_fixture',status:subscriptionStatus,
@@ -305,6 +310,19 @@ test('creator-to-fan and operator flows against PostgreSQL',{skip:!database},asy
       assert.equal((await request('/account/billing',{action:'checkout',approved:'1',publication:original})).headers.get('Location'),
         'https://checkout.stripe.com/c/pay/cs_test_fixture');
       assert.doesNotMatch(await (await request('/account/billing?return=1')).text(),/Test access active/);
+
+      // An open checkout is reused. Once Stripe has ended it, a new checkout replaces it.
+      const checkout=async()=>(await request('/account/billing',{action:'checkout',approved:'1',publication:original})).headers.get('Location');
+      const startedHoursAgo=(hours:number)=>pool.query("UPDATE billing_attempts SET created_at=now()-$2*interval '1 hour' WHERE creator_id=$1",[who,hours]);
+      await startedHoursAgo(23);
+      assert.equal(await checkout(),'https://checkout.stripe.com/c/pay/cs_test_fixture');
+      assert.equal(checkouts.length,1);
+      await startedHoursAgo(26);
+      assert.equal(await checkout(),'https://checkout.stripe.com/c/pay/cs_test_fixture1');
+      assert.equal(checkouts.length,2);
+      assert.notEqual(checkouts[1],checkouts[0]);
+      assert.equal(await checkout(),'https://checkout.stripe.com/c/pay/cs_test_fixture1');
+      assert.equal(checkouts.length,2);
       const event=(eventId:string,valid=true)=>{
         const body=JSON.stringify({id:eventId,livemode:false,type:'customer.subscription.updated',data:{object:{id:'sub_fixture'}}});
         const when=Math.floor(Date.now()/1000);
