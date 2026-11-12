@@ -24,11 +24,11 @@ import { matchColours, suggestSkin } from './public/art-match.js';
 import { linkTab, lookTab, pageTab, type EditorView } from './editor-screens.ts';
 import { artPixels, channelDraft, matchChannel, type ChannelMatch } from './twitch-channel.ts';
 import { renderPage } from './page.ts';
-import { buildingPage, landingPage, linksStep, liveStep, lookStep } from './screens.ts';
+import { buildingPage, confirmPage, landingPage, linksStep, liveStep, lookStep, messagePage, signInPage } from './screens.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
-import { accountPage, billingPage, confirmation, editorShare, invitesPage, leaderboardDemo, message, proEditor, opsCase, opsPage, renderHome, reportPage, retiredCalendar, signIn } from './views.ts';
+import { accountPage, billingPage, editorShare, invitesPage, leaderboardDemo, proEditor, opsCase, opsPage, renderHome, reportPage, retiredCalendar } from './views.ts';
 
 const stylesheet=[
   readFileSync(new URL('./public/lobby.css',import.meta.url),'utf8'),
@@ -238,7 +238,7 @@ export function createApp(config:Configuration={}) {
     if(!known) console.error('LINB request failed',requestId,describeFailure(error));
     if(c.req.path.startsWith('/api/')) return c.json({code:known?error.code:'temporarily_unavailable',message:text,
       requestId,...(known&&error.fields?{fields:error.fields}:{})},status as 401);
-    return c.html(message(status===404?'This home is not available':status===401?'Sign in again':'LINB could not complete this request',
+    return c.html(messagePage(status===404?'This home is not available':status===401?'Sign in again':'LINB could not complete this request',
       status===503?text+' Request ID: '+requestId:text,status===401?(c.req.path.startsWith('/ops')?'/ops/sign-in':'/sign-in'):'/',
       status===401?'Request a sign-in link':'Back to LINB'),status as 401);
   });
@@ -306,8 +306,8 @@ export function createApp(config:Configuration={}) {
     if(!bytes) throw unavailable();
     return sendImage(bytes);
   });
-  app.get('/sign-in',c=>c.html(signIn(false,c.req.query('sent')==='1',Boolean(twitch),c.req.query('twitch'))));
-  app.get('/ops/sign-in',c=>c.html(signIn(true,c.req.query('sent')==='1')));
+  app.get('/sign-in',c=>c.html(signInPage({sent:c.req.query('sent')==='1',twitch:Boolean(twitch),state:c.req.query('twitch')})));
+  app.get('/ops/sign-in',c=>c.html(signInPage({operator:true,sent:c.req.query('sent')==='1'})));
   for(const [path,kind] of [['/sign-in','login'],['/ops/sign-in','operator']] as const) {
     app.post(path,async c=>{
       sameOrigin(c);
@@ -349,7 +349,7 @@ export function createApp(config:Configuration={}) {
       }
     });
   }
-  app.get('/verify',c=>c.html(confirmation()));
+  app.get('/verify',c=>c.html(confirmPage()));
   app.post('/verify',async c=>{
     sameOrigin(c);
     const fields=await c.req.parseBody();
@@ -419,8 +419,8 @@ export function createApp(config:Configuration={}) {
     await requireAuth().startChange(creator,fields.mailbox,fields.replace==='on');
     return c.redirect('/account?sent=1',303);
   });
-  app.get('/account/proof-received',c=>c.html(message('Proof received','Confirm the other mailbox to complete the change.','/account','Return to account')));
-  app.get('/account/mailbox-changed',c=>c.html(message('Mailbox changed','Sign in with your new mailbox.','/sign-in','Sign in')));
+  app.get('/account/proof-received',c=>c.html(messagePage('Proof received','Confirm the other mailbox to complete the change.','/account','Return to account')));
+  app.get('/account/mailbox-changed',c=>c.html(messagePage('Mailbox changed','Sign in with your new mailbox.','/sign-in','Sign in')));
   // The editor of the fresh start (RDY s-P8ZS4). Each action saves to the draft by itself; Publish puts the draft online.
   const editorView=async(c:Context,owner:string,error?:string):Promise<EditorView>=>{
     const db=requirePool(), state=await editor(db,owner);
@@ -767,7 +767,7 @@ export function createApp(config:Configuration={}) {
         if(error instanceof AppError) return c.html(reportPage(home.id,url,reportReasons,fields,error.message),error.status as 422);
         return c.html(reportPage(home.id,url,reportReasons,fields,'The report could not be submitted. Try again.'),503);
       }
-      return c.html(message('Report received','An operator can review your report.','/h/'+home.id,'Return to the creator page'),201);
+      return c.html(messagePage('Report received','An operator can review your report.','/h/'+home.id,'Return to the creator page'),201);
     });
   }
   async function renderPublicHome(c:Context,id:string) {
@@ -805,7 +805,7 @@ export function createApp(config:Configuration={}) {
     if(!paid||![paid.highlights?.id,paid.recommendations?.id].includes(page)) {
       const known=await db.query('SELECT 1 FROM pro_page_history WHERE home_id=$1 AND page_id=$2',[home.id,page]);
       if(!known.rowCount) throw unavailable();
-      return c.html(message('This page is no longer available','The creator’s Home is still available.','/h/'+home.id,'Open creator home'),410);
+      return c.html(messagePage('This page is no longer available','The creator’s Home is still available.','/h/'+home.id,'Open creator home'),410);
     }
     return c.html(renderHome(home.content,{now:clock(),asset:id=>'/h/'+home.id+'/images/'+id,pro:paid,
       homeId:home.id,currentPage:page,canonical:(origin??new URL(c.req.url).origin)+'/h/'+home.id+'/p/'+page}));
@@ -852,7 +852,7 @@ export function createApp(config:Configuration={}) {
   app.get('/ops/cases/:id/publication',async c=>{
     const actor=await principal(c,'operator'),id=c.req.param('id');
     const result=await inspectPublication(requirePool(),actor,id);
-    if(!result.content) return c.html(message('No current publication','The home remains held and no publication is set.','/ops/cases/'+id,'Back to case'));
+    if(!result.content) return c.html(messagePage('No current publication','The home remains held and no publication is set.','/ops/cases/'+id,'Back to case'));
     return c.html(renderHome(result.content,{now:clock(),review:true,pro:pro?result.pro:null,
       proBase:'/ops/cases/'+id+'/publication/'+result.publicationId,asset:asset=>'/ops/cases/'+id+'/publication/'+result.publicationId+'/images/'+asset}));
   });
@@ -911,7 +911,7 @@ export function createApp(config:Configuration={}) {
     await publicHome(db,found.homeId);
     return c.redirect('/'+found.canonical,308);
   });
-  app.notFound(c=>c.html(message('This home is not available','The requested page is unavailable.'),404));
+  app.notFound(c=>c.html(messagePage('This home is not available','The requested page is unavailable.'),404));
   return app;
 }
 

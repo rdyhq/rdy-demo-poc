@@ -119,3 +119,7 @@ a { color:inherit; }
   .ed-preview { display:none; }
   .ed-open { display:flex; align-items:center; justify-content:center; min-height:52px; border:1.5px solid var(--line); border-radius:999px; background:#fff; font-weight:650; text-decoration:none; }
 }
+
+.app-twitch { display:flex; align-items:center; justify-content:center; width:100%; min-height:58px; border:0; border-radius:999px; background:var(--twitch); color:#fff; font:650 17px/1 Inter,system-ui,sans-serif; cursor:pointer; }
+.app-or { margin:14px 0; color:var(--faint); font-size:13.5px; text-align:center; }
+.app-claim button:disabled { background:#D9D7D1; color:#8B8A94; cursor:default; }
