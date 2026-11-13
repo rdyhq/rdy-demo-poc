@@ -10,6 +10,7 @@ import { transaction } from './db.ts';
 import { acceptReport, reportInbox, reportReasons } from './reports.ts';
 import { assetBytes, maxUpload, upload, type Objects } from './assets.ts';
 import { Auth, throttle, type SendMail } from './auth.ts';
+import { privacyPage, termsPage } from './legal.ts';
 import { AppError, digest, equalSecret, futureSessions, invalid, mailbox, scheduleChange, themeNames, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
 import { invite, inviteList, revokeInvite } from './enrollment.ts';
 import { channelPlatform, newHome, normalizeHome, platforms, readHome, type EditableHome, type StoredHome } from './home-cards.ts';
@@ -320,6 +321,9 @@ export function createApp(config:Configuration={}) {
   });
   // The email form shows with a mail service. It also shows when nothing is set up, as before.
   const emailForm=mailOn||!auth;
+  // The terms and the privacy notice (RDY D-TT81D). A crawler and a cache can keep them for a short time.
+  app.get('/privacy',c=>c.html(privacyPage()));
+  app.get('/terms',c=>c.html(termsPage()));
   app.get('/sign-in',c=>c.html(signInPage({sent:emailForm&&c.req.query('sent')==='1',twitch:Boolean(twitch),state:c.req.query('twitch'),email:emailForm})));
   app.get('/ops/sign-in',c=>c.html(signInPage({operator:true,sent:emailForm&&c.req.query('sent')==='1',email:emailForm})));
   for(const [path,kind] of [['/sign-in','login'],['/ops/sign-in','operator']] as const) {

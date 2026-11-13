@@ -397,6 +397,8 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       assert.match(page,/<p>Connected: mailless<\/p><p class="ed-fine">You sign in with Twitch\.<\/p>/);
       assert.doesNotMatch(page,/Disconnect Twitch|action="\/account\/twitch"/);
       assert.match(page,/<button class="ed-quiet">Sign out<\/button>/);
+      // The account leads to the terms and to the privacy notice.
+      assert.match(page,/<a href="\/terms">Terms<\/a><a href="\/privacy">Privacy<\/a>/);
       // The forms that the page does not show are refused.
       const changes=await count('mailbox_changes');
       assert.equal((await post('/account/mailbox',{csrf:csrf(mailless),mailbox:'other@example.test'},mailless,bare)).status,503);
@@ -408,6 +410,7 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       const full=await (await get('/account',(await signIn()).session)).text();
       assert.match(full,/action="\/account\/mailbox"/);
       assert.match(full,/Disconnect Twitch/);
+      assert.match(full,/<a href="\/terms">Terms<\/a><a href="\/privacy">Privacy<\/a>/);
     });
   } finally {
     await pool.end();

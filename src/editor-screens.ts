@@ -203,6 +203,7 @@ export function accountTab(view:EditorView,account:Account) {
       <form method="post" action="/account/twitch">${hidden(csrf)}<button name="action" value="${twitch.linked?'unlink':'link'}" class="ed-secondary">${twitch.linked?'Disconnect Twitch':'Connect Twitch'}</button></form></div>`:''}
     ${account.billing?html`<h2>Pro</h2><div class="ed-row"><a href="/account/billing">Pro test billing</a></div>`:''}
     <div class="ed-out">${account.contact?html`<a href="mailto:${account.contact}">Contact the review operator</a>`:''}
+      <span class="ed-legal"><a href="/terms">Terms</a><a href="/privacy">Privacy</a></span>
       <form method="post" action="/logout">${hidden(csrf)}<button class="ed-quiet">Sign out</button></form></div>`,{solo:true});
 }
 

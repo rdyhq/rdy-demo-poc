@@ -108,7 +108,7 @@ a { color:inherit; }
 .pg-review { padding:10px 16px; background:#131316; color:#fff; font:600 13.5px/1.4 Inter,system-ui,sans-serif; text-align:center; }
 
 /* The claim sheet of a preview. It is part of the app, so it keeps the app's own colours. */
-.pg:has(+ .pg-sheet) { padding-bottom:250px; }
+.pg:has(+ .pg-sheet) { padding-bottom:300px; }
 .pg-sheet {
   position:fixed; inset:auto 0 0; margin:0 auto; max-width:480px; padding:22px 22px 20px; border-radius:26px 26px 0 0;
   background:#fff; color:#131316; color-scheme:light; box-shadow:0 -18px 40px #0000004d; text-align:center;
@@ -119,5 +119,8 @@ a { color:inherit; }
   width:100%; min-height:56px; border:0; border-radius:999px; background:#772CE8; color:#fff; font:650 16.5px/1 Inter,system-ui,sans-serif; cursor:pointer;
 }
 .pg-sheet a { display:inline-block; margin-top:12px; color:#5B5B66; font-size:14px; }
+/* The line under the claim button names the terms and the privacy notice (RDY r-WCFJQ). */
+.pg-sheet .pg-agree { margin:12px 0 0; font-size:12.5px; line-height:1.45; }
+.pg-sheet .pg-agree a { display:inline; margin:0; font-size:inherit; }
 .pg-sheet :focus-visible { outline-color:#131316; }
 @media (forced-colors:active) { .pg-card, .pg-pill, .pg-rows li { border-color:CanvasText; } }
