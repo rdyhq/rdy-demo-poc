@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { connect, migrate, transaction } from './db.ts';
 import { mailbox, uuidPattern } from './domain.ts';
 import { approveHandle } from './handles.ts';
+import { housekeep } from './housekeeping.ts';
 
 const [action,argument,daysArgument,reviewReason,approver]=process.argv.slice(2);
 const db=process.env.DATABASE_URL;
@@ -39,10 +40,8 @@ try {
     if(!result.rowCount) throw new Error('No retained case evidence found.');
     console.log('Reviewed evidence extension recorded.');
   } else if(action==='prune-evidence') {
-    const result=await pool.query(`UPDATE report_cases SET evidence=NULL,evidence_deleted_at=now()
-      WHERE evidence_until<=now() AND evidence IS NOT NULL`);
-    const reports=await pool.query(`UPDATE fan_reports SET detail=NULL WHERE created_at<=now()-interval '30 days' AND detail IS NOT NULL`);
-    console.log('Expired case and fan report evidence removed:',(result.rowCount??0)+(reports.rowCount??0));
+    // The server runs the same step each hour. This command runs it at once.
+    console.log('Expired case and fan report evidence removed:',(await housekeep(pool)).evidence);
   } else if(action==='revoke-restored-access') {
     await transaction(pool,async client=>{
       await client.query('UPDATE sessions SET revoked_at=now() WHERE revoked_at IS NULL');

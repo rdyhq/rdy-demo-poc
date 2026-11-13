@@ -10,6 +10,7 @@ import { clientAddress, proxyChainNote, trustedProxyHops } from './client-addres
 import { postmark } from './auth.ts';
 import { localObjects, objectStore } from './assets.ts';
 import { connect } from './db.ts';
+import { housekeep } from './housekeeping.ts';
 
 const port=Number(process.env.PORT??3000);
 if(!Number.isInteger(port)||port<1||port>65535) throw new Error('PORT must be an integer between 1 and 65535');
@@ -69,6 +70,12 @@ const app=createApp({pool,origin:origin.origin,redirectOrigins,twitch,twitchActi
   appHandoff:process.env.LINB_APP_HANDOFF==='1',
   openSignup:process.env.LINB_OPEN_SIGNUP==='1',
   clientAddress:context=>clientAddress(getConnInfo(context).remote.address,context.req.header('X-Forwarded-For'),trustedHops)});
+// Each hour, remove what the privacy notice says that linb.io does not keep.
+if(pool) {
+  const tidy=()=>housekeep(pool).catch(()=>console.error('LINB housekeeping failed.'));
+  void tidy();
+  setInterval(tidy,3_600_000).unref();
+}
 // The log shows the length of the proxy chain, so that an operator can set LOBBY_TRUST_PROXY.
 const chainHosts=new Set<string>();
 const server=serve({fetch:(request,...rest)=>{
