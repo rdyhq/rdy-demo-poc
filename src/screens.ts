@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
 
 // The screens of the fresh start (RDY D-TG9VX, section s-W8K47): one main action and few words on each.
-export const appStyles='/assets/app.css?v=13';
+export const appStyles='/assets/app.css?v=14';
 
 function screen(title:string,body:unknown,options:{refresh?:string;canonical?:string;skin?:string;script?:string}={}) {
   return html`<!doctype html><html lang="en"><head>
@@ -16,6 +16,15 @@ function screen(title:string,body:unknown,options:{refresh?:string;canonical?:st
 }
 
 const top=(signIn=true)=>html`<header class="app-top"><a class="app-logo" href="/">LINB</a>${signIn?html`<a href="/sign-in">Sign in</a>`:''}</header>`;
+// The way to the terms and to the privacy notice (RDY r-YCNR1).
+const legalFoot=html`<footer class="app-foot"><a href="/terms">Terms</a><a href="/privacy">Privacy</a></footer>`;
+// One line where a streamer starts a Twitch sign-in (RDY r-WCFJQ).
+const agree=html`<p class="app-fine app-agree">By continuing you agree to the <a href="/terms">Terms</a>. The <a href="/privacy">Privacy notice</a> says what linb.io stores.</p>`;
+
+// A page of plain text, as the privacy notice and the terms.
+export function documentPage(title:string,changed:string,body:unknown) {
+  return screen(title,html`${top(false)}<article class="app-doc"><h1>${title}</h1><p class="app-doc-date">Last changed: ${changed}</p>${body}</article>${legalFoot}`);
+}
 
 export function landingPage(options:{preview:boolean;missing?:string;invalid?:boolean;limited?:boolean;unavailable?:boolean;closed?:boolean;canonical?:string}) {
   const note=options.missing?'Twitch has no channel named '+options.missing+'.'
@@ -32,7 +41,7 @@ export function landingPage(options:{preview:boolean;missing?:string;invalid?:bo
       </form>
       <p class="app-fine">${options.closed?'Sign-up is by invitation for now.':'No sign-up needed.'}</p>`
     :html`<p class="app-lead">A link in bio that goes live when you do.</p>
-      <a class="app-primary" href="/sign-in">Sign in</a>`}`,{canonical:options.canonical});
+      <a class="app-primary" href="/sign-in">Sign in</a>`}${legalFoot}`,{canonical:options.canonical});
 }
 
 // The browser shows this screen while it waits for the preview that the refresh asks for.
@@ -109,13 +118,13 @@ export function signInPage(options:{operator?:boolean;sent?:boolean;twitch?:bool
     ${options.sent?html`<p class="app-lead">If this mailbox can use LINB, a sign-in link is on its way. Look in your spam folder if it does not arrive.</p>
       <a class="app-secondary" href="${action}">Send another link</a>`
     :html`${note?html`<p class="app-note" role="alert">${note}</p>`:''}
-      ${twitch?html`<form method="post" action="/auth/twitch"><button class="app-twitch">Continue with Twitch</button></form>${email?html`<p class="app-or">or</p>`:''}`:''}
+      ${twitch?html`<form method="post" action="/auth/twitch"><button class="app-twitch">Continue with Twitch</button></form>${agree}${email?html`<p class="app-or">or</p>`:''}`:''}
       ${email?html`<form class="app-claim" method="post" action="${action}">
         <label class="app-field" for="mailbox"><input id="mailbox" name="mailbox" aria-label="Email address" autocomplete="email" type="email" maxlength="254" required placeholder="you@example.com"></label>
         <button>Email me a sign-in link</button>
       </form>
       <p class="app-fine">The link works once. It signs you in on this device.</p>`
-      :options.operator?html`<p class="app-lead">Operator sign-in needs the mail service. It is not set up.</p>`:''}`}`);
+      :options.operator?html`<p class="app-lead">Operator sign-in needs the mail service. It is not set up.</p>`:''}`}${legalFoot}`);
 }
 
 // The link from the email opens this screen. The script puts the token of the link into the form.
@@ -134,7 +143,7 @@ export function reportPage(id:string,url:string,reasons:string[],values:Record<s
     <form class="app-claim" method="post" action="/h/${id}/report"><label class="app-label" for="reason">Reason</label><select class="app-select" id="reason" name="reason">${
       reasons.map(reason=>html`<option${values.reason===reason?html` selected`:''}>${reason}</option>`)}</select><label class="app-label" for="detail">What should the reviewer know?</label><textarea class="app-area" id="detail" name="detail" maxlength="700" required>${
       typeof values.detail==='string'?values.detail.slice(0,700):''}</textarea><button>Send report</button></form>
-    <p class="app-fine">Include only the details that the reviewer needs.</p>
+    <p class="app-fine">Include only the details that the reviewer needs. The <a href="/privacy">Privacy notice</a> says how long linb.io keeps a report.</p>
     <a class="app-skip" href="/h/${id}">Back to the page</a>`);
 }
 

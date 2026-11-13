@@ -38,6 +38,8 @@ Production is the Render service `lobby-staging` with its PostgreSQL 17 database
 | `LINB_OBJECTS` | `database` |
 | `LOBBY_TRUST_PROXY` | The number in the log line `LINB proxy chain` for `linb.io`. |
 
+The privacy notice is at `/privacy` and the terms are at `/terms` (Rdy D-TT81D). Their text is in `src/legal.ts`: each sentence says what the code does, so change the text and its date together with the behaviour. The mailbox `privacy@linb.io` needs mail forwarding for the domain.
+
 Production has no mail service and no R2 bucket. Sign-in is by Twitch alone, operators cannot sign in, and pictures are in the database. Enter secrets directly in Render.
 
 - **Deploy:** wait for CI on the commit. Then start a manual deploy of that exact commit in Render. Render runs `npm run migrate` before the new build starts. Automatic deploys and Blueprint Auto Sync stay off.

@@ -7,7 +7,7 @@ import type { LiveState } from './live-state.ts';
 import { accentPath, artPalette, skinPath } from './public/palette.js';
 
 // The Home of the fresh start (RDY D-TG9VX, section s-EY5PZ): one centred column, in a fixed order.
-export const pageStyles='/assets/page.css?v=3';
+export const pageStyles='/assets/page.css?v=4';
 
 export type PageOptions={
   now:number; asset:(id:string)=>string; liveState?:LiveState; canonical?:string;
@@ -130,10 +130,10 @@ export function renderPage(content:HomeContent|EditableHome,options:PageOptions)
     ${content.updates.length?html`<h2 class="pg-h">Updates</h2><ul class="pg-notes">${content.updates.map(update=>html`<li>${update.text}${
       update.firstPublishedAt?html`<small>${update.firstPublishedAt.slice(0,10)}</small>`:''}</li>`)}</ul>`:''}
     ${content.game?html`<p class="pg-tags"><span>${content.game}</span></p>`:''}
-    <footer class="pg-foot">${options.report&&!options.claim?html`<a href="${options.report}">Report this page</a>`:''}<a href="/">Made with LINB</a></footer>
+    <footer class="pg-foot">${options.report&&!options.claim?html`<a href="${options.report}">Report this page</a><a href="/privacy">Privacy</a>`:''}<a href="/">Made with LINB</a></footer>
     </main>${options.claim?html`<aside class="pg-sheet">
       <h2>That is you, ${name}.</h2><p>${art?'The colours and the font come from your channel.':'You pick the look after you claim it.'}</p>
-      <form method="post" action="/auth/twitch"><input type="hidden" name="claim" value="${options.claim}"><button>Claim linb.io/${options.claim}</button></form>
+      <form method="post" action="/auth/twitch"><input type="hidden" name="claim" value="${options.claim}"><button>Claim linb.io/${options.claim}</button></form><p class="pg-agree">By claiming you agree to the <a href="/terms">Terms</a>. The <a href="/privacy">Privacy notice</a> says what linb.io stores.</p>
       <a href="/">Try another name</a></aside>`:''}
     </body></html>`;
 }
