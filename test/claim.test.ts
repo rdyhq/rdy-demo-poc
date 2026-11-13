@@ -41,9 +41,15 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
   let streaming=false;
   let nonce='';
   const b64=(value:unknown)=>Buffer.from(JSON.stringify(value)).toString('base64url');
-  const http=(async(input:RequestInfo|URL)=>{
+  // The sign-in tokens that linb.io asked Twitch to revoke.
+  const revoked:string[]=[];
+  const http=(async(input:RequestInfo|URL,init?:RequestInit)=>{
     const url=new URL(String(input));
     if(url.hostname==='id.twitch.tv') {
+      if(url.pathname.endsWith('/revoke')) {
+        revoked.push(new URLSearchParams(String(init?.body)).get('token')??'');
+        return Response.json({});
+      }
       if(url.pathname.endsWith('/keys')) return Response.json({keys:[key]});
       if(url.pathname.endsWith('/validate')) return Response.json({client_id:'fixture',login:who.login,user_id:who.sub,expires_in:3600});
       if(url.pathname.endsWith('/token')&&!nonce) return Response.json({access_token:'app-token',expires_in:600});
@@ -77,7 +83,8 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
   const mail:{to:string;text:string}[]=[];
   const images=new Map<string,Buffer>();
   const base={pool,origin,mail:async(to:string,_subject:string,text:string)=>{mail.push({to,text});},
-    objects:{async write(name:string,bytes:Buffer){images.set(name,bytes);},async read(name:string){return images.get(name)!;}},
+    objects:{async write(name:string,bytes:Buffer){images.set(name,bytes);},async read(name:string){return images.get(name)!;},
+      async remove(name:string){images.delete(name);}},
     twitch:{clientId:'fixture',clientSecret:'fixture',key:Buffer.alloc(32,1),http},twitchActivity:{clientId:'fixture',clientSecret:'fixture',http}};
   const app=createApp({...base,openSignup:true});
   const closed=createApp(base);
@@ -411,6 +418,69 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       assert.match(full,/action="\/account\/mailbox"/);
       assert.match(full,/Disconnect Twitch/);
       assert.match(full,/<a href="\/terms">Terms<\/a><a href="\/privacy">Privacy<\/a>/);
+    });
+
+    // A streamer deletes the account (RDY D-JH1V5).
+    let leaver='';
+
+    await t.test('the account leads to the deletion, and the confirm screen says what goes',async()=>{
+      who={sub:'4040',login:'leaver',name:'Leaver',email:'leaver@example.test',verified:true};
+      const {result,session}=await signIn();
+      assert.equal(result.headers.get('Location'),'/start');
+      leaver=session;
+      assert.match(await (await get('/account',leaver)).text(),/<p class="ed-delete"><a href="\/account\/delete">Delete my account<\/a><\/p>/);
+      assert.equal((await get('/account/delete')).status,401);
+      const page=await (await get('/account/delete',leaver)).text();
+      assert.match(page,/<h1>Delete your account\?<\/h1>/);
+      assert.match(page,/This removes your page <strong>lobby\.example\.test\/leaver<\/strong>, your draft, your pictures and your sign-in\. You cannot undo it\./);
+      assert.match(page,/<label class="app-label" for="confirm">Type delete to confirm<\/label>/);
+      assert.match(page,/<button class="app-danger">Delete my account<\/button>/);
+      assert.match(page,/<a class="app-skip" href="\/account">Keep my account<\/a>/);
+    });
+
+    await t.test('a deletion needs the word and the form of the account',async()=>{
+      const before=await count('creators');
+      const wrong=await post('/account/delete',{csrf:csrf(leaver),confirm:'yes'},leaver);
+      assert.equal(wrong.status,422);
+      assert.match(await wrong.text(),/<p class="app-note" role="alert">Type the word delete to confirm\.<\/p>/);
+      assert.equal((await post('/account/delete',{confirm:'delete'},leaver)).status,403);
+      assert.equal(await count('creators'),before);
+    });
+
+    await t.test('the deletion removes the account, ends the sign-in and frees the address',async()=>{
+      const before=await count('creators');
+      revoked.length=0;
+      const done=await post('/account/delete',{csrf:csrf(leaver),confirm:' Delete '},leaver);
+      assert.equal(done.status,200);
+      assert.match(await done.text(),/<h1>Your account is deleted<\/h1><p class="app-lead">linb\.io removed your page, your pictures and your sign-in\.<\/p>/);
+      assert.match(done.headers.get('Set-Cookie')!,/__Host-lobby=;/);
+      assert.equal(await count('creators'),before-1);
+      assert.equal((await pool.query(`SELECT 1 FROM twitch_identities WHERE subject='4040'`)).rowCount,0);
+      assert.equal((await pool.query(`SELECT 1 FROM home_handles WHERE handle='leaver'`)).rowCount,0);
+      assert.equal((await get('/editor',leaver)).status,401);
+      assert.equal((await get('/leaver')).status,404);
+      // linb.io asks Twitch to revoke the sign-in token of the account.
+      await new Promise(resolve=>setTimeout(resolve,30));
+      assert.deepEqual(revoked,['user-token']);
+    });
+
+    await t.test('the same person comes back and gets the address again',async()=>{
+      const {result,session}=await signIn();
+      assert.equal(result.headers.get('Location'),'/start');
+      leaver=session;
+      assert.equal((await pool.query(`SELECT 1 FROM home_handles WHERE handle='leaver' AND current`)).rowCount,1);
+    });
+
+    await t.test('a Home with an operator case is not deleted from the account',async()=>{
+      const before=await count('creators'), applier=randomUUID(), reviewer=randomUUID();
+      const home=(await draftOf('leaver@example.test')).id;
+      await pool.query(`INSERT INTO operators(id,mailbox) VALUES($1,'first@example.test'),($2,'second@example.test')`,[applier,reviewer]);
+      await pool.query(`INSERT INTO report_cases(id,home_id,applier_id,reviewer_id,reason) VALUES($1,$2,$3,$4,'A reason.')`,[randomUUID(),home,applier,reviewer]);
+      const refused=await post('/account/delete',{csrf:csrf(leaver),confirm:'delete'},leaver);
+      assert.equal(refused.status,409);
+      assert.match(await refused.text(),/<h1>Your account cannot be deleted here<\/h1><p class="app-lead">Your page is under review\. Write to privacy@linb\.io to delete the account\.<\/p>/);
+      assert.equal(await count('creators'),before);
+      assert.equal((await get('/editor',leaver)).status,200);
     });
   } finally {
     await pool.end();

@@ -32,6 +32,8 @@ test('the privacy notice names the operator, the contact and what linb.io stores
   assert.match(page,/We remove the text after 30 days\./);
   assert.match(page,/We remove it after two days\./);
   assert.match(page,/linb\.io is not for a person under 13\./);
+  assert.match(page,/You can delete your account at the foot of the account screen\. We then remove your account, your page, your pictures and your sign-in at once/);
+  assert.match(page,/You can ask for a copy of your data or for a correction\./);
   assert.match(page,/<a href="\/terms">Terms<\/a>/);
 });
 
@@ -43,6 +45,7 @@ test('the terms name the operator, the minimum age, the law and the contact',asy
   assert.match(page,/You must be 13 or older/);
   assert.match(page,/The laws of the State of Delaware, USA, govern these terms\./);
   assert.match(page,/linb\.io is not part of Twitch, and Twitch does not endorse it\./);
+  assert.match(page,/take your page down in the editor, or delete your account in the account screen\./);
   assert.match(page,/<a href="mailto:privacy@linb\.io">privacy@linb\.io<\/a>/);
   for(const heading of ['The service','Your account','Your content','What a page must not hold','Reports and removal','Twitch and other services','Changes and the end of the service','No warranty','Liability','Law','Contact']) {
     assert.ok(page.includes('<h2>'+heading+'</h2>'),heading);

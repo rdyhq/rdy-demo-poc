@@ -10,7 +10,8 @@ import { transaction } from './db.ts';
 import { acceptReport, reportInbox, reportReasons } from './reports.ts';
 import { assetBytes, maxUpload, upload, type Objects } from './assets.ts';
 import { Auth, throttle, type SendMail } from './auth.ts';
-import { privacyPage, termsPage } from './legal.ts';
+import { contact as legalContact, privacyPage, termsPage } from './legal.ts';
+import { deleteAccount } from './account-deletion.ts';
 import { AppError, digest, equalSecret, futureSessions, invalid, mailbox, scheduleChange, themeNames, unavailable, uuidPattern, type ScheduleChange } from './domain.ts';
 import { invite, inviteList, revokeInvite } from './enrollment.ts';
 import { channelPlatform, newHome, normalizeHome, platforms, readHome, type EditableHome, type StoredHome } from './home-cards.ts';
@@ -23,7 +24,7 @@ import { matchColours, suggestSkin } from './public/art-match.js';
 import { accountTab, billingTab, linkTab, lookTab, pageTab, shareTexts, type EditorView } from './editor-screens.ts';
 import { artPixels, channelDraft, matchChannel, twitchPicture, type ChannelMatch } from './twitch-channel.ts';
 import { renderPage } from './page.ts';
-import { buildingPage, confirmPage, landingPage, leavingPage, linksStep, liveStep, lookStep, messagePage, reportPage, signInPage } from './screens.ts';
+import { buildingPage, confirmPage, deletePage, landingPage, leavingPage, linksStep, liveStep, lookStep, messagePage, reportPage, signInPage } from './screens.ts';
 import { editor, mutate, publicHome, refers } from './homes.ts';
 import { approvedPreview, previewFields, previewFingerprint, type Selection } from './sharing.ts';
 import { caseAction, caseDetail, cases, holdReasons, inspectPublication, openCase } from './operator.ts';
@@ -402,6 +403,31 @@ export function createApp(config:Configuration={}) {
       notice:mailOn&&c.req.query('sent')==='1'?'Check both mailboxes for verification links.':undefined,
       twitch:connection?{linked:Boolean(connection.rowCount),login:connection.rows[0]?.login,status:c.req.query('twitch')}:undefined,billing:Boolean(billing),
       handle:{current:current?host+'/'+current:null,offer:offer?host+'/'+offer:null}}));
+  });
+  // A streamer deletes the account (RDY D-JH1V5). The confirm screen names the address that goes.
+  const deleteView=async(c:Context,creator:string,error?:string)=>{
+    const db=requirePool(), handle=await homeHandle(db,(await editor(db,creator)).id);
+    return deletePage(csrf(cookie(c)!),handle?(originHost??new URL(c.req.url).host)+'/'+handle:null,error);
+  };
+  app.get('/account/delete',async c=>c.html(await deleteView(c,await principal(c,'creator'))));
+  app.post('/account/delete',async c=>{
+    const creator=await principal(c,'creator'),fields=await c.req.parseBody();
+    checkCsrf(c,fields.csrf);
+    requireHomeWrites();
+    if(typeof fields.confirm!=='string'||fields.confirm.trim().toLowerCase()!=='delete') {
+      return c.html(await deleteView(c,creator,'Type the word delete to confirm.'),422);
+    }
+    const boxes=twitch?await twitch.tokenBoxes(creator):[];
+    const result=await deleteAccount(requirePool(),objects,creator);
+    if(result==='case'||result==='billing') {
+      return c.html(messagePage('Your account cannot be deleted here',(result==='case'?'Your page is under review.':'Your account has a subscription record.')
+        +' Write to '+legalContact+' to delete the account.','/account','Back to the account'),409);
+    }
+    // The account is gone. Twitch hears of it after the answer, and the log names nobody.
+    void twitch?.revoke(boxes);
+    console.log('LINB account deleted.');
+    deleteCookie(c,name,cookieOptions);
+    return c.html(messagePage('Your account is deleted','linb.io removed your page, your pictures and your sign-in.','/','Back to linb.io'));
   });
   app.post('/account/handle',async c=>{
     const creator=await principal(c,'creator'),fields=await c.req.parseBody();

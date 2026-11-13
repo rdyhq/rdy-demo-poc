@@ -204,7 +204,8 @@ export function accountTab(view:EditorView,account:Account) {
     ${account.billing?html`<h2>Pro</h2><div class="ed-row"><a href="/account/billing">Pro test billing</a></div>`:''}
     <div class="ed-out">${account.contact?html`<a href="mailto:${account.contact}">Contact the review operator</a>`:''}
       <span class="ed-legal"><a href="/terms">Terms</a><a href="/privacy">Privacy</a></span>
-      <form method="post" action="/logout">${hidden(csrf)}<button class="ed-quiet">Sign out</button></form></div>`,{solo:true});
+      <form method="post" action="/logout">${hidden(csrf)}<button class="ed-quiet">Sign out</button></form></div>
+    <p class="ed-delete"><a href="/account/delete">Delete my account</a></p>`,{solo:true});
 }
 
 // Stripe test mode only. This screen is not a paid offer.

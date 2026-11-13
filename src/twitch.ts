@@ -169,17 +169,27 @@ export class Twitch {
     return validated.client_id===this.config.clientId&&validated.user_id===subject&&validated.expires_in>0?'accepted':'rejected';
   }
 
-  async unlink(creator:string) {
-    const {rows}=await this.db.query(`SELECT t.session_hash,t.token_box FROM twitch_sessions t JOIN twitch_identities i USING(subject)
+  // The encrypted sign-in tokens of a creator. Read them before the link or the account goes.
+  async tokenBoxes(creator:string) {
+    const {rows}=await this.db.query<{token_box:string}>(`SELECT t.token_box FROM twitch_sessions t JOIN twitch_identities i USING(subject)
       WHERE i.creator_id=$1`,[creator]);
+    return rows.map(row=>row.token_box);
+  }
+
+  // Best-effort revocation at Twitch. Local access is already disabled.
+  async revoke(boxes:string[]) {
+    await Promise.allSettled(boxes.map(async box=>this.json('revoke',{method:'POST',body:new URLSearchParams({
+      client_id:this.config.clientId,token:this.decrypt(box),
+    })})));
+  }
+
+  async unlink(creator:string) {
+    const boxes=await this.tokenBoxes(creator);
     await transaction(this.db,async client=>{
       await client.query(`UPDATE sessions SET revoked_at=now() WHERE creator_id=$1 AND digest IN(SELECT session_hash FROM twitch_sessions)`,[creator]);
       await client.query('DELETE FROM twitch_identities WHERE creator_id=$1',[creator]);
     });
-    // Best-effort revocation. Local access is already disabled.
-    await Promise.allSettled(rows.map(row=>this.json('revoke',{method:'POST',body:new URLSearchParams({
-      client_id:this.config.clientId,token:this.decrypt(row.token_box),
-    })})));
+    await this.revoke(boxes);
   }
 }
 

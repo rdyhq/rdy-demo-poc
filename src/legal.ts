@@ -3,7 +3,8 @@ import { documentPage } from './screens.ts';
 
 // The privacy notice and the terms of linb.io (RDY D-TT81D). Each sentence says what the code does.
 // Change the date with each change of the text.
-const operator='Rdyhub Inc.', contact='privacy@linb.io', changed='12 November 2026';
+export const contact='privacy@linb.io';
+const operator='Rdyhub Inc.', changed='12 November 2026';
 const address=html`<a href="mailto:${contact}">${contact}</a>`;
 
 export function privacyPage() {
@@ -26,9 +27,10 @@ export function privacyPage() {
       <li>Twitch signs you in and gives us the data of a channel. The privacy notice of Twitch says what Twitch does.</li></ul>
     <p>We sell no data. We give it to nobody else, unless a law requires it.</p>
     <h2>How long we keep it</h2>
-    <p>We keep your account and your page until you ask us to delete them. “Take my page down” in the editor removes your page from public view at once and keeps your draft. A backup of the database can hold a copy for a short time after a deletion.</p>
+    <p>We keep your account and your page until you delete your account. “Take my page down” in the editor removes your page from public view at once and keeps your draft. A backup of the database can hold a copy for a short time after a deletion.</p>
     <h2>Your choices</h2>
-    <ul><li>You can ask for a copy of your data, for a correction or for the deletion of your account. Write to ${address} from the email address of your Twitch account. We answer within 30 days.</li>
+    <ul><li>You can delete your account at the foot of the account screen. We then remove your account, your page, your pictures and your sign-in at once, and the address of your page is free again.</li>
+      <li>You can ask for a copy of your data or for a correction. Write to ${address} from the email address of your Twitch account. We answer within 30 days.</li>
       <li>You can end the connection to linb.io in the settings of your Twitch account, under Connections.</li>
       <li>The law of the place where you live can give you more rights. You can also complain to the data protection authority of that place.</li></ul>
     <h2>Children</h2>
@@ -63,7 +65,7 @@ export function termsPage() {
     <h2>Twitch and other services</h2>
     <p>linb.io reads the public data of your Twitch channel. linb.io is not part of Twitch, and Twitch does not endorse it. A link on a page leads to another service with its own terms.</p>
     <h2>Changes and the end of the service</h2>
-    <ul><li>You can stop at any time: take your page down in the editor, and ask us to delete your account.</li>
+    <ul><li>You can stop at any time: take your page down in the editor, or delete your account in the account screen.</li>
       <li>We can change linb.io or stop it.</li>
       <li>We can change these terms. The date at the top shows the last change. If you keep your page after a change, you agree to the new terms.</li></ul>
     <h2>No warranty</h2>

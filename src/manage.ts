@@ -3,6 +3,8 @@ import { connect, migrate, transaction } from './db.ts';
 import { mailbox, uuidPattern } from './domain.ts';
 import { approveHandle } from './handles.ts';
 import { housekeep } from './housekeeping.ts';
+import { deleteAccount } from './account-deletion.ts';
+import { objectStore } from './assets.ts';
 
 const [action,argument,daysArgument,reviewReason,approver]=process.argv.slice(2);
 const db=process.env.DATABASE_URL;
@@ -29,6 +31,15 @@ try {
   } else if(action==='approve-handle') {
     await approveHandle(pool,argument??'',daysArgument);
     console.log('Handle approved.');
+  } else if(action==='delete-account') {
+    // The deletion of an account for a request by mail (RDY r-ZDQG0). The argument is a handle or a Home ID.
+    const {rows}=await pool.query<{owner_id:string}>(`SELECT h.owner_id FROM homes h WHERE h.id::text=$1
+      OR h.id IN (SELECT home_id FROM home_handles WHERE handle=$1)`,[(argument??'').toLowerCase()]);
+    if(rows.length!==1) throw new Error('No account has this handle or Home ID.');
+    const result=await deleteAccount(pool,objectStore(process.env,pool),rows[0].owner_id,{cases:process.argv.includes('--with-cases')});
+    if(result==='case') throw new Error('The Home has an operator case. Review it, then add --with-cases.');
+    if(result==='billing') throw new Error('The account has a subscription record. End the subscription first.');
+    console.log('Account deleted.');
   } else if(action==='retain-evidence') {
     const days=Number(daysArgument);
     if(!argument||!uuidPattern.test(argument)||!Number.isInteger(days)||days<1||days>30||
@@ -49,7 +60,7 @@ try {
     });
     console.log('Restored sessions and access proofs revoked.');
   } else {
-    throw new Error('Use migrate, designate-operator, revoke-operator, approve-handle, retain-evidence, prune-evidence, or revoke-restored-access.');
+    throw new Error('Use migrate, designate-operator, revoke-operator, approve-handle, delete-account, retain-evidence, prune-evidence, or revoke-restored-access.');
   }
 } finally {
   await pool.end();

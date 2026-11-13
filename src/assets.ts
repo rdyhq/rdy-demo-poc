@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import sharp from 'sharp';
 import type pg from 'pg';
 import { AppError, invalid, unavailable, uuidPattern } from './domain.ts';
@@ -11,6 +11,8 @@ export const maxUpload=10*1024*1024;
 export interface Objects {
   write(key:string,bytes:Buffer):Promise<void>;
   read(key:string):Promise<Uint8Array>;
+  // Removes an object. An object that is not there is no error.
+  remove(key:string):Promise<void>;
 }
 
 export function localObjects(directory:string):Objects {
@@ -24,6 +26,7 @@ export function localObjects(directory:string):Objects {
       await writeFile(path(key),bytes,{mode:0o600,flag:'wx'});
     },
     async read(key) { return readFile(path(key)); },
+    async remove(key) { await rm(path(key),{force:true}); },
   };
 }
 
@@ -37,6 +40,9 @@ export function r2Objects(endpoint:string,bucket:string,accessKeyId:string,secre
       const result=await client.send(new GetObjectCommand({Bucket:bucket,Key:key}),{abortSignal:AbortSignal.timeout(8000)});
       if (!result.Body) throw new Error('Object unavailable');
       return result.Body.transformToByteArray();
+    },
+    async remove(key) {
+      await client.send(new DeleteObjectCommand({Bucket:bucket,Key:key}),{abortSignal:AbortSignal.timeout(8000)});
     },
   };
 }
@@ -56,6 +62,10 @@ export function databaseObjects(pool:pg.Pool):Objects {
       const {rows}=await pool.query<{bytes:Buffer}>('SELECT bytes FROM asset_objects WHERE object_key=$1',[key]);
       if (!rows[0]) throw new Error('Object unavailable');
       return rows[0].bytes;
+    },
+    async remove(key) {
+      check(key);
+      await pool.query('DELETE FROM asset_objects WHERE object_key=$1',[key]);
     },
   };
 }
