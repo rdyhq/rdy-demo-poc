@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
 
 // The screens of the fresh start (RDY D-TG9VX, section s-W8K47): one main action and few words on each.
-export const appStyles='/assets/app.css?v=14';
+export const appStyles='/assets/app.css?v=15';
 
 function screen(title:string,body:unknown,options:{refresh?:string;canonical?:string;skin?:string;script?:string}={}) {
   return html`<!doctype html><html lang="en"><head>
@@ -145,6 +145,20 @@ export function reportPage(id:string,url:string,reasons:string[],values:Record<s
       typeof values.detail==='string'?values.detail.slice(0,700):''}</textarea><button>Send report</button></form>
     <p class="app-fine">Include only the details that the reviewer needs. The <a href="/privacy">Privacy notice</a> says how long linb.io keeps a report.</p>
     <a class="app-skip" href="/h/${id}">Back to the page</a>`);
+}
+
+// The last step before an account goes (RDY r-6VJQN). The streamer types a word, so that one stray tap deletes nothing.
+export function deletePage(csrf:string,address:string|null,error?:string) {
+  return screen('Delete your account',html`${top(false)}
+    <h1>Delete your account?</h1>
+    <p class="app-lead">This removes ${address?html`your page <strong>${address}</strong>`:'your page'}, your draft, your pictures and your sign-in. You cannot undo it.</p>
+    ${error?html`<p class="app-note" role="alert">${error}</p>`:''}
+    <form class="app-claim" method="post" action="/account/delete"><input type="hidden" name="csrf" value="${csrf}">
+      <label class="app-label" for="confirm">Type delete to confirm</label>
+      <div class="app-field"><input id="confirm" name="confirm" required maxlength="12" autocapitalize="none" autocomplete="off" spellcheck="false"></div>
+      <button class="app-danger">Delete my account</button></form>
+    <a class="app-skip" href="/account">Keep my account</a>
+    <p class="app-fine">Your Twitch account stays. To end the connection at Twitch too, open Connections in your Twitch settings.</p>`);
 }
 
 export function messagePage(title:string,text:string,href='/',label='Back to LINB') {

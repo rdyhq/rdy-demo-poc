@@ -179,3 +179,7 @@ a { color:inherit; }
 .app-doc a { color:var(--ink); }
 .app-doc-more { margin-top:26px; }
 .ed-legal { display:flex; gap:16px; font-size:14px; }
+/* The deletion of an account (RDY r-6VJQN): a quiet link in the account, and a red action on the confirm screen. */
+.app-claim button.app-danger { background:#B42318; }
+.ed-delete { margin:22px 0 0; font-size:13.5px; text-align:right; }
+.ed-delete a { color:var(--faint); }

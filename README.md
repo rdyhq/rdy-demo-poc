@@ -44,6 +44,7 @@ Production has no mail service and no R2 bucket. Sign-in is by Twitch alone, ope
 
 - **Deploy:** wait for CI on the commit. Then start a manual deploy of that exact commit in Render. Render runs `npm run migrate` before the new build starts. Automatic deploys and Blueprint Auto Sync stay off.
 - **Go back:** roll back to the previous deploy in Render. A rollback of the app does not restore the database. Migrations only add, so the previous build runs on the newer schema.
+- **Delete an account:** a streamer selects Delete my account at the foot of the account (Rdy D-JH1V5). For a request by mail, run `npm run manage -- delete-account HANDLE_OR_HOME_ID` in the Render shell. Both remove the account, the Home, the pictures, the sign-ins and the link to Twitch in one transaction, and the handle is free again. A Home with an operator case needs `--with-cases` after the review. A new table that holds data of a creator or of a Home needs a line in `src/account-deletion.ts`.
 - **Find `LOBBY_TRUST_PROXY`:** request `https://linb.io/healthz`, then read the Render log. The server prints `LINB proxy chain: N forwarded entries on a request for linb.io.` once for each host. Set the value to N. The line names no address.
 
 ## Hosted checks
