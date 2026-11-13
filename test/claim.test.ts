@@ -367,6 +367,11 @@ test('a streamer claims a page with Twitch sign-in, sets it up and publishes it'
       assert.equal(await count('access_proofs'),proofs);
       // With a mail service, the page keeps the email form.
       assert.match(await (await get('/sign-in')).text(),/name="mailbox"/);
+      // An ended sign-in leads to the sign-in page. Only a deployment with mail speaks of a link.
+      const ended=await get('/editor','',bare);
+      assert.equal(ended.status,401);
+      assert.match(await ended.text(),/<h1>Sign in again<\/h1><p class="app-lead">Sign in again to continue\.[^<]*<\/p><a class="app-secondary" href="\/sign-in">Sign in<\/a>/);
+      assert.match(await (await get('/editor')).text(),/<a class="app-secondary" href="\/sign-in">Request a sign-in link<\/a>/);
     });
 
     await t.test('without a mail service, the operator sign-in says that it needs mail',async()=>{

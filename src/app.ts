@@ -253,7 +253,8 @@ export function createApp(config:Configuration={}) {
       requestId,...(known&&error.fields?{fields:error.fields}:{})},status as 401);
     return c.html(messagePage(status===404?'This home is not available':status===401?'Sign in again':'LINB could not complete this request',
       status===503?text+' Request ID: '+requestId:text,status===401?(c.req.path.startsWith('/ops')?'/ops/sign-in':'/sign-in'):'/',
-      status===401?'Request a sign-in link':'Back to LINB'),status as 401);
+      // Only a deployment with a mail service sends a sign-in link.
+      status===401?(mailOn||!auth?'Request a sign-in link':'Sign in'):'Back to LINB'),status as 401);
   });
 
   app.get('/healthz',c=>{c.header('Cache-Control','no-store');return c.json({status:'ok'});});
